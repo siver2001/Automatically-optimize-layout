@@ -36,14 +36,29 @@
   }
   
   .card {
-    @apply bg-white/95 backdrop-blur-sm rounded-2xl p-6 shadow-xl border border-white/20;
+    /* Updated for a cleaner, more professional look */
+    @apply bg-white/95 backdrop-blur-sm rounded-2xl p-6 shadow-xl border border-gray-100; 
   }
   
   .input-field {
-    @apply w-full px-3 py-2 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-200 transition-all duration-300;
+    @apply w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-200 transition-all duration-300;
   }
   
   .label {
     @apply block text-sm font-medium text-gray-700 mb-1;
   }
+}
+
+/* Custom utility for slow spin animation (used for the loading icon) */
+@keyframes spin-slow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 2s linear infinite;
 }

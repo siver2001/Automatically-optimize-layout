@@ -1,12 +1,14 @@
+// client/src/components/ContainerInput.js
 import React, { useState } from 'react';
-import { usePacking } from '../context/PackingContext';
+import { usePacking } from '../context/PackingContext.js';
 
 const ContainerInput = () => {
   const { container, setContainer, errors, clearErrors } = usePacking();
   const [localContainer, setLocalContainer] = useState(container);
 
   const handleInputChange = (field, value) => {
-    const numValue = parseFloat(value) || 0;
+    // Chỉ parse nếu giá trị không rỗng, nếu không giữ lại string rỗng để kiểm soát input
+    const numValue = value === '' ? '' : Math.max(1, parseFloat(value) || 1);
     setLocalContainer(prev => ({
       ...prev,
       [field]: numValue
@@ -16,27 +18,33 @@ const ContainerInput = () => {
   const handleSubmit = (e) => {
     e.preventDefault();
     clearErrors();
-    setContainer(localContainer);
+    setContainer({
+        width: parseFloat(localContainer.width) || 0,
+        height: parseFloat(localContainer.height) || 0,
+        layers: parseInt(localContainer.layers) || 1
+    });
   };
 
   const containerErrors = errors.filter(e => e.type === 'container');
 
   // Tính tỷ lệ hiển thị container preview
   const getContainerPreviewStyle = () => {
-    if (!localContainer.width || !localContainer.height) {
+    if (!localContainer.width || !localContainer.height || localContainer.width <= 0 || localContainer.height <= 0) {
       return { width: '200px', height: '150px' };
     }
     
-    const maxWidth = 200;
-    const maxHeight = 150;
+    const maxWidth = 280; // Tăng kích thước xem trước
+    const maxHeight = 180;
     const aspectRatio = localContainer.width / localContainer.height;
     
     let displayWidth, displayHeight;
+    const scaleFactor = 4; 
+
     if (aspectRatio > 1) {
-      displayWidth = Math.min(maxWidth, localContainer.width / 5);
+      displayWidth = Math.min(maxWidth, localContainer.width / scaleFactor); 
       displayHeight = displayWidth / aspectRatio;
     } else {
-      displayHeight = Math.min(maxHeight, localContainer.height / 5);
+      displayHeight = Math.min(maxHeight, localContainer.height / scaleFactor);
       displayWidth = displayHeight * aspectRatio;
     }
     
@@ -49,23 +57,19 @@ const ContainerInput = () => {
   };
 
   return (
-    <div className="mb-8">
-      <h2 className="text-gray-800 text-2xl font-semibold mb-6 flex items-center gap-2">
+    <div className="mb-8 card p-8">
+      <h2 className="text-gray-800 text-2xl font-semibold mb-6 flex items-center gap-2 border-b pb-3">
         📐 Cấu hình Container
       </h2>
       
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Input Form */}
-        <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-6 border border-blue-200">
-          <h3 className="text-lg font-semibold text-gray-800 mb-4">Thông số Container</h3>
-          
+        <div className="space-y-4">
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="flex flex-col">
                 <label htmlFor="width" className="label">
-                  <span className="flex items-center gap-2">
-                    📏 Chiều rộng (mm)
-                  </span>
+                  📏 Chiều rộng (mm)
                 </label>
                 <input
                   id="width"
@@ -73,9 +77,9 @@ const ContainerInput = () => {
                   min="1"
                   max="10000"
                   step="0.1"
-                  value={localContainer.width || ''}
+                  value={localContainer.width === 0 ? '' : localContainer.width}
                   onChange={(e) => handleInputChange('width', e.target.value)}
-                  placeholder="Nhập chiều rộng..."
+                  placeholder="e.g., 600.0"
                   className="input-field"
                   required
                 />
@@ -83,9 +87,7 @@ const ContainerInput = () => {
               
               <div className="flex flex-col">
                 <label htmlFor="height" className="label">
-                  <span className="flex items-center gap-2">
-                    📐 Chiều cao (mm)
-                  </span>
+                  📐 Chiều dài (mm)
                 </label>
                 <input
                   id="height"
@@ -93,9 +95,9 @@ const ContainerInput = () => {
                   min="1"
                   max="10000"
                   step="0.1"
-                  value={localContainer.height || ''}
+                  value={localContainer.height === 0 ? '' : localContainer.height}
                   onChange={(e) => handleInputChange('height', e.target.value)}
-                  placeholder="Nhập chiều cao..."
+                  placeholder="e.g., 500.0"
                   className="input-field"
                   required
                 />
@@ -104,9 +106,7 @@ const ContainerInput = () => {
             
             <div className="flex flex-col">
               <label htmlFor="layers" className="label">
-                <span className="flex items-center gap-2">
-                  📚 Số lớp sắp xếp
-                </span>
+                📚 Số lớp sắp xếp (Tối đa 10)
               </label>
               <input
                 id="layers"
@@ -114,7 +114,7 @@ const ContainerInput = () => {
                 min="1"
                 max="10"
                 step="1"
-                value={localContainer.layers || ''}
+                value={localContainer.layers || 1}
                 onChange={(e) => handleInputChange('layers', e.target.value)}
                 placeholder="Nhập số lớp..."
                 className="input-field"
@@ -122,82 +122,62 @@ const ContainerInput = () => {
               />
             </div>
             
-            <button type="submit" className="btn-primary w-full mt-6">
+            <button 
+              type="submit" 
+              className="btn-primary w-full mt-4"
+              disabled={!localContainer.width || !localContainer.height || localContainer.width <= 0 || localContainer.height <= 0}
+            >
               ✅ Cập nhật Container
             </button>
           </form>
+          
+          {/* Error Messages */}
+          {containerErrors.length > 0 && (
+            <div className="bg-red-100 border-l-4 border-red-500 p-3 rounded text-sm text-red-800">
+              <div className="flex items-center gap-2 mb-1 font-semibold">
+                ⚠️ Lỗi cấu hình:
+              </div>
+              {containerErrors.map((error, index) => (
+                <div key={index} className="ml-2">
+                  • {error.message}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
         
         {/* Container Preview */}
-        <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl p-6 border border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-800 mb-4">Preview Container</h3>
-          
-          <div className="flex flex-col items-center space-y-4">
-            {/* Container Visual */}
-            <div className="bg-white rounded-lg shadow-lg p-6 border-2 border-gray-300">
-              <div 
-                className="bg-gradient-to-br from-blue-100 to-blue-200 border-2 border-blue-400 rounded-lg shadow-inner flex items-center justify-center"
-                style={getContainerPreviewStyle()}
-              >
-                {localContainer.width && localContainer.height ? (
-                  <div className="text-center text-blue-800 font-semibold">
-                    <div className="text-sm">
-                      {localContainer.width}×{localContainer.height}
-                    </div>
-                    <div className="text-xs opacity-75">mm</div>
+        <div className="bg-white rounded-lg p-6 border border-gray-200 flex flex-col items-center justify-center space-y-4">
+          <h3 className="text-lg font-semibold text-gray-700 mb-2">Preview Container</h3>
+
+          <div className="flex flex-col items-center">
+            <div 
+              className="bg-blue-100 border-2 border-primary-500 rounded-lg shadow-xl flex items-center justify-center relative"
+              style={getContainerPreviewStyle()}
+            >
+                <div className="text-center text-primary-800 font-bold p-2">
+                  <div className="text-base leading-tight">
+                    {localContainer.width > 0 ? localContainer.width : '?'}×{localContainer.height > 0 ? localContainer.height : '?'}
                   </div>
-                ) : (
-                  <div className="text-blue-400 text-sm">Nhập kích thước</div>
-                )}
-              </div>
+                  <div className="text-xs opacity-80">mm</div>
+                </div>
             </div>
-            
-            {/* Container Info */}
-            {localContainer.width && localContainer.height && (
-              <div className="text-center space-y-2">
+          </div>
+
+          {/* Container Info Summary */}
+          {(localContainer.width > 0 && localContainer.height > 0) && (
+              <div className="text-center space-y-1">
                 <div className="text-sm text-gray-600">
                   <strong>Kích thước:</strong> {localContainer.width} × {localContainer.height} mm
                 </div>
                 <div className="text-sm text-gray-600">
-                  <strong>Diện tích:</strong> {(localContainer.width * localContainer.height).toLocaleString()} mm²
+                  <strong>Diện tích (1 lớp):</strong> {(localContainer.width * localContainer.height).toLocaleString()} mm²
                 </div>
                 <div className="text-sm text-gray-600">
                   <strong>Số lớp:</strong> {localContainer.layers || 1}
                 </div>
               </div>
-            )}
-          </div>
-        </div>
-      </div>
-      
-      {/* Error Messages */}
-      {containerErrors.length > 0 && (
-        <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-lg mt-6">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="text-red-500">⚠️</span>
-            <span className="font-semibold text-red-800">Lỗi cấu hình</span>
-          </div>
-          {containerErrors.map((error, index) => (
-            <div key={index} className="text-red-700 text-sm ml-6">
-              • {error.message}
-            </div>
-          ))}
-        </div>
-      )}
-      
-      {/* Info Box */}
-      <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-4 mt-6">
-        <div className="flex items-start gap-3">
-          <span className="text-green-500 text-lg">💡</span>
-          <div>
-            <p className="text-green-800 font-medium mb-1">Hướng dẫn sử dụng</p>
-            <p className="text-green-700 text-sm">
-              • Tất cả kích thước được tính bằng mm<br/>
-              • Container sẽ được sử dụng để sắp xếp các hình chữ nhật nhỏ<br/>
-              • Số lớp cho phép sắp xếp nhiều tầng (nếu cần)<br/>
-              • Kích thước tối đa: 10,000mm × 10,000mm
-            </p>
-          </div>
+          )}
         </div>
       </div>
     </div>

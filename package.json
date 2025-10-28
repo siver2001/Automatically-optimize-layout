@@ -5,13 +5,10 @@
   "main": "server/index.js",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"npm run server\" \"npm run client\"",
-    "electron-dev": "concurrently \"npm run server\" \"cd client && npm run electron-dev\"",
+    "electron-dev": "cross-env NODE_ENV=development concurrently \"npm run server\" \"cd client && npm run electron-dev\"",
     "server": "nodemon server/index.js",
-    "client": "cd client && npm start",
     "build": "cd client && npm run build",
     "start": "node server/index.js",
-    "electron-prod": "npm run server & npm run client-build && electron client/public/electron.js",
     "install-all": "npm install && cd client && npm install",
     "electron-pack": "cd client && npm run electron-pack",
     "electron": "cd client && npm run electron"
@@ -25,7 +22,8 @@
   },
   "devDependencies": {
     "nodemon": "^3.0.1",
-    "concurrently": "^8.2.0"
+    "concurrently": "^8.2.0",
+    "cross-env": "^7.0.3" 
   },
   "keywords": [
     "rectangle-packing",
@@ -33,7 +31,5 @@
     "optimization",
     "modbus",
     "plc"
-  ],
-  "author": "Your Name",
-  "license": "MIT"
+  ]
 }

@@ -20,7 +20,7 @@
     "electron-builder": "^24.6.4"
   },
   "scripts": {
-    "start": "react-scripts start",
+    "start": "cross-env BROWSER=none react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
@@ -29,7 +29,7 @@
     "electron-pack": "npm run build && electron-builder",
     "preelectron-pack": "npm run build"
   },
-  "main": "public/electron.js",
+  "main": "public/electron.cjs",
   "homepage": "./",
   "eslintConfig": {
     "extends": [
@@ -55,7 +55,8 @@
     "autoprefixer": "^10.4.14",
     "postcss": "^8.4.24",
     "concurrently": "^8.2.0",
-    "wait-on": "^7.0.1"
+    "wait-on": "^7.0.1",
+    "cross-env": "^7.0.3" 
   },
   "build": {
     "appId": "com.rectanglepacking.optimizer",
@@ -68,14 +69,9 @@
       "public/electron.js",
       "node_modules/**/*"
     ],
-    "mac": {
-      "category": "public.app-category.productivity"
-    },
     "win": {
       "target": "nsis"
-    },
-    "linux": {
-      "target": "AppImage"
     }
-  }
+  },
+  "type": "module"
 }

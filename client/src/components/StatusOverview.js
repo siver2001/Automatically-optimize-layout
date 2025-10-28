@@ -1,18 +1,17 @@
+// client/src/components/StatusOverview.js
 import React from 'react';
-import { usePacking } from '../context/PackingContext';
+import { usePacking } from '../context/PackingContext.js';
 
 const StatusOverview = () => {
   const { 
     container, 
     rectangles, 
     selectedRectangles, 
-    quantities, // Use quantities state
+    quantities, 
     packingResult, 
     isOptimizing 
   } = usePacking();
 
-  const totalRectangles = rectangles.length;
-  
   // Calculate area and count based on selected rectangles AND their quantity
   const selectedRectsWithQuantities = rectangles
     .filter(rect => selectedRectangles.includes(rect.id))
@@ -23,11 +22,15 @@ const StatusOverview = () => {
     
   const selectedCountTotal = selectedRectsWithQuantities.reduce((sum, rect) => sum + rect.quantity, 0);
   
-  const containerArea = container.width * container.height * container.layers; // Total area over all layers
+  // Area calculations
+  const containerArea = container.width * container.height * container.layers; 
   const selectedArea = selectedRectsWithQuantities.reduce((sum, rect) => 
     sum + (rect.width * rect.height * rect.quantity), 0
   );
 
+  const materialRatio = containerArea > 0 ? (selectedArea / containerArea * 100) : 0;
+  
+  // Dynamic Status Logic
   const getStatusColor = () => {
     if (isOptimizing) return 'from-blue-500 to-indigo-500';
     if (packingResult) return 'from-green-500 to-emerald-500';
@@ -36,10 +39,10 @@ const StatusOverview = () => {
   };
 
   const getStatusText = () => {
-    if (isOptimizing) return 'Đang tối ưu...';
-    if (packingResult) return 'Đã hoàn thành';
-    if (selectedCountTotal > 0) return `Sẵn sàng tối ưu (${selectedCountTotal} hình)`;
-    return 'Chưa chọn hình chữ nhật';
+    if (isOptimizing) return 'Đang chạy thuật toán tối ưu...';
+    if (packingResult) return 'Tối ưu hoàn thành. Xem kết quả chi tiết bên dưới.';
+    if (selectedCountTotal > 0) return `Sẵn sàng tối ưu cho ${selectedCountTotal} hình.`;
+    return 'Vui lòng chọn hình chữ nhật và cấu hình container.';
   };
 
   const getStatusIcon = () => {
@@ -48,70 +51,53 @@ const StatusOverview = () => {
     if (selectedCountTotal > 0) return '🚀';
     return '📦';
   };
+  
+  const formattedContainerArea = (container.width * container.height).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
   return (
     <div className="mb-8">
-      <div className={`bg-gradient-to-r ${getStatusColor()} rounded-xl p-6 text-white shadow-lg`}>
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <span className="text-3xl">{getStatusIcon()}</span>
+      <div className={`bg-gradient-to-r ${getStatusColor()} rounded-2xl p-6 text-white shadow-xl`}>
+        <div className="flex items-start justify-between mb-4">
+          <div className="flex items-center gap-4">
+            {/* Sử dụng animate-spin-slow được thêm vào index.css */}
+            <span className={`text-4xl ${isOptimizing ? 'animate-spin-slow' : ''}`}>{getStatusIcon()}</span> 
             <div>
-              <h2 className="text-xl font-bold">Trạng thái hệ thống</h2>
-              <p className="text-white/90">{getStatusText()}</p>
+              <h2 className="text-2xl font-bold">TỔNG QUAN TRẠNG THÁI</h2>
+              <p className="text-white/90 text-sm">{getStatusText()}</p>
             </div>
           </div>
-          {packingResult && (
-            <div className="text-right">
-              <div className="text-2xl font-bold">
-                {packingResult.efficiency.toFixed(1)}%
-              </div>
-              <div className="text-sm text-white/90">Hiệu suất tổng thể</div>
-            </div>
-          )}
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="bg-white/20 rounded-lg p-3 text-center">
-            <div className="text-2xl font-bold">{container.width || 0}</div>
-            <div className="text-sm text-white/90">Container W (mm)</div>
+        {/* Enhanced Stats Row */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 pt-4 border-t border-white/20">
+          
+          <div className="bg-white/10 rounded-lg p-3 text-center transition-all duration-300 hover:bg-white/20">
+            <div className="text-2xl font-bold">{container.width || 0}x{container.height || 0}</div>
+            <div className="text-xs text-white/80">Container (mm)</div>
           </div>
           
-          <div className="bg-white/20 rounded-lg p-3 text-center">
-            <div className="text-2xl font-bold">{container.height || 0}</div>
-            <div className="text-sm text-white/90">Container H (mm)</div>
+          <div className="bg-white/10 rounded-lg p-3 text-center transition-all duration-300 hover:bg-white/20">
+            <div className="text-2xl font-bold">{formattedContainerArea}</div>
+            <div className="text-xs text-white/80">Diện tích 1 Lớp (mm²)</div>
           </div>
           
-          <div className="bg-white/20 rounded-lg p-3 text-center">
+          <div className="bg-white/10 rounded-lg p-3 text-center transition-all duration-300 hover:bg-white/20">
             <div className="text-2xl font-bold">{selectedCountTotal}</div>
-            <div className="text-sm text-white/90">Tổng số hình đã chọn</div>
+            <div className="text-xs text-white/80">Tổng số hình đã chọn</div>
           </div>
           
-          <div className="bg-white/20 rounded-lg p-3 text-center">
+          <div className="bg-white/10 rounded-lg p-3 text-center transition-all duration-300 hover:bg-white/20">
+            <div className="text-2xl font-bold">{materialRatio.toFixed(1)}%</div>
+            <div className="text-xs text-white/80">Tỷ lệ Vật liệu (Tối đa)</div>
+          </div>
+          
+          <div className={`rounded-lg p-3 text-center transition-all duration-300 ${packingResult ? 'bg-white/20 hover:bg-white/30' : 'bg-transparent'}`}>
             <div className="text-2xl font-bold">
-              {containerArea > 0 ? (selectedArea / containerArea * 100).toFixed(1) : 0}%
+              {packingResult ? packingResult.efficiency.toFixed(1) + '%' : '--'}
             </div>
-            <div className="text-sm text-white/90">Tỷ lệ vật liệu</div>
+            <div className="text-xs text-white/80">Hiệu suất Tối ưu</div>
           </div>
         </div>
-
-        {packingResult && (
-          <div className="mt-4 pt-4 border-t border-white/20">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-              <div className="flex justify-between">
-                <span className="text-white/90">Số hình đã xếp:</span>
-                <span className="font-semibold">{packingResult.rectangles.length}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-white/90">Diện tích sử dụng:</span>
-                <span className="font-semibold">{packingResult.usedArea.toLocaleString()} mm²</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-white/90">Diện tích lãng phí:</span>
-                <span className="font-semibold">{packingResult.wasteArea.toLocaleString()} mm²</span>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

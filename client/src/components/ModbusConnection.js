@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { modbusService } from '../services/modbusService';
+import { modbusService } from '../services/modbusService.js';
 
 const ModbusConnection = () => {
   const [connection, setConnection] = useState({

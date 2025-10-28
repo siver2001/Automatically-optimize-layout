@@ -11,38 +11,30 @@ const MainLayout = ({ children }) => {
     );
   }
   
-  // Layout components in a dedicated structure for 1920x1080 visibility
-  const statusOverview = childrenArray[0]; 
-  const containerInput = childrenArray[1]; 
-  const rectangleList = childrenArray[2]; 
-  const packingResult = childrenArray[3]; 
+  // Layout components without StatusOverview: [ContainerInput, RectangleList, PackingResult]
+  const containerInput = childrenArray[0]; 
+  const rectangleList = childrenArray[1]; 
+  const packingResult = childrenArray[2]; 
 
   return (
-    <div className="space-y-8 pb-10">
-      {/* 1. Status Overview - Full Width */}
-      <div className="w-full">
-        {statusOverview}
+    <div className="grid grid-cols-12 gap-6 h-[calc(100vh-96px)] w-full">
+      {/* Left: Container Input (fixed column span) */}
+      <div className="col-span-4 overflow-auto space-y-4 h-full">
+        {containerInput}
       </div>
-      
-      {/* 2. Main Input/List Section - Split Layout (Container on Left, List on Right for better vertical space management) */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="space-y-8">
-          {/* Container Input in left column */}
-          {containerInput}
-        </div>
-        <div className="space-y-8">
-          {/* Rectangle List in right column */}
-          {rectangleList}
-        </div>
+
+      {/* Middle: Rectangle List */}
+      <div className="col-span-4 overflow-auto space-y-4 h-full">
+        {rectangleList}
       </div>
-      
-      {/* 3. Packing Result - Full Width */}
-      <div className="w-full">
+
+      {/* Right: Packing Result fills remaining */}
+      <div className="col-span-4 overflow-auto space-y-4 h-full">
         {packingResult}
       </div>
-      
-      {/* Render any extra children if they exist */}
-      {childrenArray.slice(4)}
+
+      {/* Render extras if any */}
+      {childrenArray.slice(3)}
     </div>
   );
 };

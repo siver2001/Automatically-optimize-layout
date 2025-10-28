@@ -1,5 +1,5 @@
 import React from 'react';
-import { usePacking } from '../context/PackingContext';
+import { usePacking } from '../context/PackingContext.js';
 import { Link, useLocation } from 'react-router-dom';
 
 const Header = () => {

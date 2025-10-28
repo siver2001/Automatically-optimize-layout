@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react'; // Added useCallback
-import { packingService } from '../services/packingService';
+import { packingService } from '../services/packingService.js';
 
 const PackingContext = createContext();
 
