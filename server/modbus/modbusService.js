@@ -1,4 +1,4 @@
-const ModbusRTU = require('modbus-serial');
+import ModbusRTU from 'modbus-serial';
 
 class ModbusService {
   constructor() {
@@ -151,4 +151,4 @@ class ModbusService {
   }
 }
 
-module.exports = ModbusService;
+export default ModbusService;

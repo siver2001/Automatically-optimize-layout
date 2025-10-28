@@ -1,11 +1,9 @@
 import React from 'react';
 
 const MainLayout = ({ children }) => {
-  // Check if we have multiple children to determine layout
   const childrenArray = React.Children.toArray(children);
   
   if (childrenArray.length === 1) {
-    // Single child - full width
     return (
       <div className="space-y-8">
         {children}
@@ -13,33 +11,38 @@ const MainLayout = ({ children }) => {
     );
   }
   
-  // Multiple children - split layout
-  const statusOverview = childrenArray[0]; // StatusOverview
-  const containerInput = childrenArray[1]; // ContainerInput
-  const leftChildren = childrenArray.slice(2, Math.ceil(childrenArray.length / 2) + 1);
-  const rightChildren = childrenArray.slice(Math.ceil(childrenArray.length / 2) + 1);
-  
+  // Layout components in a dedicated structure for 1920x1080 visibility
+  const statusOverview = childrenArray[0]; 
+  const containerInput = childrenArray[1]; 
+  const rectangleList = childrenArray[2]; 
+  const packingResult = childrenArray[3]; 
+
   return (
-    <div className="space-y-8">
-      {/* Status Overview - Full Width */}
+    <div className="space-y-8 pb-10">
+      {/* 1. Status Overview - Full Width */}
       <div className="w-full">
         {statusOverview}
       </div>
       
-      {/* Container Input - Full Width */}
-      <div className="w-full">
-        {containerInput}
+      {/* 2. Main Input/List Section - Split Layout (Container on Left, List on Right for better vertical space management) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="space-y-8">
+          {/* Container Input in left column */}
+          {containerInput}
+        </div>
+        <div className="space-y-8">
+          {/* Rectangle List in right column */}
+          {rectangleList}
+        </div>
       </div>
       
-      {/* Bottom Section - Split Layout */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
-        <div className="space-y-8">
-          {leftChildren}
-        </div>
-        <div className="space-y-8">
-          {rightChildren}
-        </div>
+      {/* 3. Packing Result - Full Width */}
+      <div className="w-full">
+        {packingResult}
       </div>
+      
+      {/* Render any extra children if they exist */}
+      {childrenArray.slice(4)}
     </div>
   );
 };

@@ -6,35 +6,46 @@ const StatusOverview = () => {
     container, 
     rectangles, 
     selectedRectangles, 
+    quantities, // Use quantities state
     packingResult, 
     isOptimizing 
   } = usePacking();
 
   const totalRectangles = rectangles.length;
-  const selectedCount = selectedRectangles.length;
-  const containerArea = container.width * container.height;
-  const selectedArea = rectangles
+  
+  // Calculate area and count based on selected rectangles AND their quantity
+  const selectedRectsWithQuantities = rectangles
     .filter(rect => selectedRectangles.includes(rect.id))
-    .reduce((sum, rect) => sum + (rect.width * rect.height), 0);
+    .map(rect => ({
+      ...rect,
+      quantity: quantities[rect.id] || 0
+    }));
+    
+  const selectedCountTotal = selectedRectsWithQuantities.reduce((sum, rect) => sum + rect.quantity, 0);
+  
+  const containerArea = container.width * container.height * container.layers; // Total area over all layers
+  const selectedArea = selectedRectsWithQuantities.reduce((sum, rect) => 
+    sum + (rect.width * rect.height * rect.quantity), 0
+  );
 
   const getStatusColor = () => {
     if (isOptimizing) return 'from-blue-500 to-indigo-500';
     if (packingResult) return 'from-green-500 to-emerald-500';
-    if (selectedCount > 0) return 'from-yellow-500 to-orange-500';
+    if (selectedCountTotal > 0) return 'from-yellow-500 to-orange-500';
     return 'from-gray-500 to-gray-600';
   };
 
   const getStatusText = () => {
     if (isOptimizing) return 'Đang tối ưu...';
     if (packingResult) return 'Đã hoàn thành';
-    if (selectedCount > 0) return 'Sẵn sàng tối ưu';
+    if (selectedCountTotal > 0) return `Sẵn sàng tối ưu (${selectedCountTotal} hình)`;
     return 'Chưa chọn hình chữ nhật';
   };
 
   const getStatusIcon = () => {
     if (isOptimizing) return '⚙️';
     if (packingResult) return '✅';
-    if (selectedCount > 0) return '🚀';
+    if (selectedCountTotal > 0) return '🚀';
     return '📦';
   };
 
@@ -54,7 +65,7 @@ const StatusOverview = () => {
               <div className="text-2xl font-bold">
                 {packingResult.efficiency.toFixed(1)}%
               </div>
-              <div className="text-sm text-white/90">Hiệu suất</div>
+              <div className="text-sm text-white/90">Hiệu suất tổng thể</div>
             </div>
           )}
         </div>
@@ -71,15 +82,15 @@ const StatusOverview = () => {
           </div>
           
           <div className="bg-white/20 rounded-lg p-3 text-center">
-            <div className="text-2xl font-bold">{selectedCount}</div>
-            <div className="text-sm text-white/90">Đã chọn / {totalRectangles}</div>
+            <div className="text-2xl font-bold">{selectedCountTotal}</div>
+            <div className="text-sm text-white/90">Tổng số hình đã chọn</div>
           </div>
           
           <div className="bg-white/20 rounded-lg p-3 text-center">
             <div className="text-2xl font-bold">
-              {containerArea > 0 ? Math.round(selectedArea / containerArea * 100) : 0}%
+              {containerArea > 0 ? (selectedArea / containerArea * 100).toFixed(1) : 0}%
             </div>
-            <div className="text-sm text-white/90">Tỷ lệ sử dụng</div>
+            <div className="text-sm text-white/90">Tỷ lệ vật liệu</div>
           </div>
         </div>
 
@@ -107,4 +118,3 @@ const StatusOverview = () => {
 };
 
 export default StatusOverview;
-

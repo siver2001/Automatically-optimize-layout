@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Ứng dụng tối ưu sắp xếp hình chữ nhật với thuật toán 2D bin packing",
   "main": "server/index.js",
+  "type": "module",
   "scripts": {
     "dev": "concurrently \"npm run server\" \"npm run client\"",
     "electron-dev": "concurrently \"npm run server\" \"cd client && npm run electron-dev\"",
@@ -10,6 +11,7 @@
     "client": "cd client && npm start",
     "build": "cd client && npm run build",
     "start": "node server/index.js",
+    "electron-prod": "npm run server & npm run client-build && electron client/public/electron.js",
     "install-all": "npm install && cd client && npm install",
     "electron-pack": "cd client && npm run electron-pack",
     "electron": "cd client && npm run electron"

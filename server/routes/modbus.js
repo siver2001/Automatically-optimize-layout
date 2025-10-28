@@ -1,7 +1,7 @@
-const express = require('express');
-const router = express.Router();
-const ModbusService = require('../modbus/modbusService');
+import express from 'express';
+import ModbusService from '../modbus/modbusService.js';
 
+const router = express.Router();
 const modbusService = new ModbusService();
 
 // POST /api/modbus/connect - Kết nối với PLC
@@ -114,4 +114,4 @@ router.post('/read', async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;

@@ -1,14 +1,45 @@
-const express = require('express');
+import express from 'express';
+import PackingAlgorithm from '../algorithms/packingAlgorithm.js'; 
+import Rectangle from '../models/Rectangle.js'; 
+
 const router = express.Router();
-const PackingAlgorithm = require('../algorithms/packingAlgorithm');
-const Rectangle = require('../models/Rectangle');
+
+// Utility function to get consistent color based on max dimension
+const getColorForRectangle = (rect) => {
+  const maxDim = Math.max(rect.width, rect.height);
+  
+  // Define consistent colors for groups based on max dimension (mm)
+  const colorMap = {
+    360.0: '#FF6B6B', // Red
+    345.0: '#4ECDC4', // Teal
+    335.0: '#45B7D1', // Sky Blue
+    320.0: '#96CEB4', // Mint Green
+    305.0: '#FFEAA7', // Light Yellow
+    295.0: '#DDA0DD', // Orchid
+    280.0: '#98D8C8', // Light Teal
+    270.0: '#F7DC6F', // Yellow
+    default: '#3498db' 
+  };
+
+  const roundedDim = parseFloat(maxDim.toFixed(1));
+  
+  if (colorMap.hasOwnProperty(roundedDim)) {
+    return colorMap[roundedDim];
+  }
+  
+  const sortedKeys = Object.keys(colorMap).map(Number).sort((a, b) => a - b);
+  const closestKey = sortedKeys.reduce((prev, curr) => 
+    (Math.abs(curr - roundedDim) < Math.abs(prev - roundedDim) ? curr : prev)
+  );
+
+  return colorMap[closestKey] || colorMap.default;
+};
 
 // POST /api/packing/optimize - Tối ưu sắp xếp hình chữ nhật
 router.post('/optimize', async (req, res) => {
   try {
     const { container, rectangles, layers } = req.body;
     
-    // Validate input
     if (!container || !rectangles || !layers) {
       return res.status(400).json({ 
         error: 'Thiếu thông tin container, rectangles hoặc layers' 
@@ -27,11 +58,11 @@ router.post('/optimize', async (req, res) => {
       });
     }
     
-    // Create packing algorithm instance
     const algorithm = new PackingAlgorithm();
     
-    // Run optimization
-    const result = await algorithm.optimize(container, rectangles, layers);
+    const rectangleInstances = rectangles.map(rect => Rectangle.fromJSON(rect));
+    
+    const result = await algorithm.optimize(container, rectangleInstances, layers);
     
     res.json({
       success: true,
@@ -49,23 +80,26 @@ router.post('/optimize', async (req, res) => {
 // GET /api/packing/rectangles - Lấy danh sách hình chữ nhật mặc định
 router.get('/rectangles', (req, res) => {
   const defaultRectangles = [
-    { id: 1, width: 360.0, height: 245.0, color: '#FF6B6B', name: 'Hình 1' },
-    { id: 2, width: 360.0, height: 122.5, color: '#FF6B6B', name: 'Hình 2' },
-    { id: 3, width: 345.0, height: 120.0, color: '#4ECDC4', name: 'Hình 3' },
-    { id: 4, width: 345.0, height: 120.0, color: '#4ECDC4', name: 'Hình 4' },
-    { id: 5, width: 335.0, height: 230.0, color: '#45B7D1', name: 'Hình 5' },
-    { id: 6, width: 335.0, height: 115.0, color: '#45B7D1', name: 'Hình 6' },
-    { id: 7, width: 320.0, height: 225.0, color: '#96CEB4', name: 'Hình 7' },
-    { id: 8, width: 320.0, height: 112.5, color: '#96CEB4', name: 'Hình 8' },
-    { id: 9, width: 305.0, height: 220.0, color: '#FFEAA7', name: 'Hình 9' },
-    { id: 10, width: 305.0, height: 110.0, color: '#FFEAA7', name: 'Hình 10' },
-    { id: 11, width: 295.0, height: 215.0, color: '#DDA0DD', name: 'Hình 11' },
-    { id: 12, width: 295.0, height: 107.5, color: '#DDA0DD', name: 'Hình 12' },
-    { id: 13, width: 280.0, height: 205.0, color: '#98D8C8', name: 'Hình 13' },
-    { id: 14, width: 280.0, height: 102.5, color: '#98D8C8', name: 'Hình 14' },
-    { id: 15, width: 270.0, height: 200.0, color: '#F7DC6F', name: 'Hình 15' },
-    { id: 16, width: 270.0, height: 90.0, color: '#F7DC6F', name: 'Hình 16' }
-  ];
+    { id: 1, width: 360.0, height: 245.0, name: 'Hình 1' },
+    { id: 2, width: 360.0, height: 122.5, name: 'Hình 2' },
+    { id: 3, width: 345.0, height: 120.0, name: 'Hình 3' },
+    { id: 4, width: 345.0, height: 120.0, name: 'Hình 4' },
+    { id: 5, width: 335.0, height: 230.0, name: 'Hình 5' },
+    { id: 6, width: 335.0, height: 115.0, name: 'Hình 6' },
+    { id: 7, width: 320.0, height: 225.0, name: 'Hình 7' },
+    { id: 8, width: 320.0, height: 112.5, name: 'Hình 8' },
+    { id: 9, width: 305.0, height: 220.0, name: 'Hình 9' },
+    { id: 10, width: 305.0, height: 110.0, name: 'Hình 10' },
+    { id: 11, width: 295.0, height: 215.0, name: 'Hình 11' },
+    { id: 12, width: 295.0, height: 107.5, name: 'Hình 12' },
+    { id: 13, width: 280.0, height: 205.0, name: 'Hình 13' },
+    { id: 14, width: 280.0, height: 102.5, name: 'Hình 14' },
+    { id: 15, width: 270.0, height: 200.0, name: 'Hình 15' },
+    { id: 16, width: 270.0, height: 90.0, name: 'Hình 16' }
+  ].map(rect => ({
+    ...rect,
+    color: getColorForRectangle(rect) 
+  }));
   
   res.json({ rectangles: defaultRectangles });
 });
@@ -77,18 +111,12 @@ router.post('/validate', (req, res) => {
     
     const errors = [];
     
-    // Validate container
     if (!container || typeof container.width !== 'number' || typeof container.height !== 'number') {
       errors.push('Container phải có width và height hợp lệ');
     }
     
     if (container && (container.width <= 0 || container.height <= 0)) {
       errors.push('Kích thước container phải lớn hơn 0');
-    }
-    
-    // Validate rectangles
-    if (!Array.isArray(rectangles) || rectangles.length === 0) {
-      errors.push('Phải có ít nhất một hình chữ nhật');
     }
     
     rectangles.forEach((rect, index) => {
@@ -109,4 +137,4 @@ router.post('/validate', (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;

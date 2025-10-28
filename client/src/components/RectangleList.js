@@ -1,28 +1,50 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import { usePacking } from '../context/PackingContext';
 
 const RectangleList = () => {
   const { 
     rectangles, 
     selectedRectangles, 
+    quantities, 
     selectRectangle, 
     selectAllRectangles, 
     clearSelection,
-    updateRectangle,
+    setQuantity, 
     startOptimization
   } = usePacking();
   
-  const [quantities, setQuantities] = useState({});
+  // Set default quantity to 1 for new items when the list loads/changes
+  useEffect(() => {
+    rectangles.forEach(rect => {
+      if (quantities[rect.id] === undefined) {
+        setQuantity(rect.id, 1); 
+      }
+    });
+  }, [rectangles, quantities, setQuantity]);
 
-  const handleQuantityChange = (rectId, quantity) => {
-    setQuantities(prev => ({
-      ...prev,
-      [rectId]: Math.max(0, parseInt(quantity) || 0)
-    }));
-  };
+  // Use useCallback for handler to avoid unnecessary re-renders
+  const handleQuantityChange = useCallback((rectId, value) => {
+    // Ensure quantity is non-negative integer
+    const quantity = Math.max(0, parseInt(value) || 0);
+    setQuantity(rectId, quantity);
+  }, [setQuantity]);
 
-  const selectedRects = rectangles.filter(rect => selectedRectangles.includes(rect.id));
-  const totalSelected = selectedRects.length;
+  // Filter selected rectangles and calculate total quantity for display
+  const selectedRectsWithQuantities = rectangles
+    .filter(rect => selectedRectangles.includes(rect.id))
+    .map(rect => ({
+      ...rect,
+      quantity: quantities[rect.id] || 0
+    }))
+    .filter(rect => rect.quantity > 0); // Only show/count if quantity > 0
+    
+  const totalSelectedTypes = selectedRectsWithQuantities.length;
+  const totalRectanglesCount = selectedRectsWithQuantities.reduce((sum, rect) => sum + rect.quantity, 0);
+
+  // Calculate total area for the selected rectangles
+  const totalSelectedArea = selectedRectsWithQuantities.reduce((sum, rect) => 
+    sum + (rect.width * rect.height * rect.quantity), 0
+  );
 
   // Tính tỷ lệ để hiển thị hình chữ nhật theo đúng tỷ lệ
   const getRectangleStyle = (rect) => {
@@ -32,12 +54,12 @@ const RectangleList = () => {
     
     let displayWidth, displayHeight;
     if (aspectRatio > 1) {
-      // Rộng hơn cao
-      displayWidth = Math.min(maxWidth, rect.width / 3);
+      // Rộng hơn cao: scale theo chiều rộng max
+      displayWidth = Math.min(maxWidth, rect.width / 4); // Adjusted scale for better preview
       displayHeight = displayWidth / aspectRatio;
     } else {
-      // Cao hơn rộng
-      displayHeight = Math.min(maxHeight, rect.height / 3);
+      // Cao hơn rộng: scale theo chiều cao max
+      displayHeight = Math.min(maxHeight, rect.height / 4);
       displayWidth = displayHeight * aspectRatio;
     }
     
@@ -45,8 +67,8 @@ const RectangleList = () => {
       width: `${displayWidth}px`,
       height: `${displayHeight}px`,
       backgroundColor: rect.color,
-      minWidth: '40px',
-      minHeight: '30px'
+      minWidth: '25px', // Reduced min size for better display in the list
+      minHeight: '20px'
     };
   };
 
@@ -78,20 +100,20 @@ const RectangleList = () => {
         </button>
         <button 
           onClick={startOptimization}
-          disabled={selectedRectangles.length === 0}
+          disabled={totalRectanglesCount === 0}
           className="btn-primary text-sm px-6 py-2 disabled:opacity-50"
         >
-          🚀 Tối ưu sắp xếp
+          🚀 Tối ưu sắp xếp ({totalRectanglesCount} hình)
         </button>
       </div>
       
-      {/* Rectangle Grid */}
+      {/* Rectangle Grid - Added overflow-x-auto for horizontal scroll on smaller screens/windows */}
       <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl p-6 border border-gray-200">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 max-h-96 overflow-y-auto">
+        <div className="flex space-x-4 pb-4 overflow-x-auto custom-scrollbar">
           {rectangles.map(rect => (
             <div
               key={rect.id}
-              className={`bg-white rounded-xl p-4 cursor-pointer transition-all duration-300 hover:-translate-y-1 hover:shadow-xl border-2 ${
+              className={`bg-white rounded-xl p-4 flex-shrink-0 w-52 cursor-pointer transition-all duration-300 hover:-translate-y-1 hover:shadow-xl border-2 ${
                 selectedRectangles.includes(rect.id) 
                   ? 'border-primary-500 shadow-lg ring-2 ring-primary-200' 
                   : 'border-gray-200 hover:border-primary-300'
@@ -142,21 +164,20 @@ const RectangleList = () => {
       </div>
       
       {/* Selected Summary */}
-      {totalSelected > 0 && (
+      {totalSelectedTypes > 0 && (
         <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-6 mt-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-blue-800 font-semibold text-lg flex items-center gap-2">
-              📋 Đã chọn {totalSelected} hình chữ nhật
+              📋 Đã chọn {totalSelectedTypes} loại hình chữ nhật
             </h3>
             <div className="text-blue-600 text-sm">
-              Tổng diện tích: {selectedRects.reduce((sum, rect) => 
-                sum + (rect.width * rect.height * (quantities[rect.id] || 0)), 0
-              ).toLocaleString()} mm²
+              Tổng số lượng: {totalRectanglesCount} | Tổng diện tích: {totalSelectedArea.toLocaleString()} mm²
             </div>
           </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {selectedRects.map(rect => (
+          {/* Use smaller grid columns for density */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 max-h-48 overflow-y-auto pr-2">
+            {selectedRectsWithQuantities.map(rect => (
               <div key={rect.id} className="bg-white rounded-lg p-3 border border-blue-200">
                 <div className="flex items-center gap-3">
                   <div 
@@ -164,13 +185,13 @@ const RectangleList = () => {
                     style={{ backgroundColor: rect.color }}
                   ></div>
                   <div className="flex-1">
-                    <div className="font-medium text-gray-800 text-sm">
+                    <div className="font-medium text-gray-800 text-sm truncate">
                       {rect.name}
                     </div>
                     <div className="text-xs text-gray-600">
                       {rect.width}×{rect.height}mm 
-                      <span className="ml-2 text-blue-600">
-                        (×{quantities[rect.id] || 0})
+                      <span className="ml-2 text-blue-600 font-semibold">
+                        (×{rect.quantity})
                       </span>
                     </div>
                   </div>

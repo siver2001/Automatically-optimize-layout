@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useReducer, useEffect } from 'react';
+import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react'; // Added useCallback
 import { packingService } from '../services/packingService';
 
 const PackingContext = createContext();
@@ -14,6 +14,7 @@ const initialState = {
   // Rectangles data
   rectangles: [],
   selectedRectangles: [],
+  quantities: {}, 
   
   // Packing results
   packingResult: null,
@@ -36,16 +37,23 @@ const packingReducer = (state, action) => {
       };
       
     case 'SET_RECTANGLES':
+      // Initialize quantities to 1 for new rectangles data
+      const initialQuantities = action.payload.reduce((acc, rect) => {
+          acc[rect.id] = 1; 
+          return acc;
+      }, {});
       return {
         ...state,
         rectangles: action.payload,
-        selectedRectangles: []
+        selectedRectangles: [],
+        quantities: initialQuantities // Set initial quantities
       };
       
     case 'ADD_RECTANGLE':
       return {
         ...state,
-        rectangles: [...state.rectangles, action.payload]
+        rectangles: [...state.rectangles, action.payload],
+        quantities: { ...state.quantities, [action.payload.id]: 1 } // Default quantity 1 for new item
       };
       
     case 'UPDATE_RECTANGLE':
@@ -57,11 +65,23 @@ const packingReducer = (state, action) => {
       };
       
     case 'REMOVE_RECTANGLE':
+      // Remove rectangle and its quantity from state
+      const { [action.payload]: removedQuantity, ...newQuantities } = state.quantities;
       return {
         ...state,
         rectangles: state.rectangles.filter(rect => rect.id !== action.payload),
-        selectedRectangles: state.selectedRectangles.filter(id => id !== action.payload)
+        selectedRectangles: state.selectedRectangles.filter(id => id !== action.payload),
+        quantities: newQuantities
       };
+      
+    case 'SET_QUANTITY':
+        return {
+          ...state,
+          quantities: {
+            ...state.quantities,
+            [action.payload.id]: action.payload.quantity
+          }
+        };
       
     case 'SELECT_RECTANGLE':
       return {
@@ -84,9 +104,23 @@ const packingReducer = (state, action) => {
       };
       
     case 'SET_PACKING_RESULT':
+      const allRects = action.payload.rectangles || [];
+      // Sử dụng layersUsed từ kết quả server (hoặc tối thiểu là 1 nếu có kết quả nhưng không có thông tin layersUsed)
+      const actualLayersUsed = action.payload.layersUsed || (allRects.length > 0 ? 1 : 0);
+      
+      const resultByLayer = Array.from({ length: actualLayersUsed }, (_, i) => ({
+        layer: i,
+        // Lọc các hình đã được xếp trên lớp có index i
+        rectangles: allRects.filter(r => (r.layer || 0) === i), 
+      }));
+      
       return {
         ...state,
-        packingResult: action.payload,
+        packingResult: {
+            ...action.payload,
+            layersUsed: actualLayersUsed, // Lưu số lớp thực tế đã dùng
+            layers: resultByLayer
+        },
         isOptimizing: false,
         optimizationProgress: 100
       };
@@ -96,7 +130,8 @@ const packingReducer = (state, action) => {
         ...state,
         isOptimizing: true,
         optimizationProgress: 0,
-        packingResult: null
+        packingResult: null,
+        errors: state.errors.filter(e => e.type !== 'optimization' && e.type !== 'rectangles') // Clear relevant errors
       };
       
     case 'UPDATE_OPTIMIZATION_PROGRESS':
@@ -106,9 +141,11 @@ const packingReducer = (state, action) => {
       };
       
     case 'SET_ERROR':
+      // Clear all errors of the same type before adding the new one
+      const filteredErrors = state.errors.filter(e => e.type !== action.payload.type);
       return {
         ...state,
-        errors: [...state.errors.filter(e => e.type !== action.payload.type), action.payload]
+        errors: [...filteredErrors, action.payload]
       };
       
     case 'CLEAR_ERRORS':
@@ -146,6 +183,11 @@ export const PackingProvider = ({ children }) => {
     loadDefaultRectangles();
   }, []);
 
+  // Use useCallback for setQuantity to avoid unnecessary re-renders in child components
+  const setQuantity = useCallback((id, quantity) => {
+    dispatch({ type: 'SET_QUANTITY', payload: { id, quantity } });
+  }, []);
+
   // Validation
   const validateContainer = () => {
     const { width, height, layers } = state.container;
@@ -167,32 +209,28 @@ export const PackingProvider = ({ children }) => {
       errors.push({ type: 'container', message: 'Kích thước container quá lớn (tối đa 10000mm)' });
     }
     
-    errors.forEach(error => {
-      dispatch({ type: 'SET_ERROR', payload: error });
-    });
+    // Dispatch container errors only to show them on the form
+    if (errors.length > 0) {
+        dispatch({ type: 'SET_ERROR', payload: { type: 'container', message: errors.map(e => e.message).join('. ') } });
+    }
     
     return errors.length === 0;
   };
 
   const validateRectangles = () => {
     const errors = [];
+    const totalRectanglesCount = state.rectangles
+        .filter(rect => state.selectedRectangles.includes(rect.id))
+        .reduce((sum, rect) => sum + (state.quantities[rect.id] || 0), 0);
     
-    if (state.rectangles.length === 0) {
-      errors.push({ type: 'rectangles', message: 'Phải có ít nhất một hình chữ nhật' });
+    if (totalRectanglesCount === 0) {
+      errors.push({ type: 'rectangles', message: 'Phải chọn ít nhất một hình chữ nhật với số lượng lớn hơn 0' });
     }
     
-    state.rectangles.forEach((rect, index) => {
-      if (rect.width <= 0 || rect.height <= 0) {
-        errors.push({ 
-          type: 'rectangles', 
-          message: `Hình chữ nhật ${index + 1} có kích thước không hợp lệ` 
-        });
-      }
-    });
-    
-    errors.forEach(error => {
-      dispatch({ type: 'SET_ERROR', payload: error });
-    });
+    // Dispatch rectangle selection errors
+    if (errors.length > 0) {
+        dispatch({ type: 'SET_ERROR', payload: { type: 'rectangles', message: errors.map(e => e.message).join('. ') } });
+    }
     
     return errors.length === 0;
   };
@@ -228,6 +266,10 @@ export const PackingProvider = ({ children }) => {
   };
 
   const startOptimization = async () => {
+    // Clear only optimization and rectangle errors 
+    dispatch({ type: 'CLEAR_ERRORS' }); // This needs refinement, but works to clear all for now
+
+    // Re-validate everything
     if (!validateContainer() || !validateRectangles()) {
       return false;
     }
@@ -235,10 +277,33 @@ export const PackingProvider = ({ children }) => {
     dispatch({ type: 'START_OPTIMIZATION' });
     
     try {
+        // --- Core logic to handle quantities: Duplicate rectangles ---
+        const rectanglesToPack = [];
+        // Ensure unique IDs for all instances of rectangles
+        let uniqueIdCounter = Math.max(...state.rectangles.map(r => r.id), 0) + 1; 
+        
+        for (const rect of state.rectangles) {
+            if (state.selectedRectangles.includes(rect.id)) {
+                const quantity = state.quantities[rect.id] || 0;
+                // Only consider rectangles with a quantity > 0
+                for (let i = 0; i < quantity; i++) {
+                    // Create a unique instance for each rectangle being packed
+                    rectanglesToPack.push({ 
+                        ...rect, 
+                        // Assign a new unique ID for the packing instance
+                        id: uniqueIdCounter++, 
+                        // Keep a reference to the original type ID (for potential later use)
+                        typeId: rect.id 
+                    });
+                }
+            }
+        }
+        // --- End core quantity logic ---
+
       const result = await packingService.optimizePacking(
         state.container,
-        state.rectangles,
-        state.container.layers
+        rectanglesToPack, 
+        state.container.layers // Pass max layers
       );
       
       dispatch({ type: 'SET_PACKING_RESULT', payload: result.result });
@@ -248,6 +313,8 @@ export const PackingProvider = ({ children }) => {
         type: 'optimization', 
         message: `Lỗi tối ưu: ${error.message}` 
       }});
+      // Even if it fails, set an empty result to stop the loading state
+      dispatch({ type: 'SET_PACKING_RESULT', payload: { rectangles: [] } });
       return false;
     }
   };
@@ -263,6 +330,7 @@ export const PackingProvider = ({ children }) => {
   const value = {
     ...state,
     setContainer,
+    setQuantity,
     addRectangle,
     updateRectangle,
     removeRectangle,
