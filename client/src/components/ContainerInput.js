@@ -59,7 +59,7 @@ const ContainerInput = () => {
   return (
     <div className="mb-8 card p-8">
       <h2 className="text-gray-800 text-2xl font-semibold mb-6 flex items-center gap-2 border-b pb-3">
-        📐 Cấu hình Container
+        📐 Thiết kế tấm liệu
       </h2>
       
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -127,7 +127,7 @@ const ContainerInput = () => {
               className="btn-primary w-full mt-4"
               disabled={!localContainer.width || !localContainer.height || localContainer.width <= 0 || localContainer.height <= 0}
             >
-              ✅ Cập nhật Container
+              ✅ Cập nhật diện tích tấm liệu
             </button>
           </form>
           

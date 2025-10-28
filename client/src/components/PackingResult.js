@@ -82,17 +82,17 @@ const PackingResult = () => {
       <div className="bg-white rounded-xl shadow-lg border border-gray-300 p-6 mb-6">
         <div className="flex items-center justify-between mb-4 border-b pb-3">
           <h3 className="text-xl font-semibold text-gray-800">
-            Container Layout - Lớp {selectedLayer + 1}
+            Tấm liệu {selectedLayer + 1}
           </h3>
           <div className="text-sm text-gray-600">
-             Hiệu suất Lớp: <span className="font-bold text-primary-600">{layerEfficiency}%</span>
+             Hiệu suất: <span className="font-bold text-primary-600">{layerEfficiency}%</span>
           </div>
         </div>
         
         {/* Layer Selector Buttons */}
         {layersUsed > 1 && (
             <div className="mb-4 flex items-center gap-3 overflow-x-auto pb-2">
-                <span className="font-medium text-gray-700 flex-shrink-0">Chọn lớp:</span>
+                <span className="font-medium text-gray-700 flex-shrink-0">Chọn Tấm liệu:</span>
                 {Array.from({ length: layersUsed }).map((_, index) => (
                 <button
                     key={index}
@@ -103,7 +103,7 @@ const PackingResult = () => {
                         : 'bg-white text-gray-700 hover:bg-primary-50 border-gray-300'
                     }`}
                 >
-                    Lớp {index + 1} ({resultLayers[index].rectangles.length} hình)
+                    Tấm liệu {index + 1} ({resultLayers[index].rectangles.length} hình)
                 </button>
                 ))}
             </div>
@@ -167,7 +167,7 @@ const PackingResult = () => {
                     minHeight: '15px', 
                     overflow: 'hidden'
                   }}
-                  title={`[Lớp ${rect.layer + 1}] ${rectName} (${rect.width}×${rect.height}mm) tại X:${rect.x} Y:${rect.y} ${rect.rotated ? '(Xoay 90°)' : ''}`}
+                  title={`[Tấm liệu ${rect.layer + 1}] ${rectName} (${rect.width}×${rect.height}mm) tại X:${rect.x} Y:${rect.y} ${rect.rotated ? '(Xoay 90°)' : ''}`}
                 >
                   <div className="text-center leading-none p-0.5">
                     <div className="text-xs">{rect.width}×{rect.height}</div>

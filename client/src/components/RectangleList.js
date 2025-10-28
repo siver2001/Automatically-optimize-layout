@@ -70,7 +70,7 @@ const RectangleList = () => {
     <div className="mb-8 card p-8">
       <div className="flex justify-between items-center mb-6 border-b pb-3">
         <h2 className="text-gray-800 text-2xl font-semibold flex items-center gap-2">
-          📦 Quản lý Hình chữ nhật
+          📦 Quản lý size
         </h2>
         <div className="text-sm text-gray-500 bg-gray-100 px-3 py-1 rounded-full font-medium">
           Tổng: {rectangles.length} loại
