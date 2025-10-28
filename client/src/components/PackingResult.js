@@ -54,7 +54,6 @@ const PackingResult = () => {
   }
 
   const { 
-    rectangles: allRectangles, 
     layersUsed = 1, 
     layers: resultLayers,
     remainingRectangles = []

@@ -106,7 +106,7 @@ const ContainerInput = () => {
             
             <div className="flex flex-col">
               <label htmlFor="layers" className="label">
-                📚 Số lớp sắp xếp (Tối đa 10)
+                📚 Số lớp
               </label>
               <input
                 id="layers"

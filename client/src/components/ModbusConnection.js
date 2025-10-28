@@ -47,7 +47,6 @@ const ModbusConnection = () => {
     setLoading(true);
     
     try {
-      const result = await modbusService.connect(connection.host, connection.port);
       setConnection(prev => ({
         ...prev,
         connected: true
