@@ -57,8 +57,8 @@ const ContainerInput = () => {
   };
 
   return (
-    <div className="mb-8 card p-8">
-      <h2 className="text-gray-800 text-2xl font-semibold mb-6 flex items-center gap-2 border-b pb-3">
+    <div className="mb-4 card p-4">
+      <h2 className="text-gray-800 text-xl font-semibold mb-6 flex items-center gap-2 border-b pb-3">
         📐 Thiết kế tấm liệu
       </h2>
       
@@ -148,7 +148,6 @@ const ContainerInput = () => {
         
         {/* Container Preview */}
         <div className="bg-white rounded-lg p-6 border border-gray-200 flex flex-col items-center justify-center space-y-4">
-          <h3 className="text-lg font-semibold text-gray-700 mb-2">Preview Container</h3>
 
           <div className="flex flex-col items-center">
             <div 
@@ -163,21 +162,6 @@ const ContainerInput = () => {
                 </div>
             </div>
           </div>
-
-          {/* Container Info Summary */}
-          {(localContainer.width > 0 && localContainer.height > 0) && (
-              <div className="text-center space-y-1">
-                <div className="text-sm text-gray-600">
-                  <strong>Kích thước:</strong> {localContainer.width} × {localContainer.height} mm
-                </div>
-                <div className="text-sm text-gray-600">
-                  <strong>Diện tích (1 lớp):</strong> {(localContainer.width * localContainer.height).toLocaleString()} mm²
-                </div>
-                <div className="text-sm text-gray-600">
-                  <strong>Số lớp:</strong> {localContainer.layers || 1}
-                </div>
-              </div>
-          )}
         </div>
       </div>
     </div>

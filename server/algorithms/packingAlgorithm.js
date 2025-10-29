@@ -460,6 +460,82 @@ class PackingAlgorithm {
 
     return bestResult;
   }
+  static exportToDXF(container, allRectangles) {
+    const maker = new Maker();
+    const containerWidth = container.width;
+    const containerHeight = container.height;
+    const layerHeight = 10; // Giả định khoảng cách giữa các layer để xếp cạnh nhau
+
+    // Vẽ container tổng thể (khung bao ngoài)
+    maker.addLayer('ContainerBorder', 0xF00, 'CONTINUOUS');
+    maker.addRectangle(0, 0, containerWidth, containerHeight * container.layers, { layer: 'ContainerBorder' });
+
+    // Tọa độ Y dịch chuyển cho mỗi lớp
+    let currentYOffset = 0; 
+    
+    // Gom nhóm các hình chữ nhật theo layer
+    const layersMap = new Map();
+    allRectangles.forEach(rect => {
+      const layerIndex = rect.layer || 0;
+      if (!layersMap.has(layerIndex)) {
+        layersMap.set(layerIndex, []);
+      }
+      layersMap.get(layerIndex).push(rect);
+    });
+    
+    const sortedLayers = Array.from(layersMap.keys()).sort((a, b) => a - b);
+    
+    // Xếp các layer cạnh nhau trên cùng một mặt phẳng
+    for (const layerIndex of sortedLayers) {
+      const rectanglesInLayer = layersMap.get(layerIndex);
+
+      // Thêm layer cho các hình cắt
+      const layerName = `Layer_${layerIndex + 1}`;
+      maker.addLayer(layerName, layerIndex % 7 + 1, 'CONTINUOUS'); // Màu sắc khác nhau cho mỗi layer
+
+      // Vẽ các hình chữ nhật đã xếp
+      rectanglesInLayer.forEach(rect => {
+        const x0 = rect.x;
+        const y0 = rect.y + currentYOffset;
+        const x1 = rect.x + rect.width;
+        const y1 = rect.y + rect.height + currentYOffset;
+        
+        // Vẽ hình chữ nhật bằng 4 đoạn thẳng
+        maker.addEntities([
+            // Bottom line
+            { type: 'LINE', x1: x0, y1: y0, x2: x1, y2: y0, layer: layerName },
+            // Right line
+            { type: 'LINE', x1: x1, y1: y0, x2: x1, y2: y1, layer: layerName },
+            // Top line
+            { type: 'LINE', x1: x1, y1: y1, x2: x0, y2: y1, layer: layerName },
+            // Left line
+            { type: 'LINE', x1: x0, y1: y1, x2: x0, y2: y0, layer: layerName }
+        ]);
+
+        // Thêm Text (tên/kích thước) vào trung tâm hình
+        const textX = rect.x + rect.width / 2;
+        const textY = rect.y + rect.height / 2 + currentYOffset;
+        const textHeight = 10; // Kích thước chữ cố định
+        const textContent = `${rect.name} (${rect.width}x${rect.height})`;
+        
+        maker.addText(textX, textY, textHeight, textContent, {
+             layer: layerName, 
+             style: 'STANDARD', 
+             halign: 'CENTER',
+             valign: 'MIDDLE'
+        });
+      });
+      
+      // Vẽ đường viền container cho layer hiện tại (để dễ hình dung)
+      maker.addLayer(`Container_${layerIndex + 1}`, layerIndex % 7 + 10, 'DASHED');
+      maker.addRectangle(0, currentYOffset, containerWidth, containerHeight, { layer: `Container_${layerIndex + 1}` });
+
+      // Cập nhật offset cho layer tiếp theo (đặt layer mới dưới layer cũ)
+      currentYOffset += containerHeight + layerHeight; 
+    }
+
+    return maker.toDxfString();
+  }
 }
 
 export default PackingAlgorithm;

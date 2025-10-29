@@ -1,12 +1,14 @@
 // client/src/components/PackingResult.js
 import React, { useState, useEffect } from 'react';
 import { usePacking } from '../context/PackingContext.js';
+import { packingService } from '../services/packingService.js'; // Import packingService
 
 const PackingResult = () => {
   const { packingResult, isOptimizing, container, rectangles } = usePacking();
   const [selectedLayer, setSelectedLayer] = useState(0);
   const [showPlacedList, setShowPlacedList] = useState(false);
   const [placedRectDetails, setPlacedRectDetails] = useState({});
+  const [exportLoading, setExportLoading] = useState(false); // State cho nút Export
 
   // Memoize details of original rectangle types for easy lookup
   useEffect(() => {
@@ -56,6 +58,7 @@ const PackingResult = () => {
   const { 
     layersUsed = 1, 
     layers: resultLayers,
+    rectangles: allPlacedRectangles, // Lấy tất cả hình đã xếp
     remainingRectangles = []
   } = packingResult;
   
@@ -73,14 +76,31 @@ const PackingResult = () => {
   const containerAreaPerLayer = container.width * container.height;
   const layerUsedArea = currentLayerRectangles.reduce((sum, rect) => sum + (rect.width * rect.height), 0);
   const layerEfficiency = containerAreaPerLayer > 0 ? (layerUsedArea / containerAreaPerLayer * 100).toFixed(1) : 0;
+  
+  // --- HÀM MỚI: XỬ LÝ EXPORT DXF ---
+  const handleExportDXF = async () => {
+    setExportLoading(true);
+    try {
+        await packingService.exportToDXF(container, allPlacedRectangles);
+        // Alert sẽ hiển thị trong quá trình tải xuống (nếu thành công) hoặc sau khi thất bại
+    } catch (error) {
+        alert(`Xuất file DXF thất bại: ${error.message}`);
+    } finally {
+        setExportLoading(false);
+    }
+  };
+  // --- KẾT THÚC HÀM XỬ LÝ EXPORT DXF ---
 
   return (
-    <div className="mb-8 card p-6">
+    // Đã giảm padding từ p-8 xuống p-6 (Thay đổi gọn hơn)
+    <div className="mb-8 card p-6"> 
 
       {/* Layer Selector & Visualization */}
-      <div className="bg-white rounded-xl shadow-lg border border-gray-300 p-6 mb-6">
-        <div className="flex items-center justify-between mb-4 border-b pb-3">
-          <h3 className="text-xl font-semibold text-gray-800">
+      {/* Đã giảm padding từ p-6 xuống p-4 */}
+      <div className="bg-white rounded-xl shadow-lg border border-gray-300 p-4 mb-4">
+        {/* Đã giảm pb-3 xuống pb-2 và text-xl xuống text-lg */}
+        <div className="flex items-center justify-between mb-3 border-b pb-2"> 
+          <h3 className="text-lg font-semibold text-gray-800">
             Tấm liệu {selectedLayer + 1}
           </h3>
           <div className="text-sm text-gray-600">
@@ -90,7 +110,7 @@ const PackingResult = () => {
         
         {/* Layer Selector Buttons */}
         {layersUsed > 1 && (
-            <div className="mb-4 flex items-center gap-3 overflow-x-auto pb-2">
+            <div className="mb-3 flex items-center gap-3 overflow-x-auto pb-2"> {/* Đã giảm mb-4 xuống mb-3 */}
                 <span className="font-medium text-gray-700 flex-shrink-0">Chọn Tấm liệu:</span>
                 {Array.from({ length: layersUsed }).map((_, index) => (
                 <button
@@ -109,7 +129,7 @@ const PackingResult = () => {
         )}
         
         {/* Visualization Area */}
-        <div className="flex justify-center p-4 overflow-x-auto overflow-y-auto">
+        <div className="flex justify-center p-3 overflow-x-auto overflow-y-auto"> {/* Đã giảm p-4 xuống p-3 */}
           <div 
             className="relative border-4 border-gray-900 rounded-lg shadow-inner bg-gray-200 flex-shrink-0"
             style={{ 
@@ -176,10 +196,22 @@ const PackingResult = () => {
             })}
           </div>
         </div>
+        
+        {/* Nút Export DXF */}
+        <div className="mt-3 flex justify-end"> {/* Đã giảm mt-4 xuống mt-3 */}
+            <button 
+                onClick={handleExportDXF}
+                disabled={exportLoading || allPlacedRectangles.length === 0}
+                className="btn-secondary px-4 py-2 text-sm"
+            >
+                {exportLoading ? 'Đang tạo DXF...' : '💾 Xuất ra AutoCAD (DXF)'}
+            </button>
+        </div>
+        
       </div>
       
       {/* Toggle Placed Items List */}
-      <div className="mb-4">
+      <div className="mb-3"> {/* Đã giảm mb-4 xuống mb-3 */}
         <button 
           onClick={() => setShowPlacedList(prev => !prev)}
           className="btn-secondary px-4 py-2 text-sm"
