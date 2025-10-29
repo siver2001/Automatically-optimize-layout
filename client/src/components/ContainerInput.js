@@ -41,7 +41,7 @@ const ContainerInput = () => {
   // Tính tỷ lệ hiển thị container preview
   const getContainerPreviewStyle = () => {
     if (!localContainer.width || !localContainer.length || localContainer.width <= 0 || localContainer.length <= 0) {
-      return { width: '200px', length: '150px' };
+      return { width: '200px', height: '150px' };
     }
     
     const maxWidth = 280; // Tăng kích thước xem trước
@@ -61,9 +61,9 @@ const ContainerInput = () => {
     
     return {
       width: `${displayWidth}px`,
-      length: `${displayLength}px`,
+      height: `${displayLength}px`,
       minWidth: '100px',
-      minLength: '75px'
+      minHeight: '75px'
     };
   };
 

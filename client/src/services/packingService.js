@@ -50,7 +50,6 @@ class PackingService {
     }
   }
 
-  // --- HÀM MỚI: XUẤT DXF ---
   async exportToDXF(container, rectangles) {
     try {
       // Đặt responseType là 'blob' để nhận dữ liệu file
@@ -61,13 +60,18 @@ class PackingService {
           responseType: 'blob'
       });
       
-      const filename = response.headers['content-disposition'].match(/filename="?(.+)"?/i)[1];
+      // KIỂM TRA AN TOÀN TRƯỚC KHI TRUY CẬP HEADER VÀ MATCH
+      const disposition = response.headers['content-disposition'];
+      const match = disposition?.match(/filename="?(.+)"?/i);
+      
+      // Đảm bảo match tồn tại và có phần tử thứ 1
+      const filename = (match && match[1]) ? match[1] : 'packing_layout.dxf'; 
 
       // Tạo đối tượng URL blob và kích hoạt tải xuống
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', filename || 'packing_layout.dxf');
+      link.setAttribute('download', filename); // Sử dụng filename đã được kiểm tra
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -76,7 +80,9 @@ class PackingService {
       return { success: true, message: `Đã tải xuống file ${filename}` };
 
     } catch (error) {
-      throw new Error(`Lỗi xuất file DXF: ${error.response?.data?.error || error.message}`);
+      // Nếu lỗi là từ Axios (lỗi HTTP 4xx/5xx), thông báo lỗi từ server
+      const errorMessage = error.response?.data?.error || error.message || 'Lỗi không xác định.';
+      throw new Error(`Lỗi xuất file DXF: ${errorMessage}`);
     }
   }
 }

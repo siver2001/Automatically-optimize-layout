@@ -66,7 +66,7 @@ const PackingResult = () => {
   const currentLayerRectangles = currentLayerData ? currentLayerData.rectangles : [];
   
   // Visualization scaling
-  const maxVisualWidth = 800; 
+  const maxVisualWidth = 300; 
   const maxVisualLength = 500;
   const scale = Math.min(maxVisualWidth / container.width, maxVisualLength / container.length);
 
@@ -93,12 +93,12 @@ const PackingResult = () => {
 
   return (
     <div className="mb-8 card p-3"> 
-      <div className="bg-white rounded-xl shadow-lg border border-gray-300 p-4 mb-4">
-        <div className="flex items-center justify-between mb-3 border-b pb-2"> 
-          <h3 className="text-lg font-semibold text-gray-800">
+      <div className="bg-white rounded-xl shadow-lg border border-gray-300 p-1 mb-4">
+        <div className="flex items-center justify-between mb-3 border-b pb-1"> 
+          <h3 className="text-l font-semibold text-gray-800">
             Tấm liệu {selectedLayer + 1}
           </h3>
-          <div className="text-sm text-gray-600">
+          <div className="text-l text-gray-600">
              Hiệu suất: <span className="font-bold text-primary-600">{layerEfficiency}%</span>
           </div>
         </div>
@@ -124,14 +124,14 @@ const PackingResult = () => {
         )}
         
         {/* Visualization Area */}
-        <div className="flex justify-center p-3 overflow-x-auto overflow-y-auto"> {/* Đã giảm p-4 xuống p-3 */}
+        <div className="flex justify-center p-1 overflow-x-auto overflow-y-auto">
           <div 
             className="relative border-4 border-gray-900 rounded-lg shadow-inner bg-gray-200 flex-shrink-0"
             style={{ 
               width: `${displayWidth}px`, 
-              length: `${displayLength}px`,
+              height: `${displayLength}px`,
               minWidth: '300px',
-              minLength: '200px'
+              minHeight: '200px'
             }}
           >
             {/* Grid lines for better visualization */}
@@ -174,11 +174,11 @@ const PackingResult = () => {
                     left: `${rect.x * scale}px`,
                     top: `${rect.y * scale}px`,
                     width: `${rectWidth}px`,
-                    length: `${rectLength}px`,
+                    height: `${rectLength}px`,
                     backgroundColor: rect.color,
                     fontSize: `${fontSize}px`,
                     minWidth: '20px', 
-                    minLength: '15px', 
+                    minHeight: '15px', 
                     overflow: 'hidden'
                   }}
                   title={`[Tấm liệu ${rect.layer + 1}] ${rectName} (${rect.width}×${rect.length}mm) tại X:${rect.x} Y:${rect.y} ${rect.rotated ? '(Xoay 90°)' : ''}`}
@@ -197,7 +197,7 @@ const PackingResult = () => {
             <button 
                 onClick={handleExportDXF}
                 disabled={exportLoading || allPlacedRectangles.length === 0}
-                className="btn-secondary px-4 py-2 text-sm"
+                className="btn-secondary px-4 py-1 text-sm"
             >
                 {exportLoading ? 'Đang tạo DXF...' : '💾 Xuất ra AutoCAD (DXF)'}
             </button>
@@ -206,10 +206,10 @@ const PackingResult = () => {
       </div>
       
       {/* Toggle Placed Items List */}
-      <div className="mb-3"> {/* Đã giảm mb-4 xuống mb-3 */}
+      <div className="mb-3">
         <button 
           onClick={() => setShowPlacedList(prev => !prev)}
-          className="btn-secondary px-4 py-2 text-sm"
+          className="btn-secondary px-4 py-1 text-sm"
         >
           {showPlacedList ? 'Ẩn' : 'Hiện'} Danh sách các hình đã xếp ({currentLayerRectangles.length})
         </button>

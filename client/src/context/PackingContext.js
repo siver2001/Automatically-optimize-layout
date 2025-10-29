@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react'; // Added useCallback
+import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react';
 import { packingService } from '../services/packingService.js';
 
 const PackingContext = createContext();
@@ -45,7 +45,7 @@ const packingReducer = (state, action) => {
       return {
         ...state,
         rectangles: action.payload,
-        selectedRectangles: [],
+        selectedRectangles: action.payload.map(rect => rect.id), // Select all by default when loading defaults
         quantities: initialQuantities // Set initial quantities
       };
       
@@ -53,15 +53,8 @@ const packingReducer = (state, action) => {
       return {
         ...state,
         rectangles: [...state.rectangles, action.payload],
-        quantities: { ...state.quantities, [action.payload.id]: 1 } // Default quantity 1 for new item
-      };
-      
-    case 'UPDATE_RECTANGLE':
-      return {
-        ...state,
-        rectangles: state.rectangles.map(rect =>
-          rect.id === action.payload.id ? { ...rect, ...action.payload } : rect
-        )
+        quantities: { ...state.quantities, [action.payload.id]: 1 }, // Default quantity 1 for new item
+        selectedRectangles: [...state.selectedRectangles, action.payload.id] // Auto-select new custom item
       };
       
     case 'REMOVE_RECTANGLE':
@@ -183,6 +176,12 @@ export const PackingProvider = ({ children }) => {
     loadDefaultRectangles();
   }, []);
 
+  // Utility to generate a unique ID
+  const getNewRectId = useCallback(() => {
+      // Find the current maximum ID and increment it
+      return Math.max(0, ...state.rectangles.map(r => r.id)) + 1;
+  }, [state.rectangles]);
+
   // Use useCallback for setQuantity to avoid unnecessary re-renders in child components
   const setQuantity = useCallback((id, quantity) => {
     dispatch({ type: 'SET_QUANTITY', payload: { id, quantity } });
@@ -241,8 +240,14 @@ export const PackingProvider = ({ children }) => {
   };
 
   const addRectangle = (rectangle) => {
-    const newId = Math.max(...state.rectangles.map(r => r.id), 0) + 1;
-    dispatch({ type: 'ADD_RECTANGLE', payload: { ...rectangle, id: newId } });
+    const newId = getNewRectId();
+    // Use a generic color for custom items
+    const defaultColor = '#9E9E9E'; 
+    dispatch({ type: 'ADD_RECTANGLE', payload: { 
+        ...rectangle, 
+        id: newId, 
+        color: defaultColor 
+    } });
   };
 
   const updateRectangle = (id, updates) => {
@@ -280,7 +285,7 @@ export const PackingProvider = ({ children }) => {
         // --- Core logic to handle quantities: Duplicate rectangles ---
         const rectanglesToPack = [];
         // Ensure unique IDs for all instances of rectangles
-        let uniqueIdCounter = Math.max(...state.rectangles.map(r => r.id), 0) + 1; 
+        let uniqueIdCounter = Math.max(0, ...state.rectangles.map(r => r.id)) + 1; // Start counter from max current ID + 1
         
         for (const rect of state.rectangles) {
             if (state.selectedRectangles.includes(rect.id)) {
@@ -288,11 +293,12 @@ export const PackingProvider = ({ children }) => {
                 // Only consider rectangles with a quantity > 0
                 for (let i = 0; i < quantity; i++) {
                     // Create a unique instance for each rectangle being packed
+                    // Ensure typeId is preserved for correct rotation logic on server
                     rectanglesToPack.push({ 
                         ...rect, 
                         // Assign a new unique ID for the packing instance
                         id: uniqueIdCounter++, 
-                        // Keep a reference to the original type ID (for potential later use)
+                        // Keep a reference to the original type ID 
                         typeId: rect.id 
                     });
                 }
