@@ -49,7 +49,7 @@ const PackingResult = () => {
         <div className="text-center text-gray-500">
           <div className="text-6xl mb-4">📦</div>
           <p className="text-xl font-semibold text-gray-700 mb-2">Chưa có kết quả sắp xếp</p>
-          <p className="text-gray-500">Nhập thông số container và chọn hình chữ nhật để bắt đầu tối ưu</p>
+          <p className="text-gray-500">Nhập thông số tấm liệu và chọn size để bắt đầu tối ưu</p>
         </div>
       </div>
     );
@@ -67,14 +67,14 @@ const PackingResult = () => {
   
   // Visualization scaling
   const maxVisualWidth = 800; 
-  const maxVisualHeight = 500;
-  const scale = Math.min(maxVisualWidth / container.width, maxVisualHeight / container.height);
+  const maxVisualLength = 500;
+  const scale = Math.min(maxVisualWidth / container.width, maxVisualLength / container.length);
 
   const displayWidth = Math.min(maxVisualWidth, container.width * scale);
-  const displayHeight = Math.min(maxVisualHeight, container.height * scale);
+  const displayLength = Math.min(maxVisualLength, container.length * scale);
 
-  const containerAreaPerLayer = container.width * container.height;
-  const layerUsedArea = currentLayerRectangles.reduce((sum, rect) => sum + (rect.width * rect.height), 0);
+  const containerAreaPerLayer = container.width * container.length;
+  const layerUsedArea = currentLayerRectangles.reduce((sum, rect) => sum + (rect.width * rect.length), 0);
   const layerEfficiency = containerAreaPerLayer > 0 ? (layerUsedArea / containerAreaPerLayer * 100).toFixed(1) : 0;
   
   // --- HÀM MỚI: XỬ LÝ EXPORT DXF ---
@@ -92,13 +92,8 @@ const PackingResult = () => {
   // --- KẾT THÚC HÀM XỬ LÝ EXPORT DXF ---
 
   return (
-    // Đã giảm padding từ p-8 xuống p-6 (Thay đổi gọn hơn)
-    <div className="mb-8 card p-6"> 
-
-      {/* Layer Selector & Visualization */}
-      {/* Đã giảm padding từ p-6 xuống p-4 */}
+    <div className="mb-8 card p-3"> 
       <div className="bg-white rounded-xl shadow-lg border border-gray-300 p-4 mb-4">
-        {/* Đã giảm pb-3 xuống pb-2 và text-xl xuống text-lg */}
         <div className="flex items-center justify-between mb-3 border-b pb-2"> 
           <h3 className="text-lg font-semibold text-gray-800">
             Tấm liệu {selectedLayer + 1}
@@ -134,9 +129,9 @@ const PackingResult = () => {
             className="relative border-4 border-gray-900 rounded-lg shadow-inner bg-gray-200 flex-shrink-0"
             style={{ 
               width: `${displayWidth}px`, 
-              height: `${displayHeight}px`,
+              length: `${displayLength}px`,
               minWidth: '300px',
-              minHeight: '200px'
+              minLength: '200px'
             }}
           >
             {/* Grid lines for better visualization */}
@@ -150,7 +145,7 @@ const PackingResult = () => {
                 ></div>
               ))}
               {/* Horizontal lines - 100mm grid */}
-              {Array.from({length: Math.floor(container.height/100)}).map((_, i) => (
+              {Array.from({length: Math.floor(container.length/100)}).map((_, i) => (
                 <div 
                   key={`h-${i}`}
                   className="absolute left-0 right-0 h-px bg-gray-400"
@@ -162,8 +157,8 @@ const PackingResult = () => {
             {/* Packed Rectangles */}
             {currentLayerRectangles.map((rect) => {
               const rectWidth = rect.width * scale;
-              const rectHeight = rect.height * scale;
-              const minDim = Math.min(rectWidth, rectHeight);
+              const rectLength = rect.length * scale;
+              const minDim = Math.min(rectWidth, rectLength);
               const fontSize = Math.max(8, minDim * 0.15); 
               
               const originalRect = placedRectDetails[rect.typeId]; // Fetch original details
@@ -179,17 +174,17 @@ const PackingResult = () => {
                     left: `${rect.x * scale}px`,
                     top: `${rect.y * scale}px`,
                     width: `${rectWidth}px`,
-                    height: `${rectHeight}px`,
+                    length: `${rectLength}px`,
                     backgroundColor: rect.color,
                     fontSize: `${fontSize}px`,
                     minWidth: '20px', 
-                    minHeight: '15px', 
+                    minLength: '15px', 
                     overflow: 'hidden'
                   }}
-                  title={`[Tấm liệu ${rect.layer + 1}] ${rectName} (${rect.width}×${rect.height}mm) tại X:${rect.x} Y:${rect.y} ${rect.rotated ? '(Xoay 90°)' : ''}`}
+                  title={`[Tấm liệu ${rect.layer + 1}] ${rectName} (${rect.width}×${rect.length}mm) tại X:${rect.x} Y:${rect.y} ${rect.rotated ? '(Xoay 90°)' : ''}`}
                 >
                   <div className="text-center leading-none p-0.5">
-                    <div className="text-xs">{rect.width}×{rect.height}</div>
+                    <div className="text-xs">{rect.width}×{rect.length}</div>
                   </div>
                 </div>
               );
@@ -241,7 +236,7 @@ const PackingResult = () => {
                       {rectName}
                     </div>
                     <div className="text-xs text-gray-600 truncate">
-                      {rect.width}×{rect.height}mm @ ({rect.x}, {rect.y})
+                      {rect.width}×{rect.length}mm @ ({rect.x}, {rect.y})
                       {rect.rotated && <span className="ml-1 text-orange-500">(Xoay)</span>}
                     </div>
                   </div>
@@ -257,7 +252,7 @@ const PackingResult = () => {
         <div className="mt-4 bg-yellow-50 border border-yellow-200 rounded-xl p-4">
           <div className="font-semibold text-yellow-800 mb-2">Chưa xếp được ({remainingRectangles.length}):</div>
           <div className="text-sm text-yellow-800">
-            {remainingRectangles.map((r) => `${r.width}×${r.height}`).join(', ')}
+            {remainingRectangles.map((r) => `${r.width}×${r.length}`).join(', ')}
           </div>
         </div>
       )}

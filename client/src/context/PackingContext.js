@@ -7,7 +7,7 @@ const initialState = {
   // Container settings
   container: {
     width: 0,
-    height: 0,
+    length: 0,
     layers: 1
   },
   
@@ -190,14 +190,14 @@ export const PackingProvider = ({ children }) => {
 
   // Validation
   const validateContainer = () => {
-    const { width, height, layers } = state.container;
+    const { width, length, layers } = state.container;
     const errors = [];
     
     if (width <= 0) {
       errors.push({ type: 'container', message: 'Chiều rộng container phải lớn hơn 0' });
     }
     
-    if (height <= 0) {
+    if (length <= 0) {
       errors.push({ type: 'container', message: 'Chiều cao container phải lớn hơn 0' });
     }
     
@@ -205,7 +205,7 @@ export const PackingProvider = ({ children }) => {
       errors.push({ type: 'container', message: 'Số lớp phải lớn hơn 0' });
     }
     
-    if (width > 10000 || height > 10000) {
+    if (width > 10000 || length > 10000) {
       errors.push({ type: 'container', message: 'Kích thước container quá lớn (tối đa 10000mm)' });
     }
     

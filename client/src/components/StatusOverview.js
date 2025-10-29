@@ -23,9 +23,9 @@ const StatusOverview = () => {
   const selectedCountTotal = selectedRectsWithQuantities.reduce((sum, rect) => sum + rect.quantity, 0);
   
   // Area calculations
-  const containerArea = container.width * container.height * container.layers; 
+  const containerArea = container.width * container.length * container.layers; 
   const selectedArea = selectedRectsWithQuantities.reduce((sum, rect) => 
-    sum + (rect.width * rect.height * rect.quantity), 0
+    sum + (rect.width * rect.length * rect.quantity), 0
   );
 
   const materialRatio = containerArea > 0 ? (selectedArea / containerArea * 100) : 0;
@@ -52,7 +52,7 @@ const StatusOverview = () => {
     return '📦';
   };
   
-  const formattedContainerArea = (container.width * container.height).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  const formattedContainerArea = (container.width * container.length).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
   return (
     <div className="mb-8">
@@ -72,7 +72,7 @@ const StatusOverview = () => {
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 pt-4 border-t border-white/20">
           
           <div className="bg-white/10 rounded-lg p-3 text-center transition-all duration-300 hover:bg-white/20">
-            <div className="text-2xl font-bold">{container.width || 0}x{container.height || 0}</div>
+            <div className="text-2xl font-bold">{container.width || 0}x{container.length || 0}</div>
             <div className="text-xs text-white/80">Container (mm)</div>
           </div>
           

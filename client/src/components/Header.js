@@ -10,10 +10,10 @@ const Header = () => {
   const isModbusView = location.pathname === '/modbus';
 
   return (
-    <header className="bg-white/10 backdrop-blur-md border-b border-white/20 px-8 py-4 mb-8">
+    <header className="bg-white/10 backdrop-blur-md border-b border-white/20 px-8 py-4 mb-4">
       <div className="flex justify-between items-center max-w-7xl mx-auto">
         <Link to="/" className="text-white text-3xl font-bold m-0 drop-shadow-lg">
-          📦 Rectangle Packing Optimizer
+          📦 Optimize Size Layout
         </Link>
         
         <nav className="flex gap-4">
@@ -40,11 +40,6 @@ const Header = () => {
             Kết nối PLC
           </Link>
         </nav>
-        
-        <div className="flex items-center gap-2 text-white text-sm">
-          <div className="w-2 h-2 bg-red-500 rounded-full"></div>
-          <span>Offline Mode</span>
-        </div>
       </div>
     </header>
   );

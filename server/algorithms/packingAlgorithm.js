@@ -1,8 +1,6 @@
 // server/algorithms/packingAlgorithm.js
 
-import Rectangle from '../models/Rectangle.js';
-import { performance } from 'perf_hooks';
-
+import DxfWriter from 'dxf-writer';
 class PackingAlgorithm {
   constructor() {
     this.container = null;
@@ -12,8 +10,8 @@ class PackingAlgorithm {
   // Sắp xếp hình chữ nhật theo diện tích giảm dần
   sortRectanglesByArea(rectangles) {
     return rectangles.slice().sort((a, b) => {
-      const areaA = a.width * a.height;
-      const areaB = b.width * b.height;
+      const areaA = a.width * a.length;
+      const areaB = b.width * b.length;
       return areaB - areaA;
     });
   }
@@ -43,7 +41,7 @@ class PackingAlgorithm {
 
     for (const strategy of strategies) {
         const { placed: currentPlaced, remaining: currentRemaining } = strategy();
-        const currentUsedArea = currentPlaced.reduce((sum, rect) => sum + (rect.width * rect.height), 0);
+        const currentUsedArea = currentPlaced.reduce((sum, rect) => sum + (rect.width * rect.length), 0);
         
         if (currentUsedArea > bestUsedArea) {
             bestUsedArea = currentUsedArea;
@@ -60,13 +58,13 @@ class PackingAlgorithm {
   _maxRectsBSSF(rectanglesToPack) {
     const placedRectangles = [];
     const usedRectIds = new Set();
-    const freeNodes = [{ x: 0, y: 0, width: this.container.width, height: this.container.height }];
+    const freeNodes = [{ x: 0, y: 0, width: this.container.width, length: this.container.length }];
 
-    const fitsIn = (rect, node) => rect.width <= node.width && rect.height <= node.height;
+    const fitsIn = (rect, node) => rect.width <= node.width && rect.length <= node.length;
 
     const scoreFor = (rect, node) => {
       const dw = node.width - rect.width;
-      const dh = node.height - rect.height;
+      const dh = node.length - rect.length;
       const shortFit = Math.min(dw, dh);
       const longFit = Math.max(dw, dh);
       return { shortFit, longFit };
@@ -80,22 +78,22 @@ class PackingAlgorithm {
           x: placed.x + placed.width,
           y: node.y,
           width: node.x + node.width - (placed.x + placed.width),
-          height: node.height
+          length: node.length
         });
       }
       // Split above
-      if (placed.y + placed.height < node.y + node.height) {
+      if (placed.y + placed.length < node.y + node.length) {
         newNodes.push({
           x: node.x,
-          y: placed.y + placed.height,
+          y: placed.y + placed.length,
           width: node.width,
-          height: node.y + node.height - (placed.y + placed.height)
+          length: node.y + node.length - (placed.y + placed.length)
         });
       }
       return newNodes;
     };
 
-    const rectContains = (a, b) => a.x <= b.x && a.y <= b.y && (a.x + a.width) >= (b.x + b.width) && (a.y + a.height) >= (b.y + b.height);
+    const rectContains = (a, b) => a.x <= b.x && a.y <= b.y && (a.x + a.width) >= (b.x + b.width) && (a.y + a.length) >= (b.y + b.length);
 
     const pruneFreeList = (nodes) => {
       for (let i = 0; i < nodes.length; i++) {
@@ -115,7 +113,7 @@ class PackingAlgorithm {
       let bestShort = Infinity;
       let bestLong = Infinity;
       let chosenNode = null;
-      let chosenSize = { width: rect.width, height: rect.height };
+      let chosenSize = { width: rect.width, length: rect.length };
 
       for (let i = 0; i < freeNodes.length; i++) {
         const node = freeNodes[i];
@@ -129,7 +127,7 @@ class PackingAlgorithm {
             bestIndex = i;
             bestRotated = false; // Luôn là false
             chosenNode = node;
-            chosenSize = { width: rect.width, height: rect.height };
+            chosenSize = { width: rect.width, length: rect.length };
           }
         }
       }
@@ -138,7 +136,7 @@ class PackingAlgorithm {
         const placed = {
           ...rect,
           width: chosenSize.width,
-          height: chosenSize.height,
+          length: chosenSize.length,
           x: chosenNode.x,
           y: chosenNode.y,
           layer: 0,
@@ -165,7 +163,7 @@ class PackingAlgorithm {
       x: 0,
       y: 0,
       width: this.container.width,
-      height: this.container.height
+      length: this.container.length
     }];
 
     for (const rect of rectanglesToPack) {
@@ -200,7 +198,7 @@ class PackingAlgorithm {
         const placedRect = {
             ...rect,
             width: rect.width, // Không xoay
-            height: rect.height, // Không xoay
+            length: rect.length, // Không xoay
             x: bestSpace.x,
             y: bestSpace.y,
             layer: 0,
@@ -229,30 +227,30 @@ class PackingAlgorithm {
     
     let currentX = 0;
     let currentY = 0;
-    let currentHeight = 0;
+    let currentLength = 0;
 
     for (const rect of rectanglesToPack) {
         if (usedRectIds.has(rect.id)) continue;
         
         let width = rect.width;
-        let height = rect.height;
+        let length = rect.length;
 
         const checkFitAndRotate = (x, y, w, h) => {
-            const fitNormal = (x + w <= this.container.width && y + h <= this.container.height);
+            const fitNormal = (x + w <= this.container.width && y + h <= this.container.length);
             // BỎ QUA KIỂM TRA XOAY
             
             if (fitNormal) return { w, h, rotated: false };
             return null;
         };
 
-        let placement = checkFitAndRotate(currentX, currentY, width, height);
+        let placement = checkFitAndRotate(currentX, currentY, width, length);
 
         if (!placement) {
             currentX = 0;
-            currentY += currentHeight;
-            currentHeight = 0;
+            currentY += currentLength;
+            currentLength = 0;
             
-            placement = checkFitAndRotate(currentX, currentY, width, height);
+            placement = checkFitAndRotate(currentX, currentY, width, length);
             
             if (!placement) {
                 remainingRectangles.push(rect);
@@ -263,7 +261,7 @@ class PackingAlgorithm {
         const placedRect = {
             ...rect,
             width: placement.w,
-            height: placement.h,
+            length: placement.h,
             x: currentX,
             y: currentY,
             layer: 0,
@@ -274,12 +272,12 @@ class PackingAlgorithm {
         usedRectIds.add(rect.id);
         
         currentX += placement.w;
-        currentHeight = Math.max(currentHeight, placement.h);
+        currentLength = Math.max(currentLength, placement.h);
 
         if (currentX >= this.container.width) {
             currentX = 0;
-            currentY += currentHeight;
-            currentHeight = 0;
+            currentY += currentLength;
+            currentLength = 0;
         }
     }
 
@@ -289,7 +287,7 @@ class PackingAlgorithm {
   }
   
   canFitInSpace(rect, space) {
-    return rect.width <= space.width && rect.height <= space.height;
+    return rect.width <= space.width && rect.length <= space.length;
   }
 
   placeRectangle(rect, space) {
@@ -310,17 +308,17 @@ class PackingAlgorithm {
         x: placedRect.x + placedRect.width,
         y: usedSpace.y,
         width: usedSpace.x + usedSpace.width - (placedRect.x + placedRect.width),
-        height: placedRect.height
+        length: placedRect.length
       });
     }
 
     // Không gian mới phía trên
-    if (placedRect.y + placedRect.height < usedSpace.y + usedSpace.height) {
+    if (placedRect.y + placedRect.length < usedSpace.y + usedSpace.length) {
       freeSpaces.push({
         x: usedSpace.x,
-        y: placedRect.y + placedRect.height,
+        y: placedRect.y + placedRect.length,
         width: usedSpace.width,
-        height: usedSpace.y + usedSpace.height - (placedRect.y + placedRect.height)
+        length: usedSpace.y + usedSpace.length - (placedRect.y + placedRect.length)
       });
     }
 
@@ -328,7 +326,7 @@ class PackingAlgorithm {
   }
 
   calculateWaste(rect, space) {
-    return (space.width * space.height) - (rect.width * rect.height);
+    return (space.width * space.length) - (rect.width * rect.length);
   }
 
   // --- Base Greedy Layering Heuristic (Chỉ chạy 1 lần) ---
@@ -339,7 +337,7 @@ class PackingAlgorithm {
 
     const canFitEither = (r) => (
       // Chỉ cần kiểm tra kích thước gốc, không cần xoay
-      (r.width <= container.width && r.height <= container.height)
+      (r.width <= container.width && r.length <= container.length)
     );
 
     // Helper to sanitize placements 
@@ -347,8 +345,8 @@ class PackingAlgorithm {
         // (Logic sanitize giữ nguyên)
         const accepted = [];
         const stillRemaining = [...remaining];
-        const isWithinBounds = (r) => r.x >= 0 && r.y >= 0 && (r.x + r.width) <= container.width && (r.y + r.height) <= container.height;
-        const overlaps = (a, b) => (a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y);
+        const isWithinBounds = (r) => r.x >= 0 && r.y >= 0 && (r.x + r.width) <= container.width && (r.y + r.length) <= container.length;
+        const overlaps = (a, b) => (a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.length && a.y + a.length > b.y);
         
         for (const rect of placed) {
             if (!isWithinBounds(rect)) {
@@ -384,12 +382,24 @@ class PackingAlgorithm {
         // Nếu không đặt được hình nào trong lớp này, và vẫn còn hình CÓ THỂ VỪA (feasible)
         // thì thoát khỏi vòng lặp layering.
         const anyFeasible = unpackedRectangles.some(canFitEither);
-        if (anyFeasible) {
-            // Đây là điểm quan trọng để buộc thuật toán thử lớp tiếp theo
-            // Nếu không đặt được, tiếp tục vòng lặp layer để tăng layersUsed
-        } else {
-             break; // Không còn hình nào có thể vừa, thoát
-        }
+       if (anyFeasible) {
+            // Next Fit Decreasing không dựa vào vùng trống phức tạp, giúp lấp đầy khoảng trống lớn
+            const { placed: placedNFD, remaining: remainingNFD } = this._nextFitDecreasing(sortedForLayer);
+            
+            // Lấy những hình mà NFD đặt được (tức là placedNFD.length > 0)
+            const { accepted: acceptedNFD, stillRemaining: stillRemainingNFD } = sanitizeLayer(placedNFD, remainingNFD);
+            
+            if (acceptedNFD.length > 0) {
+                // Sử dụng kết quả của NFD để tiến hành
+                placedInLayer = acceptedNFD;
+                stillRemaining = stillRemainingNFD;
+            } else {
+                // Nếu cả NFD cũng không đặt được (dù còn hình feasible), thì chuyển sang lớp mới
+                // Tiếp tục vòng lặp layer để tăng layersUsed
+            }
+        } else {
+             break; // Không còn hình nào có thể vừa, thoát
+        }
       }
       
       // Đánh dấu lớp hiện tại cho các hình đã xếp
@@ -409,9 +419,9 @@ class PackingAlgorithm {
     }
 
     // Tính toán các chỉ số cuối cùng
-    const containerAreaPerLayer = container.width * container.height;
+    const containerAreaPerLayer = container.width * container.length;
     const finalUsedArea = allPlacedRectangles.reduce((sum, rect) => 
-      sum + (rect.width * rect.height), 0
+      sum + (rect.width * rect.length), 0
     );
     const maxTotalArea = containerAreaPerLayer * maxLayers;
 
@@ -432,8 +442,8 @@ class PackingAlgorithm {
   async optimize(container, initialRectangles, maxLayers) {
     this.container = container;
     this.layers = maxLayers;
-    
-    const META_ITERATIONS = 10; 
+
+    const META_ITERATIONS = 50; 
     let bestResult = null;
     
     const originalRectangles = initialRectangles.map(r => ({...r}));
@@ -461,81 +471,87 @@ class PackingAlgorithm {
     return bestResult;
   }
   static exportToDXF(container, allRectangles) {
-    const maker = new Maker();
-    const containerWidth = container.width;
-    const containerHeight = container.height;
-    const layerHeight = 10; // Giả định khoảng cách giữa các layer để xếp cạnh nhau
+        const maker = new DxfWriter();
+        const containerWidth = container.width;
+        const containerLength = container.length;
+        const layerLength = 10; // Giả định khoảng cách giữa các layer để xếp cạnh nhau
 
-    // Vẽ container tổng thể (khung bao ngoài)
-    maker.addLayer('ContainerBorder', 0xF00, 'CONTINUOUS');
-    maker.addRectangle(0, 0, containerWidth, containerHeight * container.layers, { layer: 'ContainerBorder' });
+        // Hàm trợ giúp để vẽ hình chữ nhật bằng 4 đoạn thẳng
+        const drawRectangle = (x, y, width, length, layerName) => {
+            const x0 = x;
+            const y0 = y;
+            const x1 = x + width;
+            const y1 = y + length;
+            
+            maker.addLine(x0, y0, x1, y0, { layer: layerName }); // Bottom line
+            maker.addLine(x1, y0, x1, y1, { layer: layerName }); // Right line
+            maker.addLine(x1, y1, x0, y1, { layer: layerName }); // Top line
+            maker.addLine(x0, y1, x0, y0, { layer: layerName }); // Left line
+        };
 
-    // Tọa độ Y dịch chuyển cho mỗi lớp
-    let currentYOffset = 0; 
-    
-    // Gom nhóm các hình chữ nhật theo layer
-    const layersMap = new Map();
-    allRectangles.forEach(rect => {
-      const layerIndex = rect.layer || 0;
-      if (!layersMap.has(layerIndex)) {
-        layersMap.set(layerIndex, []);
-      }
-      layersMap.get(layerIndex).push(rect);
-    });
-    
-    const sortedLayers = Array.from(layersMap.keys()).sort((a, b) => a - b);
-    
-    // Xếp các layer cạnh nhau trên cùng một mặt phẳng
-    for (const layerIndex of sortedLayers) {
-      const rectanglesInLayer = layersMap.get(layerIndex);
+        // Vẽ container tổng thể (khung bao ngoài)
+        maker.addLayer('ContainerBorder', 0xF00, 'CONTINUOUS');
+        drawRectangle(0, 0, containerWidth, containerLength * container.layers, 'ContainerBorder');
 
-      // Thêm layer cho các hình cắt
-      const layerName = `Layer_${layerIndex + 1}`;
-      maker.addLayer(layerName, layerIndex % 7 + 1, 'CONTINUOUS'); // Màu sắc khác nhau cho mỗi layer
-
-      // Vẽ các hình chữ nhật đã xếp
-      rectanglesInLayer.forEach(rect => {
-        const x0 = rect.x;
-        const y0 = rect.y + currentYOffset;
-        const x1 = rect.x + rect.width;
-        const y1 = rect.y + rect.height + currentYOffset;
+        // Tọa độ Y dịch chuyển cho mỗi lớp
+        let currentYOffset = 0; 
         
-        // Vẽ hình chữ nhật bằng 4 đoạn thẳng
-        maker.addEntities([
-            // Bottom line
-            { type: 'LINE', x1: x0, y1: y0, x2: x1, y2: y0, layer: layerName },
-            // Right line
-            { type: 'LINE', x1: x1, y1: y0, x2: x1, y2: y1, layer: layerName },
-            // Top line
-            { type: 'LINE', x1: x1, y1: y1, x2: x0, y2: y1, layer: layerName },
-            // Left line
-            { type: 'LINE', x1: x0, y1: y1, x2: x0, y2: y0, layer: layerName }
-        ]);
+        // Gom nhóm các hình chữ nhật theo layer
+        const layersMap = new Map();
+        for (const rect of (allRectangles || [])) {
+            // Kiểm tra an toàn cho từng đối tượng hình chữ nhật
+            if (!rect || typeof rect.width !== 'number' || typeof rect.length !== 'number') {
+                continue;
+            }
 
-        // Thêm Text (tên/kích thước) vào trung tâm hình
-        const textX = rect.x + rect.width / 2;
-        const textY = rect.y + rect.height / 2 + currentYOffset;
-        const textHeight = 10; // Kích thước chữ cố định
-        const textContent = `${rect.name} (${rect.width}x${rect.height})`;
+            const layerIndex = rect.layer || 0;
+            if (!layersMap.has(layerIndex)) {
+                layersMap.set(layerIndex, []);
+            }
+            layersMap.get(layerIndex).push(rect);
+        }
+
+        const sortedLayers = Array.from(layersMap.keys()).sort((a, b) => a - b);
         
-        maker.addText(textX, textY, textHeight, textContent, {
-             layer: layerName, 
-             style: 'STANDARD', 
-             halign: 'CENTER',
-             valign: 'MIDDLE'
-        });
-      });
-      
-      // Vẽ đường viền container cho layer hiện tại (để dễ hình dung)
-      maker.addLayer(`Container_${layerIndex + 1}`, layerIndex % 7 + 10, 'DASHED');
-      maker.addRectangle(0, currentYOffset, containerWidth, containerHeight, { layer: `Container_${layerIndex + 1}` });
+        // Xếp các layer cạnh nhau trên cùng một mặt phẳng
+        for (const layerIndex of sortedLayers) {
+            const rectanglesInLayer = layersMap.get(layerIndex);
 
-      // Cập nhật offset cho layer tiếp theo (đặt layer mới dưới layer cũ)
-      currentYOffset += containerHeight + layerHeight; 
+            // Thêm layer cho các hình cắt
+            const layerName = `Layer_${layerIndex + 1}`;
+            maker.addLayer(layerName, layerIndex % 7 + 1, 'CONTINUOUS'); // Màu sắc khác nhau cho mỗi layer
+
+            // Vẽ các hình chữ nhật đã xếp
+            rectanglesInLayer.forEach(rect => {
+                const x0 = rect.x;
+                const y0 = rect.y + currentYOffset;
+                
+                drawRectangle(rect.x, rect.y + currentYOffset, rect.width, rect.length, layerName);
+
+                // Thêm Text (tên/kích thước) vào trung tâm hình
+                const textX = rect.x + rect.width / 2;
+                const textY = rect.y + rect.length / 2 + currentYOffset;
+                const textLength = 10; // Kích thước chữ cố định
+                const textContent = `${rect.name} (${rect.width}x${rect.length})`;
+                
+                maker.addText(textX, textY, textLength, textContent, {
+                    layer: layerName, 
+                    style: 'STANDARD', 
+                    halign: 'CENTER',
+                    valign: 'MIDDLE'
+                });
+            });
+            
+            // Vẽ đường viền container cho layer hiện tại (để dễ hình dung)
+            maker.addLayer(`Container_${layerIndex + 1}`, layerIndex % 7 + 10, 'DASHED');
+            drawRectangle(0, currentYOffset, containerWidth, containerLength, `Container_${layerIndex + 1}`);
+
+            // Cập nhật offset cho layer tiếp theo (đặt layer mới dưới layer cũ)
+            currentYOffset += containerLength + layerLength; 
+        }
+
+        return maker.toDxfString();
     }
-
-    return maker.toDxfString();
-  }
 }
 
 export default PackingAlgorithm;

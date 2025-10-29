@@ -39,37 +39,37 @@ const RectangleList = () => {
   const totalSelectedTypes = selectedRectsWithQuantities.length;
   const totalRectanglesCount = selectedRectsWithQuantities.reduce((sum, rect) => sum + rect.quantity, 0);
   const totalSelectedArea = selectedRectsWithQuantities.reduce((sum, rect) => 
-    sum + (rect.width * rect.height * rect.quantity), 0
+    sum + (rect.width * rect.length * rect.quantity), 0
   );
 
   const getRectangleStyle = (rect) => {
     const maxWidth = 100; // Reduced for more compact cards
-    const maxHeight = 70; // Reduced for more compact cards
-    const aspectRatio = rect.width / rect.height;
+    const maxLength = 70; // Reduced for more compact cards
+    const aspectRatio = rect.width / rect.length;
     
-    let displayWidth, displayHeight;
+    let displayWidth, displayLength;
     const scaleFactor = 3; 
 
     if (aspectRatio > 1) {
       displayWidth = Math.min(maxWidth, rect.width / scaleFactor);
-      displayHeight = displayWidth / aspectRatio;
+      displayLength = displayWidth / aspectRatio;
     } else {
-      displayHeight = Math.min(maxHeight, rect.height / scaleFactor);
-      displayWidth = displayHeight * aspectRatio;
+      displayLength = Math.min(maxLength, rect.length / scaleFactor);
+      displayWidth = displayLength * aspectRatio;
     }
     
     return {
       width: `${Math.max(25, displayWidth)}px`,
-      height: `${Math.max(20, displayHeight)}px`,
+      length: `${Math.max(20, displayLength)}px`,
       backgroundColor: rect.color,
       border: '2px solid white'
     };
   };
 
   return (
-    <div className="mb-4 card p-4">
-      <div className="flex justify-between items-center mb-6 border-b pb-3">
-        <h2 className="text-gray-800 text-xl font-semibold flex items-center gap-2">
+    <div className="mb-2 card p-2">
+      <div className="flex justify-between items-center mb-2 border-b pb-1">
+        <h2 className="text-gray-800 text-l font-semibold flex items-center gap-2">
           📦 Quản lý size
         </h2>
         <div className="text-sm text-gray-500 bg-gray-100 px-3 py-1 rounded-full font-medium">
@@ -77,45 +77,49 @@ const RectangleList = () => {
         </div>
       </div>
       
-      {/* Controls and Summary (Now combined for better context) */}
-      <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <div className="flex gap-3 mb-4 flex-wrap">
-          <button 
-            onClick={selectAllRectangles}
-            className="btn-secondary text-sm px-4 py-2 flex-1 min-w-[150px]"
-            disabled={isOptimizing}
-          >
-            ✅ Chọn tất cả
-          </button>
-          <button 
-            onClick={clearSelection} 
-            disabled={selectedRectangles.length === 0 || isOptimizing}
-            className="btn-secondary text-sm px-4 py-2 flex-1 min-w-[150px]"
-          >
-            ❌ Bỏ chọn ({selectedRectangles.length})
-          </button>
-        </div>
+      <div className="mb-2 bg-blue-50 border border-blue-200 rounded-lg p-3">
         
-        <div className="bg-white border border-gray-200 rounded-md p-3 mb-4 flex justify-between items-center flex-wrap">
-            <div className="text-sm text-gray-700 font-medium flex-1 min-w-[150px] p-1">
-                <span className="text-primary-600 font-bold">{totalSelectedTypes}</span> loại | 
-                <span className="text-blue-600 font-bold ml-1">{totalRectanglesCount}</span> hình
-            </div>
-            <div className="text-sm text-gray-700 font-medium p-1">
-                Tổng diện tích: <span className="text-red-600 font-bold">{totalSelectedArea.toLocaleString()} mm²</span>
-            </div>
-        </div>
-        
-        <button 
-          onClick={startOptimization}
-          disabled={totalRectanglesCount === 0 || isOptimizing}
-          className="btn-primary text-sm px-6 py-2 w-full"
-        >
-          {isOptimizing ? 
-            '🔄 Đang tối ưu...' : 
-            `🚀 Tối ưu sắp xếp (${totalRectanglesCount} hình)`
-          }
-        </button>
+        {/* HÀNG DUY NHẤT TRÊN CÁC MÀN HÌNH LỚN HƠN */}
+        <div className="flex flex-col gap-3 md:flex-row md:justify-between md:items-center">
+          
+          <div className="flex gap-2 flex-shrink-0">
+            <button 
+              onClick={selectAllRectangles}
+              className="px-3 py-2 rounded-lg text-sm font-medium transition-all duration-300 hover:shadow-md border border-gray-400 bg-white text-gray-700 disabled:opacity-50"
+              disabled={isOptimizing}
+            >
+              ✅ Chọn tất cả
+            </button>
+            <button 
+              onClick={clearSelection} 
+              disabled={selectedRectangles.length === 0 || isOptimizing}
+              className="px-3 py-2 rounded-lg text-sm font-medium transition-all duration-300 hover:shadow-md border border-gray-400 bg-white text-gray-700 disabled:opacity-50"
+            >
+              ❌ Bỏ chọn ({selectedRectangles.length})
+            </button>
+          </div>
+          
+          <div className="text-xs text-gray-700 font-medium bg-white border border-gray-200 rounded-md p-2 flex-1 min-w-[200px] flex justify-between items-center">
+            <span className="text-sm">
+              <span className="text-primary-600 font-bold">{totalSelectedTypes}</span> loại | 
+              <span className="text-blue-600 font-bold ml-1">{totalRectanglesCount}</span> hình
+            </span>
+            <span className="text-xs text-red-600 font-bold ml-3">
+              {totalSelectedArea.toLocaleString()} mm²
+            </span>
+          </div>
+
+          <button 
+            onClick={startOptimization}
+            disabled={totalRectanglesCount === 0 || isOptimizing}
+            className="btn-primary text-sm px-4 py-2 flex-shrink-0"
+          >
+            {isOptimizing ? 
+              '🔄 Đang tối ưu...' : 
+              `Sắp xếp (${totalRectanglesCount} hình)`
+            }
+          </button>
+          </div>
       </div>
       
       {/* Rectangle Grid - Enhanced Card Design */}
@@ -139,7 +143,7 @@ const RectangleList = () => {
                 >
                   <div className="text-center">
                     <div className="text-xs leading-tight">
-                      {rect.width}×{rect.height}
+                      {rect.width}×{rect.length}
                     </div>
                   </div>
                 </div>
@@ -151,7 +155,7 @@ const RectangleList = () => {
                   {rect.name}
                 </div>
                 <div className="text-xs text-gray-600 mb-3">
-                  {rect.width}×{rect.height}mm
+                  {rect.width}×{rect.length}mm
                 </div>
                 
                 {/* Quantity Input */}
