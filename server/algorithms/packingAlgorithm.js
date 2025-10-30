@@ -124,7 +124,6 @@ class PackingAlgorithm {
       return { shortFit, longFit };
     };
     
-    // ... (splitFreeNode và pruneFreeList không đổi)
     const splitFreeNode = (node, placed) => {
       const newNodes = [];
       // Split to right
@@ -576,7 +575,6 @@ static exportToDXF(container, allRectangles) {
 
         // Gom nhóm các hình chữ nhật theo layer và theo màu sắc (loại hình)
         const layersMap = new Map();
-        // SỬA LỖI: Sử dụng tham số allRectangles thay vì allPlacedRectangles
         for (const rect of (allRectangles || [])) { 
             if (!rect || typeof rect.width !== 'number' || typeof rect.length !== 'number') {
                 continue;
@@ -585,16 +583,21 @@ static exportToDXF(container, allRectangles) {
             // Sử dụng typeId để nhóm các hình cùng loại (màu sắc)
             const typeKey = `${rect.typeId || rect.id}_${rect.color}`; 
             
-            if (!layersMap.has(typeKey)) {
-                layersMap.set(typeKey, {
+            let group = layersMap.get(typeKey);
+
+            if (!group) {
+                group = {
                     rectangles: [],
                     layerIndex: rect.layer || 0,
                     color: rect.color,
                     aci: getAciFromHex(rect.color), // Get ACI from color
                     name: rect.name || `Rect ${rect.id}` // Lấy tên hình
-                });
+                };
+                layersMap.set(typeKey, group);
             }
-            layersMap.get(typeKey).rectangles.push(rect);
+            
+            // Thêm hình chữ nhật vào nhóm
+            group.rectangles.push(rect);
         }
 
         // Sắp xếp theo Layer (Sheet) rồi đến Color/Type
@@ -622,31 +625,6 @@ static exportToDXF(container, allRectangles) {
 
                 // Vẽ đường viền container cho layer hiện tại
                 drawRectangle(0, currentYOffset, containerWidth, containerLength, 'ContainerBorder');
-
-                // TẠM THỜI BÌNH LUẬN CÁC DÒNG THÊM KÍCH THƯỚC (DIMENSION) VÌ DXF-WRITER V1.X KHÔNG HỖ TRỢ.
-
-                /*
-                // Dimension Chiều rộng container (trên cùng)
-                maker.addAlignedDimension(
-                    [0, containerLength + currentYOffset], 
-                    [containerWidth, containerLength + currentYOffset], 
-                    [containerWidth / 2, containerLength + currentYOffset + 20], // Vị trí cao hơn
-                    { 
-                        layer: 'Dimensions', 
-                        text: `Container W: ${containerWidth}mm` 
-                    }
-                );
-                // Dimension Chiều dài container (bên phải)
-                maker.addAlignedDimension(
-                    [containerWidth, currentYOffset], 
-                    [containerWidth, containerLength + currentYOffset], 
-                    [containerWidth + 20, containerLength / 2 + currentYOffset], // Vị trí bên phải
-                    { 
-                        layer: 'Dimensions', 
-                        text: `Container L: ${containerLength}mm` 
-                    }
-                );
-                */
                 
                 lastLayerDrawn = layerIndex;
             }
@@ -655,9 +633,7 @@ static exportToDXF(container, allRectangles) {
             const layerName = `Sheet_${layerIndex + 1}_Type_${rectName.replace(/[^a-zA-Z0-9]/g, '_')}`;
             
             // Đảm bảo layer đã được thêm
-            if (!maker._layers.has(layerName)) {
-                maker.addLayer(layerName, aci, 'CONTINUOUS'); 
-            }
+            maker.addLayer(layerName, aci, 'CONTINUOUS');
 
             // Vẽ các hình chữ nhật đã xếp
             rectanglesInTypeGroup.forEach((rect, index) => {
@@ -665,19 +641,19 @@ static exportToDXF(container, allRectangles) {
                 drawRectangle(rect.x, rect.y + currentYOffset, rect.width, rect.length, layerName);
 
                 // Thêm Text (kích thước) vào trung tâm hình (Requirement 3)
-                const textX = rect.x + rect.width / 2;
-                const textY = rect.y + rect.length / 2 + currentYOffset;
-                const textHeight = Math.max(2, Math.min(6, rect.length / 10)); // Chiều cao chữ tỷ lệ với hình (min 2, max 6)
-                const textContent = `${rect.width}x${rect.length}`; // Chỉ hiển thị kích thước (Requirement 3)
+                // const textX = rect.x + rect.width / 2;
+                // const textY = rect.y + rect.length / 2 + currentYOffset;
+                // const textHeight = Math.max(2, Math.min(6, rect.length / 10)); // Chiều cao chữ tỷ lệ với hình (min 2, max 6)
+                // const textContent = `${rect.width}x${rect.length}`; // Chỉ hiển thị kích thước (Requirement 3)
                 
-                maker.addText(textX, textY, textHeight, textContent, {
-                    layer: 'Text', // Đặt text lên layer riêng để dễ quản lý
-                    style: 'STANDARD', 
-                    halign: 'CENTER',
-                    valign: 'MIDDLE'
-                });
+                // maker.addText(textX, textY, textHeight, textContent, {
+                //     layer: 'Text', // Đặt text lên layer riêng để dễ quản lý
+                //     style: 'STANDARD', 
+                //     halign: 'CENTER',
+                //     valign: 'MIDDLE'
+                // });
 
-                /*
+              
                 // TẠM THỜI BÌNH LUẬN CÁC DÒNG THÊM KÍCH THƯỚC (DIMENSION) VÌ DXF-WRITER V1.X KHÔNG HỖ TRỢ.
                 if (index === 0) {
                     // Dimension Chiều rộng hình (trên cùng, cách 10mm)
@@ -701,7 +677,7 @@ static exportToDXF(container, allRectangles) {
                         }
                     );
                 }
-                */
+                
             });
         }
         

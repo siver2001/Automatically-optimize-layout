@@ -13,7 +13,7 @@ function createWindow() {
     height: 1080,
     minWidth: 1024,
     minHeight: 768,
-    title: 'Rectangle Packing Optimizer',
+    title: 'Tự động sắp xếp liệu',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
