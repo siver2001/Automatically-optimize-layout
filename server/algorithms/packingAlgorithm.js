@@ -1,3 +1,4 @@
+// server/algorithms/packingAlgorithm.js
 import DxfWriter from 'dxf-writer';
 class PackingAlgorithm {
   constructor() {
@@ -575,7 +576,8 @@ static exportToDXF(container, allRectangles) {
 
         // Gom nhóm các hình chữ nhật theo layer và theo màu sắc (loại hình)
         const layersMap = new Map();
-        for (const rect of (allRectangles || [])) {
+        // SỬA LỖI: Sử dụng tham số allRectangles thay vì allPlacedRectangles
+        for (const rect of (allRectangles || [])) { 
             if (!rect || typeof rect.width !== 'number' || typeof rect.length !== 'number') {
                 continue;
             }
@@ -621,10 +623,11 @@ static exportToDXF(container, allRectangles) {
                 // Vẽ đường viền container cho layer hiện tại
                 drawRectangle(0, currentYOffset, containerWidth, containerLength, 'ContainerBorder');
 
-                // Thêm Dimension cho container (khung lớn) (Requirement 2)
+                // TẠM THỜI BÌNH LUẬN CÁC DÒNG THÊM KÍCH THƯỚC (DIMENSION) VÌ DXF-WRITER V1.X KHÔNG HỖ TRỢ.
+
+                /*
                 // Dimension Chiều rộng container (trên cùng)
-                maker.addDimension(
-                    'ROTATED',
+                maker.addAlignedDimension(
                     [0, containerLength + currentYOffset], 
                     [containerWidth, containerLength + currentYOffset], 
                     [containerWidth / 2, containerLength + currentYOffset + 20], // Vị trí cao hơn
@@ -634,8 +637,7 @@ static exportToDXF(container, allRectangles) {
                     }
                 );
                 // Dimension Chiều dài container (bên phải)
-                maker.addDimension(
-                    'ROTATED',
+                maker.addAlignedDimension(
                     [containerWidth, currentYOffset], 
                     [containerWidth, containerLength + currentYOffset], 
                     [containerWidth + 20, containerLength / 2 + currentYOffset], // Vị trí bên phải
@@ -644,6 +646,7 @@ static exportToDXF(container, allRectangles) {
                         text: `Container L: ${containerLength}mm` 
                     }
                 );
+                */
                 
                 lastLayerDrawn = layerIndex;
             }
@@ -674,11 +677,11 @@ static exportToDXF(container, allRectangles) {
                     valign: 'MIDDLE'
                 });
 
-                // Thêm Dimension cho hình đầu tiên của loại này trong layer này (Requirement 2)
+                /*
+                // TẠM THỜI BÌNH LUẬN CÁC DÒNG THÊM KÍCH THƯỚC (DIMENSION) VÌ DXF-WRITER V1.X KHÔNG HỖ TRỢ.
                 if (index === 0) {
                     // Dimension Chiều rộng hình (trên cùng, cách 10mm)
-                    maker.addDimension(
-                        'ROTATED', 
+                    maker.addAlignedDimension( 
                         [rect.x, rect.y + rect.length + currentYOffset], 
                         [rect.x + rect.width, rect.y + rect.length + currentYOffset], 
                         [rect.x + rect.width / 2, rect.y + rect.length + currentYOffset + 10], 
@@ -688,8 +691,7 @@ static exportToDXF(container, allRectangles) {
                         }
                     );
                     // Dimension Chiều dài hình (bên phải, cách 10mm)
-                    maker.addDimension(
-                        'ROTATED', 
+                    maker.addAlignedDimension( 
                         [rect.x + rect.width, rect.y + currentYOffset], 
                         [rect.x + rect.width, rect.y + rect.length + currentYOffset], 
                         [rect.x + rect.width + 10, rect.y + rect.length / 2 + currentYOffset], 
@@ -699,6 +701,7 @@ static exportToDXF(container, allRectangles) {
                         }
                     );
                 }
+                */
             });
         }
         
