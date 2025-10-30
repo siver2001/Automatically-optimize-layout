@@ -1,28 +1,29 @@
 // client/src/components/PackingResult.js
+
 import React, { useState, useEffect } from 'react';
 import { usePacking } from '../context/PackingContext.js';
-import { packingService } from '../services/packingService.js'; // Import packingService
+import { packingService } from '../services/packingService.js'; 
 
 const PackingResult = () => {
   const { packingResult, isOptimizing, container, rectangles } = usePacking();
-  const [selectedLayer, setSelectedLayer] = useState(0);
-  const [showPlacedList, setShowPlacedList] = useState(false);
+  
+  const [selectedPlate, setSelectedPlate] = useState(0); 
   const [placedRectDetails, setPlacedRectDetails] = useState({});
-  const [exportLoading, setExportLoading] = useState(false); // State cho nút Export
+  const [exportLoading, setExportLoading] = useState(false); 
 
   // Memoize details of original rectangle types for easy lookup
   useEffect(() => {
     const details = rectangles.reduce((acc, rect) => {
-      acc[rect.id] = { name: rect.name, color: rect.color };
+      acc[rect.id] = { name: rect.name, color: rect.color, width: rect.width, length: rect.length };
       return acc;
     }, {});
     setPlacedRectDetails(details);
   }, [rectangles]);
 
 
-  // Reset selected layer when a new result comes in or container changes
+  // Reset selected plate when a new result comes in or container changes
   useEffect(() => {
-    setSelectedLayer(0);
+    setSelectedPlate(0);
   }, [packingResult, container.layers]);
   
   if (isOptimizing) {
@@ -56,20 +57,19 @@ const PackingResult = () => {
   }
 
   const { 
-    layersUsed = 1, 
-    layers: resultLayers,
-    rectangles: allPlacedRectangles, // Lấy tất cả hình đã xếp
-    remainingRectangles = []
+    layersUsed: platesNeeded = 0, 
+    plates: resultPlates, 
+    layersPerPlate = container.layers,
+    rectangles: allPlacedRectangles, 
   } = packingResult;
   
-  const currentLayerData = resultLayers ? resultLayers[selectedLayer] : null;
-  const currentLayerRectangles = currentLayerData ? currentLayerData.rectangles : [];
-  
+  const currentPlateData = resultPlates ? resultPlates[selectedPlate] : null;
+  const currentPlateLayers = currentPlateData ? currentPlateData.layers : [];
+
   // Visualization scaling
   const containerWidth = container.width;
   const containerLength = container.length;
 
-  // Quyết định kích thước hiển thị để ưu tiên chiều ngang (Landscape)
   const isLandscape = containerWidth > containerLength;
   const vizWidth = isLandscape ? containerWidth : containerLength;
   const vizLength = isLandscape ? containerLength : containerWidth;
@@ -81,20 +81,21 @@ const PackingResult = () => {
   const displayWidth = vizWidth * scale;
   const displayLength = vizLength * scale;
   
-  // Điều chỉnh kích thước hiển thị lưới (Grid lines) theo kích thước đã xoay
   const gridWidth = isLandscape ? container.width : container.length;
   const gridLength = isLandscape ? container.length : container.width;
 
-  const containerAreaPerLayer = container.width * container.length;
-  const layerUsedArea = currentLayerRectangles.reduce((sum, rect) => sum + (rect.width * rect.length), 0);
-  const layerEfficiency = containerAreaPerLayer > 0 ? (layerUsedArea / containerAreaPerLayer * 100).toFixed(1) : 0;
+  // Tính hiệu suất của *mẫu* lớp đơn lẻ.
+  const singleLayerArea = container.width * container.length;
+  const plateUsedArea = currentPlateLayers.flatMap(layer => layer.rectangles.filter(Boolean))
+    .reduce((sum, rect) => rect.layer === 0 ? sum + (rect.width * rect.length) : sum, 0);
+  
+  const plateEfficiency = singleLayerArea > 0 ? (plateUsedArea / singleLayerArea * 100).toFixed(1) : 0;
   
   // --- XỬ LÝ EXPORT DXF ---
   const handleExportDXF = async () => {
     setExportLoading(true);
     try {
         await packingService.exportToDXF(container, allPlacedRectangles);
-        // Alert sẽ hiển thị trong quá trình tải xuống (nếu thành công) hoặc sau khi thất bại
     } catch (error) {
         alert(`Xuất file DXF thất bại: ${error.message}`);
     } finally {
@@ -107,28 +108,28 @@ const PackingResult = () => {
       <div className="bg-white rounded-xl shadow-lg border border-gray-300 p-1 mb-4">
         <div className="flex items-center justify-between mb-3 border-b pb-1"> 
           <h3 className="text-l font-semibold text-gray-800">
-            Tấm liệu {selectedLayer + 1}
+            Tấm liệu {selectedPlate + 1} ({layersPerPlate} lớp)
           </h3>
           <div className="text-l text-gray-600">
-             Hiệu suất: <span className="font-bold text-primary-600">{layerEfficiency}%</span>
+             Hiệu suất (1 Lớp tối ưu): <span className="font-bold text-primary-600">{plateEfficiency}%</span>
           </div>
         </div>
         
-        {/* Layer Selector Buttons */}
-        {layersUsed > 1 && (
-            <div className="mb-3 flex items-center gap-3 overflow-x-auto pb-2"> {/* Đã giảm mb-4 xuống mb-3 */}
+        {/* Plate Selector Buttons */}
+        {platesNeeded > 1 && (
+            <div className="mb-3 flex items-center gap-3 overflow-x-auto pb-2">
                 <span className="font-medium text-gray-700 flex-shrink-0">Chọn Tấm liệu:</span>
-                {Array.from({ length: layersUsed }).map((_, index) => (
+                {Array.from({ length: platesNeeded }).map((_, index) => (
                 <button
                     key={index}
-                    onClick={() => setSelectedLayer(index)}
+                    onClick={() => setSelectedPlate(index)}
                     className={`px-3 py-1 rounded-full text-sm font-medium transition-all duration-200 flex-shrink-0 border ${
-                    selectedLayer === index 
+                    selectedPlate === index 
                         ? 'bg-primary-600 text-white shadow-md border-primary-600' 
                         : 'bg-white text-gray-700 hover:bg-primary-50 border-gray-300'
                     }`}
                 >
-                    Tấm liệu {index + 1} ({resultLayers[index].rectangles.length} hình)
+                    Tấm liệu {index + 1}
                 </button>
                 ))}
             </div>
@@ -138,7 +139,6 @@ const PackingResult = () => {
         <div className="flex justify-center p-1 overflow-x-auto overflow-y-auto">
           <div 
             className="relative border-4 border-gray-900 rounded-lg shadow-inner bg-gray-200 flex-shrink-0"
-            // --- START CHỈNH SỬA ---
             style={{ 
               width: `${displayWidth}px`, 
               height: `${displayLength}px`,
@@ -166,9 +166,16 @@ const PackingResult = () => {
               ))}
             </div>
             
-            {/* Packed Rectangles */}
-            {currentLayerRectangles.map((rect) => {
-              // Sử dụng tọa độ và kích thước đã được sắp xếp
+            {/* Packed Rectangles: Iterate over ALL LAYERS in the selected PLATE */}
+            {currentPlateLayers
+              .flatMap(layer => layer.rectangles.filter(Boolean)) 
+              .map((rect, rectIndex) => {
+              
+              // FIX 1: Kiểm tra tính hợp lệ của đối tượng rect trước khi sử dụng.
+              if (!rect || typeof rect.width !== 'number' || typeof rect.length !== 'number') {
+                  return null;
+              }
+              
               const rectWidth = rect.width * scale;
               const rectLength = rect.length * scale;
               const rectX = isLandscape ? rect.x * scale : rect.y * scale;
@@ -179,14 +186,24 @@ const PackingResult = () => {
               const minDim = Math.min(finalWidth, finalLength);
               const fontSize = Math.max(8, minDim * 0.15); 
               
-              const originalRect = placedRectDetails[rect.typeId]; // Fetch original details
+              const originalRect = placedRectDetails[rect.typeId];
+              
+              // FIX 2: Bảo vệ việc truy cập kích thước gốc (width/length) trong thuộc tính title.
+              // Nếu originalRect bị undefined, sử dụng giá trị mặc định an toàn.
+              const originalDims = (originalRect && originalRect.width && originalRect.length)
+                ? `${originalRect.width}×${originalRect.length}mm` 
+                : 'Kích thước gốc không xác định';
+
               const rectName = originalRect ? originalRect.name : `ID ${rect.typeId}`;
               
-              const key = rect.id + '-' + rect.layer; 
+              // Visually distinguish layers using opacity and z-index
+              const layersCount = layersPerPlate;
+              const opacity = 1 - (rect.layer / layersCount) * 0.4; 
+              const zIndex = 10 + (layersCount - rect.layer); 
               
               return (
                 <div
-                  key={key}
+                  key={rect.id} 
                   className="absolute border border-white shadow-xl flex items-center justify-center text-white font-bold transition-all duration-300 hover:scale-[1.03] hover:z-20 cursor-help"
                   style={{
                     left: `${rectX}px`,
@@ -197,12 +214,14 @@ const PackingResult = () => {
                     fontSize: `${fontSize}px`,
                     minWidth: '20px', 
                     minHeight: '15px', 
-                    overflow: 'hidden'
+                    overflow: 'hidden',
+                    opacity: opacity, 
+                    zIndex: zIndex 
                   }}
-                  title={`[Tấm liệu ${rect.layer + 1}] ${rectName} (${rect.width}×${rect.length}mm) tại X:${rect.x} Y:${rect.y} ${rect.rotated ? '(Xoay 90°)' : ''}`}
+                  title={`[Tấm ${rect.plateIndex + 1}, Lớp ${rect.layer + 1}] ${rectName} (${originalDims}) tại X:${rect.x} Y:${rect.y} ${rect.rotated ? '(Xoay 90°)' : ''}`}
                 >
                   <div className="text-center leading-none p-0.5">
-                    <div className="text-xs">{rect.width}×{rect.length}</div>
+                    <div className="text-xs">{rect.width}×{rect.length} (L{rect.layer + 1})</div>
                   </div>
                 </div>
               );
@@ -211,7 +230,7 @@ const PackingResult = () => {
         </div>
         
         {/* Nút Export DXF */}
-        <div className="mt-3 flex justify-end"> {/* Đã giảm mt-4 xuống mt-3 */}
+        <div className="mt-3 flex justify-end">
             <button 
                 onClick={handleExportDXF}
                 disabled={exportLoading || allPlacedRectangles.length === 0}
@@ -220,60 +239,7 @@ const PackingResult = () => {
                 {exportLoading ? 'Đang tạo DXF...' : '💾 Xuất ra AutoCAD (DXF)'}
             </button>
         </div>
-        
       </div>
-      
-      {/* Toggle Placed Items List */}
-      <div className="mb-3">
-        <button 
-          onClick={() => setShowPlacedList(prev => !prev)}
-          className="btn-secondary px-4 py-1 text-sm"
-        >
-          {showPlacedList ? 'Ẩn' : 'Hiện'} Danh sách các hình đã xếp ({currentLayerRectangles.length})
-        </button>
-      </div>
-      
-      {/* Detailed Placed Items List for the current layer - The list shows WHICH pieces were placed and WHERE */}
-      {showPlacedList && (
-        <div className="bg-white border border-gray-200 rounded-xl p-4 overflow-y-auto max-h-96">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            {currentLayerRectangles
-              .sort((a, b) => (placedRectDetails[a.typeId]?.name || "").localeCompare(placedRectDetails[b.typeId]?.name || ""))
-              .map((rect, index) => {
-              const originalRect = placedRectDetails[rect.typeId];
-              const rectName = originalRect ? originalRect.name : `ID ${rect.typeId}`;
-              
-              return (
-                <div key={rect.id} className="bg-gray-50 rounded-lg p-3 border border-gray-200 shadow-sm flex items-center gap-3">
-                  <div 
-                    className="w-6 h-6 rounded border border-gray-300 flex-shrink-0"
-                    style={{ backgroundColor: rect.color }}
-                  ></div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-gray-800 text-sm truncate" title={rectName}>
-                      {rectName}
-                    </div>
-                    <div className="text-xs text-gray-600 truncate">
-                      {rect.width}×{rect.length}mm @ ({rect.x}, {rect.y})
-                      {rect.rotated && <span className="ml-1 text-orange-500">(Xoay)</span>}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Remaining items across all layers */}
-      {remainingRectangles.length > 0 && (
-        <div className="mt-4 bg-yellow-50 border border-yellow-200 rounded-xl p-4">
-          <div className="font-semibold text-yellow-800 mb-2">Chưa xếp được ({remainingRectangles.length}):</div>
-          <div className="text-sm text-yellow-800">
-            {remainingRectangles.map((r) => `${r.width}×${r.length}`).join(', ')}
-          </div>
-        </div>
-      )}
     </div>
   );
 };

@@ -23,6 +23,7 @@ const StatusOverview = () => {
   const selectedCountTotal = selectedRectsWithQuantities.reduce((sum, rect) => sum + rect.quantity, 0);
   
   // Area calculations
+  // Tổng diện tích tối đa (cho mục đích so sánh ban đầu)
   const containerArea = container.width * container.length * container.layers; 
   const selectedArea = selectedRectsWithQuantities.reduce((sum, rect) => 
     sum + (rect.width * rect.length * rect.quantity), 0
@@ -40,14 +41,17 @@ const StatusOverview = () => {
 
   const getStatusText = () => {
     if (isOptimizing) return 'Đang chạy thuật toán tối ưu...';
-    if (packingResult) return 'Tối ưu hoàn thành. Xem kết quả chi tiết bên dưới.';
+    // Sử dụng platesNeeded để báo cáo số tấm cần thiết
+    if (packingResult && packingResult.layersUsed > 0) return `Tối ưu hoàn thành. Cần ${packingResult.layersUsed} tấm liệu.`;
+    if (packingResult && packingResult.layersUsed === 0 && selectedCountTotal > 0) return `Lỗi: Không thể xếp hình nào.`;
     if (selectedCountTotal > 0) return `Sẵn sàng tối ưu cho ${selectedCountTotal} hình.`;
     return 'Vui lòng chọn hình chữ nhật và cấu hình container.';
   };
 
   const getStatusIcon = () => {
     if (isOptimizing) return '⚙️';
-    if (packingResult) return '✅';
+    if (packingResult && packingResult.layersUsed > 0) return '✅';
+    if (packingResult && packingResult.layersUsed === 0 && selectedCountTotal > 0) return '❌'; // Thêm biểu tượng lỗi
     if (selectedCountTotal > 0) return '🚀';
     return '📦';
   };
@@ -59,7 +63,6 @@ const StatusOverview = () => {
       <div className={`bg-gradient-to-r ${getStatusColor()} rounded-2xl p-6 text-white shadow-xl`}>
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-center gap-4">
-            {/* Sử dụng animate-spin-slow được thêm vào index.css */}
             <span className={`text-4xl ${isOptimizing ? 'animate-spin-slow' : ''}`}>{getStatusIcon()}</span> 
             <div>
               <h2 className="text-2xl font-bold">TỔNG QUAN TRẠNG THÁI</h2>
@@ -88,14 +91,14 @@ const StatusOverview = () => {
           
           <div className="bg-white/10 rounded-lg p-3 text-center transition-all duration-300 hover:bg-white/20">
             <div className="text-2xl font-bold">{materialRatio.toFixed(1)}%</div>
-            <div className="text-xs text-white/80">Tỷ lệ Vật liệu (Tối đa)</div>
+            <div className="text-xs text-white/80">Tỷ lệ Vật liệu (Lý thuyết)</div>
           </div>
           
           <div className={`rounded-lg p-3 text-center transition-all duration-300 ${packingResult ? 'bg-white/20 hover:bg-white/30' : 'bg-transparent'}`}>
             <div className="text-2xl font-bold">
               {packingResult ? packingResult.efficiency.toFixed(1) + '%' : '--'}
             </div>
-            <div className="text-xs text-white/80">Hiệu suất Tối ưu</div>
+            <div className="text-xs text-white/80">Hiệu suất Tối ưu (Tổng thể)</div>
           </div>
         </div>
       </div>
