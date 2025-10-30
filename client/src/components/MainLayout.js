@@ -18,29 +18,25 @@ const MainLayout = ({ children }) => {
   const packingResult = childrenArray[2]; 
 
   return (
-    // Grid: Chia màn hình thành hai cột bằng nhau (6 + 6 = 12)
+    // Giữ nguyên grid 12 cột. Column Left: Input + List; Column Right: Result
     // h-[calc(100vh-96px)] đảm bảo chiều cao tối đa của khu vực làm việc
     <div className="grid grid-cols-12 gap-2 h-[calc(100vh-96px)] w-full">
       
-      {/* Cột trái: Thiết kế tấm liệu + Quản lý size. */}
-      {/* flex-col và h-full đảm bảo nó chiếm hết chiều cao và xếp nội dung theo cột. */}
-      {/* overflow-hidden để chỉ các phần tử con mới cuộn. */}
+      {/* Cột trái: Thiết kế tấm liệu + Quản lý size. Giữ nguyên 6 cột */}
       <div className="col-span-12 md:col-span-6 flex flex-col gap-2 h-full overflow-hidden">
         
-        {/* Hàng trên: Container Input */}
-        {/* flex-1: Chia đều 40% chiều cao cho mỗi block, cho phép cuộn bên trong */}
+        {/* Hàng trên: Container Input (42.5% chiều cao của cột trái) */}
         <div className="flex-[0.425] overflow-auto custom-scrollbar"> 
           {containerInput}
         </div>
         
-        {/* Hàng dưới: Rectangle List */}
-        {/* flex-1: Chia đều 60% chiều cao còn lại cho block này, cho phép cuộn bên trong */}
+        {/* Hàng dưới: Rectangle List (57.5% chiều cao còn lại của cột trái) */}
         <div className="flex-[0.575] overflow-auto custom-scrollbar"> 
           {rectangleList}
         </div>
       </div>
 
-      {/* Cột phải: Packing Result. Chiếm hết chiều cao còn lại và có thanh cuộn độc lập */}
+      {/* Cột phải: Packing Result. Giữ nguyên 6 cột. Có thể cuộn độc lập */}
       <div className="col-span-12 md:col-span-6 h-full overflow-auto space-y-2 custom-scrollbar">
         {packingResult}
       </div>

@@ -41,29 +41,39 @@ const ContainerInput = () => {
   // Tính tỷ lệ hiển thị container preview
   const getContainerPreviewStyle = () => {
     if (!localContainer.width || !localContainer.length || localContainer.width <= 0 || localContainer.length <= 0) {
-      return { width: '200px', height: '150px' };
+      // Giá trị mặc định cho preview nếu input không hợp lệ
+      return { width: '250px', height: '100px' }; 
     }
     
-    const maxWidth = 280; // Tăng kích thước xem trước
-    const maxLength = 180;
-    const aspectRatio = localContainer.width / localContainer.length;
+    // Đảm bảo chiều rộng luôn lớn hơn chiều dài để hiển thị ngang (Landscape)
+    const effectiveWidth = Math.max(localContainer.width, localContainer.length);
+    const effectiveLength = Math.min(localContainer.width, localContainer.length);
+
+    const maxWidth = 300; 
+    const maxLength = 200; // Chiều dài giới hạn cho màn hình
+    const aspectRatio = effectiveWidth / effectiveLength;
     
     let displayWidth, displayLength;
-    const scaleFactor = 4; 
 
     if (aspectRatio > 1) {
-      displayWidth = Math.min(maxWidth, localContainer.width / scaleFactor); 
-      displayLength = displayWidth / aspectRatio;
+      // Landscape: giới hạn theo chiều rộng tối đa
+      displayWidth = maxWidth;
+      displayLength = Math.min(maxLength, displayWidth / aspectRatio); // Giữ tỷ lệ
     } else {
-      displayLength = Math.min(maxLength, localContainer.length / scaleFactor);
-      displayWidth = displayLength * aspectRatio;
+      // Portrait hoặc Square: giới hạn theo chiều dài (chiều cao trên màn hình)
+      displayLength = maxLength;
+      displayWidth = Math.min(maxWidth, displayLength * aspectRatio); // Giữ tỷ lệ
     }
+    
+    // Nếu kích thước quá nhỏ, đặt kích thước tối thiểu để hiển thị
+    displayWidth = Math.max(150, displayWidth); 
+    displayLength = Math.max(80, displayLength);
     
     return {
       width: `${displayWidth}px`,
       height: `${displayLength}px`,
-      minWidth: '100px',
-      minHeight: '75px'
+      minWidth: '150px',
+      minHeight: '80px'
     };
   };
 
@@ -150,7 +160,7 @@ const ContainerInput = () => {
               {/* Nút Cập nhật */}
               <button 
                 type="submit" 
-                className="btn-primary flex-0.5 min-w-[150px]" // flex-1 để nút co giãn
+                className="btn-primary flex-0.5 min-w-[150px]" 
                 disabled={!localContainer.width || !localContainer.length || localContainer.width <= 0 || localContainer.length <= 0}
               >
                 ✅ Thiết kế tấm liệu

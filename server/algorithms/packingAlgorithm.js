@@ -49,9 +49,9 @@ class PackingAlgorithm {
             bestUsedArea = currentUsedArea;
             // Sao chép kết quả để không bị ảnh hưởng bởi các lần chạy tiếp theo
             bestResult = { 
-                placed: currentPlaced.map(r => ({...r, layer: 0})), 
-                remaining: currentRemaining.map(r => ({...r})) 
-            };
+              placed: currentPlaced.map(r => ({...r, layer: 0})), 
+              remaining: currentRemaining.map(r => ({...r})) 
+          };
         }
     }
 
@@ -185,10 +185,9 @@ class PackingAlgorithm {
 
       if (bestIndex !== -1 && chosenNode) {
         const placed = {
-          ...rect,
-          x: chosenNode.x,
-          y: chosenNode.y
-          // width, length, và rotated đã được quyết định TRƯỚC
+            ...rect,
+            x: chosenNode.x,
+            y: chosenNode.y
         };
         placedRectangles.push(placed);
         usedRectIds.add(rect.id);
@@ -333,7 +332,6 @@ class PackingAlgorithm {
     };
   }
   
-  // ... (updateFreeSpaces và calculateWaste không đổi)
   updateFreeSpaces(freeSpaces, placedRect, usedSpace, index) {
     freeSpaces.splice(index, 1);
 
@@ -369,9 +367,9 @@ class PackingAlgorithm {
     let unpackedRectangles = initialRectangles.map(r => ({...r}));
     let allPlacedRectangles = [];
     let layersUsed = 0;
-    let placedInLayer; // Khai báo biến này
+    let placedInLayer; 
 
-    // Hàm kiểm tra khả năng vừa (chỉ cần kích thước cố định vừa với container)
+    // Hàm kiểm tra khả năng vừa
     const canFit = (r) => (r.width <= container.width && r.length <= container.length);
 
     // Helper to sanitize placements (Giữ nguyên)
@@ -398,51 +396,27 @@ class PackingAlgorithm {
         }
         return { accepted, stillRemaining };
     };
-
-    for (let layer = 0; layer < maxLayers && unpackedRectangles.length > 0; layer++) {
+    
+    // Luôn chạy cho lớp đầu tiên (layer 0)
+    const layer = 0;
       
-      const sortedForLayer = this.sortRectanglesByArea(unpackedRectangles);
+    const sortedForLayer = this.sortRectanglesByArea(unpackedRectangles);
+    
+    // Chạy thuật toán 2D tốt nhất trên danh sách đã sắp xếp (ĐÃ CÓ KÍCH THƯỚC CỐ ĐỊNH)
+    const { placed: placedRaw, remaining: remainingRaw } = this._runSingleLayerPacking(sortedForLayer);
+    
+    const sanitizeResult = sanitizeLayer(placedRaw, remainingRaw);
+    placedInLayer = sanitizeResult.accepted;
+    unpackedRectangles = sanitizeResult.stillRemaining;
       
-      // Chạy thuật toán 2D tốt nhất trên danh sách đã sắp xếp (ĐÃ CÓ KÍCH THƯỚC CỐ ĐỊNH)
-      const { placed: placedRaw, remaining: remainingRaw } = this._runSingleLayerPacking(sortedForLayer);
+    // Đánh dấu lớp hiện tại cho các hình đã xếp
+    placedInLayer.forEach(rect => {
+      rect.layer = layer;
+      allPlacedRectangles.push(rect);
+    });
       
-      const sanitizeResult = sanitizeLayer(placedRaw, remainingRaw);
-      placedInLayer = sanitizeResult.accepted;
-      unpackedRectangles = sanitizeResult.stillRemaining;
-      
-      if (placedInLayer.length === 0 && unpackedRectangles.length > 0) {
-        
-        const anyFeasible = unpackedRectangles.some(canFit);
-        if (anyFeasible) {
-            // Lần thử thứ hai với Next Fit Decreasing để lấp đầy các khoảng trống nếu có
-            const { placed: placedNFD, remaining: remainingNFD } = this._nextFitDecreasing(sortedForLayer);
-            
-            const { accepted: acceptedNFD, stillRemaining: stillRemainingNFD } = sanitizeLayer(placedNFD, remainingNFD);
-            
-            if (acceptedNFD.length > 0) {
-                placedInLayer = acceptedNFD;
-                unpackedRectangles = stillRemainingNFD;
-            } else {
-                 // Không thể đặt thêm, và không có tiến triển
-                if (unpackedRectangles.every(r => !canFit(r)) || unpackedRectangles.length === sortedForLayer.length) {
-                    break;
-                }
-            }
-        } else {
-            break; // Không còn hình nào có thể vừa (dù đã xoay hay chưa), thoát
-        }
-      }
-      
-      // Đánh dấu lớp hiện tại cho các hình đã xếp
-      placedInLayer.forEach(rect => {
-        rect.layer = layer;
-        allPlacedRectangles.push(rect);
-      });
-      
-      // Chỉ tăng layersUsed nếu có hình được đặt trong lớp này
-      if (placedInLayer.length > 0) {
-        layersUsed++;
-      }
+    if (placedInLayer.length > 0) {
+      layersUsed++;
     }
 
     // Tính toán các chỉ số cuối cùng
@@ -468,10 +442,8 @@ class PackingAlgorithm {
   // --- Hàm Optimize chính đã sửa đổi ---
   async optimize(container, initialRectangles, maxLayers) {
     this.container = container;
-    this.layers = maxLayers;
-
-    // BƯỚC 1: Xác định trạng thái xoay cố định cho TỪNG LOẠI
-    // Chú ý: Truyền bản sao của initialRectangles để tránh thay đổi bản gốc
+    
+    // BƯỚC 1: Xác định trạng thái xoay cố định tối ưu cho từng loại
     const optimalRotations = this.determineOptimalRotations(container, initialRectangles.map(r => ({...r})));
     
     // BƯỚC 2: Áp dụng trạng thái xoay đã chọn cho TẤT CẢ bản sao
@@ -494,45 +466,49 @@ class PackingAlgorithm {
         };
     });
     
-    const META_ITERATIONS = 50; 
-    let bestResult = null;
-    
-    const optimizedRectangles = transformedRectangles.map(r => ({...r}));
-    
-    // Lần 0: Chạy với sắp xếp diện tích giảm dần (đã áp dụng rotation)
-    bestResult = this._runGreedyLayeringPass(container, this.sortRectanglesByArea(optimizedRectangles), maxLayers);
-    
-    // Vòng lặp tìm kiếm Meta-Heuristic (chỉ thay đổi thứ tự, KHÔNG thay đổi kích thước)
-    for (let i = 1; i < META_ITERATIONS; i++) {
-        // 1. Tạo hoán vị ngẫu nhiên trên danh sách optimizedRectangles đã xác định xoay
-        let shuffledRectangles = optimizedRectangles.map(r => ({...r}));
-        this.shuffleArray(shuffledRectangles);
-        
-        // 2. Chạy thuật toán tham lam 
-        const currentResult = this._runGreedyLayeringPass(container, shuffledRectangles, maxLayers);
-        
-        // 3. So sánh và Cập nhật (Acceptance Criterion)
-        if (currentResult.layersUsed < bestResult.layersUsed || 
-            (currentResult.layersUsed === bestResult.layersUsed && currentResult.efficiency > bestResult.efficiency)) {
-            
-            bestResult = currentResult;
-        }
-    }
+    const sortedRectangles = this.sortRectanglesByArea(transformedRectangles);
+
+    const bestResult = this._runGreedyLayeringPass(container, sortedRectangles, 1);
 
     return bestResult;
   }
 static exportToDXF(container, allRectangles) {
         const maker = new DxfWriter();
-        const containerWidth = container.width;
-        const containerLength = container.length;
-        const layerSpacing = 50; // Khoảng cách giữa các layer (tăng lên 50mm để có chỗ cho dimension)
+        
+        // --- LOGIC XOAY: Đảm bảo tấm liệu được vẽ ngang (width > length) ---
+        // Giả sử kích thước đầu vào (container.width, container.length) là kích thước vật lý.
+        // Để hiển thị ngang (tức là trục X dài hơn trục Y), chúng ta sẽ hoán đổi
+        // nếu width < length.
+        let containerWidth = container.width;
+        let containerLength = container.length;
+        let swapCoordinates = false;
+
+        if (containerWidth < containerLength) {
+            [containerWidth, containerLength] = [containerLength, containerWidth];
+            swapCoordinates = true;
+        }
+
+        const layerSpacing = 50; // Khoảng cách giữa các layer (50mm)
 
         // Hàm trợ giúp để vẽ hình chữ nhật bằng 4 đoạn thẳng
         const drawRectangle = (x, y, width, length, layerName) => {
-            const x0 = x;
-            const y0 = y;
-            const x1 = x + width;
-            const y1 = y + length;
+            let finalX = x;
+            let finalY = y;
+            let finalWidth = width;
+            let finalLength = length;
+
+            // Nếu trục đã bị hoán đổi, hoán đổi lại tọa độ và kích thước
+            if (swapCoordinates) {
+                finalX = y;
+                finalY = x;
+                finalWidth = length;
+                finalLength = width;
+            }
+            
+            const x0 = finalX;
+            const y0 = finalY;
+            const x1 = finalX + finalWidth;
+            const y1 = finalY + finalLength;
             
             maker.drawLine(x0, y0, x1, y0, { layer: layerName }); // Bottom line
             maker.drawLine(x1, y0, x1, y1, { layer: layerName }); // Right line
@@ -544,15 +520,15 @@ static exportToDXF(container, allRectangles) {
         const getAciFromHex = (hex) => {
             // Mapping đơn giản cho các màu thường dùng
             switch (hex?.toUpperCase()) {
-                case '#FF6B6B': return 1; // Red
-                case '#4ECDC4': return 4; // Cyan
-                case '#45B7D1': return 5; // Blue
-                case '#96CEB4': return 9; // Green (Light)
-                case '#FFEAA7': return 2; // Yellow
-                case '#DDA0DD': return 13; // Orchid
-                case '#98D8C8': return 4; // Light Teal (sử dụng Cyan)
-                case '#F7DC6F': return 2; // Yellow (sử dụng Yellow)
-                case '#3498DB': return 5; // Blue (default)
+                case '#FF6B6B': return 1;   // Red
+                case '#4ECDC4': return 4;   // Cyan
+                case '#45B7D1': return 5;   // Blue
+                case '#96CEB4': return 3;   // Green 
+                case '#FFEAA7': return 2;   // Yellow
+                case '#DDA0DD': return 6;   // Magenta 
+                case '#98D8C8': return 4;   // Light Teal (Cyan)
+                case '#F7DC6F': return 2;   // Yellow
+                case '#3498DB': return 5;   // Blue (default)
                 default:
                     // Fallback to a hash based unique but distinct ACI
                     let hash = 0;
@@ -590,13 +566,12 @@ static exportToDXF(container, allRectangles) {
                     rectangles: [],
                     layerIndex: rect.layer || 0,
                     color: rect.color,
-                    aci: getAciFromHex(rect.color), // Get ACI from color
-                    name: rect.name || `Rect ${rect.id}` // Lấy tên hình
+                    aci: getAciFromHex(rect.color),
+                    name: rect.name || `Rect ${rect.id}`
                 };
                 layersMap.set(typeKey, group);
             }
             
-            // Thêm hình chữ nhật vào nhóm
             group.rectangles.push(rect);
         }
 
@@ -619,7 +594,7 @@ static exportToDXF(container, allRectangles) {
             if (layerIndex !== lastLayerDrawn) {
                 // Cập nhật offset cho layer tiếp theo (đặt layer mới dưới layer cũ)
                 if (lastLayerDrawn !== -1) {
-                    // Nếu không phải lần đầu, thêm khoảng cách giữa các tấm liệu (Requirement 3)
+                    // Nếu không phải lần đầu, thêm khoảng cách giữa các tấm liệu
                     currentYOffset += containerLength + layerSpacing; 
                 }
 
@@ -636,48 +611,10 @@ static exportToDXF(container, allRectangles) {
             maker.addLayer(layerName, aci, 'CONTINUOUS');
 
             // Vẽ các hình chữ nhật đã xếp
-            rectanglesInTypeGroup.forEach((rect, index) => {
+            rectanglesInTypeGroup.forEach((rect) => {
                 // Vẽ khung hình chữ nhật
+                // Chú ý: Ở đây ta chỉ cần cộng `currentYOffset` vào tọa độ Y
                 drawRectangle(rect.x, rect.y + currentYOffset, rect.width, rect.length, layerName);
-
-                // Thêm Text (kích thước) vào trung tâm hình (Requirement 3)
-                // const textX = rect.x + rect.width / 2;
-                // const textY = rect.y + rect.length / 2 + currentYOffset;
-                // const textHeight = Math.max(2, Math.min(6, rect.length / 10)); // Chiều cao chữ tỷ lệ với hình (min 2, max 6)
-                // const textContent = `${rect.width}x${rect.length}`; // Chỉ hiển thị kích thước (Requirement 3)
-                
-                // maker.addText(textX, textY, textHeight, textContent, {
-                //     layer: 'Text', // Đặt text lên layer riêng để dễ quản lý
-                //     style: 'STANDARD', 
-                //     halign: 'CENTER',
-                //     valign: 'MIDDLE'
-                // });
-
-              
-                // TẠM THỜI BÌNH LUẬN CÁC DÒNG THÊM KÍCH THƯỚC (DIMENSION) VÌ DXF-WRITER V1.X KHÔNG HỖ TRỢ.
-                if (index === 0) {
-                    // Dimension Chiều rộng hình (trên cùng, cách 10mm)
-                    maker.addAlignedDimension( 
-                        [rect.x, rect.y + rect.length + currentYOffset], 
-                        [rect.x + rect.width, rect.y + rect.length + currentYOffset], 
-                        [rect.x + rect.width / 2, rect.y + rect.length + currentYOffset + 10], 
-                        { 
-                            layer: 'Dimensions', 
-                            text: `W: ${rect.width}` 
-                        }
-                    );
-                    // Dimension Chiều dài hình (bên phải, cách 10mm)
-                    maker.addAlignedDimension( 
-                        [rect.x + rect.width, rect.y + currentYOffset], 
-                        [rect.x + rect.width, rect.y + rect.length + currentYOffset], 
-                        [rect.x + rect.width + 10, rect.y + rect.length / 2 + currentYOffset], 
-                        { 
-                            layer: 'Dimensions', 
-                            text: `L: ${rect.length}` 
-                        }
-                    );
-                }
-                
             });
         }
         

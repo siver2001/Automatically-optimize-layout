@@ -66,18 +66,30 @@ const PackingResult = () => {
   const currentLayerRectangles = currentLayerData ? currentLayerData.rectangles : [];
   
   // Visualization scaling
-  const maxVisualWidth = 300; 
-  const maxVisualLength = 500;
-  const scale = Math.min(maxVisualWidth / container.width, maxVisualLength / container.length);
+  const containerWidth = container.width;
+  const containerLength = container.length;
 
-  const displayWidth = Math.min(maxVisualWidth, container.width * scale);
-  const displayLength = Math.min(maxVisualLength, container.length * scale);
+  // Quyết định kích thước hiển thị để ưu tiên chiều ngang (Landscape)
+  const isLandscape = containerWidth > containerLength;
+  const vizWidth = isLandscape ? containerWidth : containerLength;
+  const vizLength = isLandscape ? containerLength : containerWidth;
+
+  const maxVisualWidth = 500; 
+  const maxVisualLength = 300; 
+  const scale = Math.min(maxVisualWidth / vizWidth, maxVisualLength / vizLength);
+
+  const displayWidth = vizWidth * scale;
+  const displayLength = vizLength * scale;
+  
+  // Điều chỉnh kích thước hiển thị lưới (Grid lines) theo kích thước đã xoay
+  const gridWidth = isLandscape ? container.width : container.length;
+  const gridLength = isLandscape ? container.length : container.width;
 
   const containerAreaPerLayer = container.width * container.length;
   const layerUsedArea = currentLayerRectangles.reduce((sum, rect) => sum + (rect.width * rect.length), 0);
   const layerEfficiency = containerAreaPerLayer > 0 ? (layerUsedArea / containerAreaPerLayer * 100).toFixed(1) : 0;
   
-  // --- HÀM MỚI: XỬ LÝ EXPORT DXF ---
+  // --- XỬ LÝ EXPORT DXF ---
   const handleExportDXF = async () => {
     setExportLoading(true);
     try {
@@ -89,7 +101,6 @@ const PackingResult = () => {
         setExportLoading(false);
     }
   };
-  // --- KẾT THÚC HÀM XỬ LÝ EXPORT DXF ---
 
   return (
     <div className="mb-8 card p-3"> 
@@ -127,6 +138,7 @@ const PackingResult = () => {
         <div className="flex justify-center p-1 overflow-x-auto overflow-y-auto">
           <div 
             className="relative border-4 border-gray-900 rounded-lg shadow-inner bg-gray-200 flex-shrink-0"
+            // --- START CHỈNH SỬA ---
             style={{ 
               width: `${displayWidth}px`, 
               height: `${displayLength}px`,
@@ -137,7 +149,7 @@ const PackingResult = () => {
             {/* Grid lines for better visualization */}
             <div className="absolute inset-0 opacity-20">
               {/* Vertical lines - 100mm grid */}
-              {Array.from({length: Math.floor(container.width/100)}).map((_, i) => (
+              {Array.from({length: Math.floor(gridWidth/100)}).map((_, i) => (
                 <div 
                   key={`v-${i}`}
                   className="absolute top-0 bottom-0 w-px bg-gray-400"
@@ -145,7 +157,7 @@ const PackingResult = () => {
                 ></div>
               ))}
               {/* Horizontal lines - 100mm grid */}
-              {Array.from({length: Math.floor(container.length/100)}).map((_, i) => (
+              {Array.from({length: Math.floor(gridLength/100)}).map((_, i) => (
                 <div 
                   key={`h-${i}`}
                   className="absolute left-0 right-0 h-px bg-gray-400"
@@ -156,9 +168,15 @@ const PackingResult = () => {
             
             {/* Packed Rectangles */}
             {currentLayerRectangles.map((rect) => {
+              // Sử dụng tọa độ và kích thước đã được sắp xếp
               const rectWidth = rect.width * scale;
               const rectLength = rect.length * scale;
-              const minDim = Math.min(rectWidth, rectLength);
+              const rectX = isLandscape ? rect.x * scale : rect.y * scale;
+              const rectY = isLandscape ? rect.y * scale : rect.x * scale;
+              const finalWidth = isLandscape ? rectWidth : rectLength;
+              const finalLength = isLandscape ? rectLength : rectWidth;
+              
+              const minDim = Math.min(finalWidth, finalLength);
               const fontSize = Math.max(8, minDim * 0.15); 
               
               const originalRect = placedRectDetails[rect.typeId]; // Fetch original details
@@ -171,10 +189,10 @@ const PackingResult = () => {
                   key={key}
                   className="absolute border border-white shadow-xl flex items-center justify-center text-white font-bold transition-all duration-300 hover:scale-[1.03] hover:z-20 cursor-help"
                   style={{
-                    left: `${rect.x * scale}px`,
-                    top: `${rect.y * scale}px`,
-                    width: `${rectWidth}px`,
-                    height: `${rectLength}px`,
+                    left: `${rectX}px`,
+                    top: `${rectY}px`,
+                    width: `${finalWidth}px`,
+                    height: `${finalLength}px`,
                     backgroundColor: rect.color,
                     fontSize: `${fontSize}px`,
                     minWidth: '20px', 

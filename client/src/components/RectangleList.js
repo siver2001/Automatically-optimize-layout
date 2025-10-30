@@ -92,7 +92,7 @@ const RectangleList = () => {
     
     return {
       width: `${Math.max(25, displayWidth)}px`,
-      height: `${Math.max(20, displayLength)}px`, // Đã sửa lỗi: dùng 'height' thay vì 'length'
+      height: `${Math.max(20, displayLength)}px`, 
       backgroundColor: rect.color,
       border: '2px solid white'
     };

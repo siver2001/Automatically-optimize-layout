@@ -45,7 +45,7 @@ const packingReducer = (state, action) => {
       return {
         ...state,
         rectangles: action.payload,
-        selectedRectangles: action.payload.map(rect => rect.id), // Select all by default when loading defaults
+        selectedRectangles: [], 
         quantities: initialQuantities // Set initial quantities
       };
       
@@ -305,14 +305,58 @@ export const PackingProvider = ({ children }) => {
             }
         }
         // --- End core quantity logic ---
+        
+        // --- START CHỈNH SỬA ---
+        // Tổng số hình cần xếp
+        const totalRectanglesCount = rectanglesToPack.length; 
+        
+        // Luôn chạy tối ưu chỉ với 1 lớp để tìm ra pattern tối ưu cho 1 tấm
+        const MAX_LAYERS_TO_RUN = 1;
+        
+        const result = await packingService.optimizePacking(
+          state.container,
+          rectanglesToPack, 
+          MAX_LAYERS_TO_RUN // Chỉ chạy 1 lớp để tìm pattern
+        );
+        
+        // Tính toán số tấm liệu cần thiết dựa trên kết quả 1 lớp
+        const placedInSingleLayer = result.result.rectangles.length;
+        
+        let finalResult = { ...result.result };
 
-      const result = await packingService.optimizePacking(
-        state.container,
-        rectanglesToPack, 
-        state.container.layers // Pass max layers
-      );
+        if (placedInSingleLayer > 0) {
+            // Số lượng layers CẦN THIẾT để xếp hết tất cả hình
+            const neededLayers = Math.ceil(totalRectanglesCount / placedInSingleLayer);
+            
+            // Số lượng tấm liệu cần thiết (Làm tròn lên)
+            const platesNeeded = Math.ceil(neededLayers / state.container.layers);
+
+            // Cập nhật kết quả để phản ánh tổng số tấm cần thiết và tổng số hình đã xếp
+            // Giả định rằng pattern của lớp 1 sẽ được lặp lại
+            finalResult = {
+                ...result.result,
+                layersUsed: platesNeeded, // Đặt đây là số tấm cần thiết
+                platesNeeded: platesNeeded, // Key mới để lưu số tấm cần thiết
+                placedInSingleLayer: placedInSingleLayer,
+                totalRectanglesCount: totalRectanglesCount,
+                // Tính toán lại hiệu suất dựa trên tổng diện tích đã dùng trên TẤT CẢ TẤM CẦN THIẾT
+                // Total Area Placed / (Total Plates Needed * Container Area Per Plate)
+                efficiency: (finalResult.usedArea * totalRectanglesCount / placedInSingleLayer) / 
+                            (platesNeeded * state.container.width * state.container.length) * 100
+            }
+        } else {
+             // Không xếp được hình nào
+            finalResult = { 
+                ...result.result,
+                layersUsed: 0,
+                platesNeeded: 0,
+                placedInSingleLayer: 0,
+                totalRectanglesCount: totalRectanglesCount,
+                efficiency: 0
+            }
+        }
       
-      dispatch({ type: 'SET_PACKING_RESULT', payload: result.result });
+      dispatch({ type: 'SET_PACKING_RESULT', payload: finalResult });
       return true;
     } catch (error) {
       dispatch({ type: 'SET_ERROR', payload: { 
