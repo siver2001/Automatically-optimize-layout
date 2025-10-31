@@ -37,7 +37,6 @@ const getColorForRectangle = (rect) => {
 
 // POST /api/packing/optimize - Tối ưu sắp xếp hình chữ nhật (Giữ nguyên)
 router.post('/optimize', async (req, res) => {
-// ... (Giữ nguyên nội dung)
   try {
     const { container, rectangles, layers } = req.body;
     
@@ -74,37 +73,6 @@ router.post('/optimize', async (req, res) => {
     console.error('Packing optimization error:', error);
     res.status(500).json({ 
       error: 'Lỗi trong quá trình tối ưu: ' + error.message 
-    });
-  }
-});
-
-// --- ROUTE MỚI: XUẤT DXF ---
-// POST /api/packing/export-dxf - Xuất kết quả ra file DXF
-router.post('/export-dxf', async (req, res) => {
-  try {
-    const { container, rectangles } = req.body;
-    
-    if (!container || !rectangles) {
-      return res.status(400).json({ 
-        error: 'Thiếu thông tin container hoặc kết quả sắp xếp' 
-      });
-    }
-    
-    // Đảm bảo rectangles là một mảng
-    const allPlacedRectangles = Array.isArray(rectangles) ? rectangles : [];
-
-    // Tạo nội dung file DXF
-    const dxfContent = PackingAlgorithm.exportToDXF(container, allPlacedRectangles);
-    
-    // Thiết lập header để trình duyệt tải xuống file
-    res.setHeader('Content-disposition', 'attachment; filename=packing_layout.dxf');
-    res.setHeader('Content-type', 'application/dxf');
-    res.send(dxfContent);
-
-  } catch (error) {
-    console.error('DXF export error:', error);
-    res.status(500).json({ 
-      error: 'Lỗi trong quá trình xuất file DXF: ' + error.message 
     });
   }
 });

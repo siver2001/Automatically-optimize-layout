@@ -9,8 +9,8 @@ const PackingResult = () => {
   
   const [selectedPlate, setSelectedPlate] = useState(0); 
   const [placedRectDetails, setPlacedRectDetails] = useState({});
-  const [exportLoading, setExportLoading] = useState(false); 
-
+  // Đã xóa exportLoading state
+  
   // Memoize details of original rectangle types for easy lookup
   useEffect(() => {
     const details = rectangles.reduce((acc, rect) => {
@@ -91,18 +91,8 @@ const PackingResult = () => {
   
   const plateEfficiency = singleLayerArea > 0 ? (plateUsedArea / singleLayerArea * 100).toFixed(1) : 0;
   
-  // --- XỬ LÝ EXPORT DXF ---
-  const handleExportDXF = async () => {
-    setExportLoading(true);
-    try {
-        await packingService.exportToDXF(container, allPlacedRectangles);
-    } catch (error) {
-        alert(`Xuất file DXF thất bại: ${error.message}`);
-    } finally {
-        setExportLoading(false);
-    }
-  };
-
+  // Đã xóa hàm handleExportDXF
+  
   return (
     <div className="mb-8 card p-3"> 
       <div className="bg-white rounded-xl shadow-lg border border-gray-300 p-1 mb-4">
@@ -171,7 +161,6 @@ const PackingResult = () => {
               .flatMap(layer => layer.rectangles.filter(Boolean)) 
               .map((rect, rectIndex) => {
               
-              // FIX 1: Kiểm tra tính hợp lệ của đối tượng rect trước khi sử dụng.
               if (!rect || typeof rect.width !== 'number' || typeof rect.length !== 'number') {
                   return null;
               }
@@ -188,8 +177,6 @@ const PackingResult = () => {
               
               const originalRect = placedRectDetails[rect.typeId];
               
-              // FIX 2: Bảo vệ việc truy cập kích thước gốc (width/length) trong thuộc tính title.
-              // Nếu originalRect bị undefined, sử dụng giá trị mặc định an toàn.
               const originalDims = (originalRect && originalRect.width && originalRect.length)
                 ? `${originalRect.width}×${originalRect.length}mm` 
                 : 'Kích thước gốc không xác định';
@@ -229,15 +216,9 @@ const PackingResult = () => {
           </div>
         </div>
         
-        {/* Nút Export DXF */}
+        {/* Đã xóa Nút Export DXF */}
         <div className="mt-3 flex justify-end">
-            <button 
-                onClick={handleExportDXF}
-                disabled={exportLoading || allPlacedRectangles.length === 0}
-                className="btn-secondary px-4 py-1 text-sm"
-            >
-                {exportLoading ? 'Đang tạo DXF...' : '💾 Xuất ra AutoCAD (DXF)'}
-            </button>
+          {/* Không có nút Export DXF */}
         </div>
       </div>
     </div>

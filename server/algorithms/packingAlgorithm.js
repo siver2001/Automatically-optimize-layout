@@ -1,5 +1,5 @@
 // server/algorithms/packingAlgorithm.js
-import DxfWriter from 'dxf-writer';
+// Đã xóa: import DxfWriter from 'dxf-writer';
 class PackingAlgorithm {
   constructor() {
     this.container = null;
@@ -33,7 +33,7 @@ class PackingAlgorithm {
     const strategies = [
       () => this._maxRectsBSSF(sortedRectangles),
       () => this._bottomLeftFill(sortedRectangles),
-      () => this._bestFitDecreasing(sortedRectangles), 
+      () => this._bestFitDecreasing(sortedRectangles),
       () => this._nextFitDecreasing(sortedRectangles)
     ];
 
@@ -472,154 +472,6 @@ class PackingAlgorithm {
 
     return bestResult;
   }
-static exportToDXF(container, allRectangles) {
-        const maker = new DxfWriter();
-        
-        // --- LOGIC XOAY: Đảm bảo tấm liệu được vẽ ngang (width > length) ---
-        // Giả sử kích thước đầu vào (container.width, container.length) là kích thước vật lý.
-        // Để hiển thị ngang (tức là trục X dài hơn trục Y), chúng ta sẽ hoán đổi
-        // nếu width < length.
-        let containerWidth = container.width;
-        let containerLength = container.length;
-        let swapCoordinates = false;
-
-        if (containerWidth < containerLength) {
-            [containerWidth, containerLength] = [containerLength, containerWidth];
-            swapCoordinates = true;
-        }
-
-        const layerSpacing = 50; // Khoảng cách giữa các layer (50mm)
-
-        // Hàm trợ giúp để vẽ hình chữ nhật bằng 4 đoạn thẳng
-        const drawRectangle = (x, y, width, length, layerName) => {
-            let finalX = x;
-            let finalY = y;
-            let finalWidth = width;
-            let finalLength = length;
-
-            // Nếu trục đã bị hoán đổi, hoán đổi lại tọa độ và kích thước
-            if (swapCoordinates) {
-                finalX = y;
-                finalY = x;
-                finalWidth = length;
-                finalLength = width;
-            }
-            
-            const x0 = finalX;
-            const y0 = finalY;
-            const x1 = finalX + finalWidth;
-            const y1 = finalY + finalLength;
-            
-            maker.drawLine(x0, y0, x1, y0, { layer: layerName }); // Bottom line
-            maker.drawLine(x1, y0, x1, y1, { layer: layerName }); // Right line
-            maker.drawLine(x1, y1, x0, y1, { layer: layerName }); // Top line
-            maker.drawLine(x0, y1, x0, y0, { layer: layerName }); // Left line
-        };
-
-        // Hàm trợ giúp để ánh xạ màu Hex sang một ACI hợp lý (vì DXF Writer chủ yếu dùng ACI)
-        const getAciFromHex = (hex) => {
-            // Mapping đơn giản cho các màu thường dùng
-            switch (hex?.toUpperCase()) {
-                case '#FF6B6B': return 1;   // Red
-                case '#4ECDC4': return 4;   // Cyan
-                case '#45B7D1': return 5;   // Blue
-                case '#96CEB4': return 3;   // Green 
-                case '#FFEAA7': return 2;   // Yellow
-                case '#DDA0DD': return 6;   // Magenta 
-                case '#98D8C8': return 4;   // Light Teal (Cyan)
-                case '#F7DC6F': return 2;   // Yellow
-                case '#3498DB': return 5;   // Blue (default)
-                default:
-                    // Fallback to a hash based unique but distinct ACI
-                    let hash = 0;
-                    if (hex) {
-                        for (let i = 0; i < hex.length; i++) {
-                            hash = hex.charCodeAt(i) + ((hash << 5) - hash);
-                        }
-                    }
-                    return (Math.abs(hash) % 250) + 10; // Giới hạn ACI từ 10 đến 259
-            }
-        };
-
-        // Khởi tạo các layer cần thiết
-        // Layer ContainerBorder sẽ dùng màu 7 (trắng/đen)
-        maker.addLayer('ContainerBorder', 7, 'CONTINUOUS'); 
-        // Layer Dimensions sẽ dùng màu 3 (xanh lá)
-        maker.addLayer('Dimensions', 3, 'CONTINUOUS'); 
-        // Layer Text sẽ dùng màu 8 (xám)
-        maker.addLayer('Text', 8, 'CONTINUOUS'); 
-
-        // Gom nhóm các hình chữ nhật theo layer và theo màu sắc (loại hình)
-        const layersMap = new Map();
-        for (const rect of (allRectangles || [])) { 
-            if (!rect || typeof rect.width !== 'number' || typeof rect.length !== 'number') {
-                continue;
-            }
-
-            // Sử dụng typeId để nhóm các hình cùng loại (màu sắc)
-            const typeKey = `${rect.typeId || rect.id}_${rect.color}`; 
-            
-            let group = layersMap.get(typeKey);
-
-            if (!group) {
-                group = {
-                    rectangles: [],
-                    layerIndex: rect.layer || 0,
-                    color: rect.color,
-                    aci: getAciFromHex(rect.color),
-                    name: rect.name || `Rect ${rect.id}`
-                };
-                layersMap.set(typeKey, group);
-            }
-            
-            group.rectangles.push(rect);
-        }
-
-        // Sắp xếp theo Layer (Sheet) rồi đến Color/Type
-        const sortedLayerKeys = Array.from(layersMap.keys()).sort((a, b) => {
-            const layerA = layersMap.get(a).layerIndex;
-            const layerB = layersMap.get(b).layerIndex;
-            if (layerA !== layerB) return layerA - layerB;
-            return a.localeCompare(b);
-        });
-        
-        // Tọa độ Y dịch chuyển cho mỗi lớp
-        let currentYOffset = 0; 
-        let lastLayerDrawn = -1;
-        
-        for (const key of sortedLayerKeys) {
-            const { rectangles: rectanglesInTypeGroup, layerIndex, aci, name: rectName } = layersMap.get(key);
-            
-            // Chỉ vẽ container border một lần cho mỗi layer/sheet mới
-            if (layerIndex !== lastLayerDrawn) {
-                // Cập nhật offset cho layer tiếp theo (đặt layer mới dưới layer cũ)
-                if (lastLayerDrawn !== -1) {
-                    // Nếu không phải lần đầu, thêm khoảng cách giữa các tấm liệu
-                    currentYOffset += containerLength + layerSpacing; 
-                }
-
-                // Vẽ đường viền container cho layer hiện tại
-                drawRectangle(0, currentYOffset, containerWidth, containerLength, 'ContainerBorder');
-                
-                lastLayerDrawn = layerIndex;
-            }
-
-            // Layer cho các hình cắt (tách theo màu/loại)
-            const layerName = `Sheet_${layerIndex + 1}_Type_${rectName.replace(/[^a-zA-Z0-9]/g, '_')}`;
-            
-            // Đảm bảo layer đã được thêm
-            maker.addLayer(layerName, aci, 'CONTINUOUS');
-
-            // Vẽ các hình chữ nhật đã xếp
-            rectanglesInTypeGroup.forEach((rect) => {
-                // Vẽ khung hình chữ nhật
-                // Chú ý: Ở đây ta chỉ cần cộng `currentYOffset` vào tọa độ Y
-                drawRectangle(rect.x, rect.y + currentYOffset, rect.width, rect.length, layerName);
-            });
-        }
-        
-        return maker.toDxfString();
-    }
 }
 
 export default PackingAlgorithm;
