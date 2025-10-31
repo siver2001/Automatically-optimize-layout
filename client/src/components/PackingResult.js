@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect } from 'react';
 import { usePacking } from '../context/PackingContext.js';
-import { packingService } from '../services/packingService.js'; 
 
 const PackingResult = () => {
   const { packingResult, isOptimizing, container, rectangles } = usePacking();
@@ -59,8 +58,7 @@ const PackingResult = () => {
   const { 
     layersUsed: platesNeeded = 0, 
     plates: resultPlates, 
-    layersPerPlate = container.layers,
-    rectangles: allPlacedRectangles, 
+    layersPerPlate = container.layers, 
   } = packingResult;
   
   const currentPlateData = resultPlates ? resultPlates[selectedPlate] : null;
@@ -159,7 +157,7 @@ const PackingResult = () => {
             {/* Packed Rectangles: Iterate over ALL LAYERS in the selected PLATE */}
             {currentPlateLayers
               .flatMap(layer => layer.rectangles.filter(Boolean)) 
-              .map((rect, rectIndex) => {
+              .map((rect) => {
               
               if (!rect || typeof rect.width !== 'number' || typeof rect.length !== 'number') {
                   return null;
