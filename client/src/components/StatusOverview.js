@@ -34,24 +34,27 @@ const StatusOverview = () => {
   // Dynamic Status Logic
   const getStatusColor = () => {
     if (isOptimizing) return 'from-blue-500 to-indigo-500';
-    if (packingResult) return 'from-green-500 to-emerald-500';
+    if (packingResult && packingResult.totalPlates > 0) return 'from-green-500 to-emerald-500'; // Đổi A
+    if (packingResult) return 'from-red-500 to-red-600'; // Nếu có kết quả mà ko có tấm nào
     if (selectedCountTotal > 0) return 'from-yellow-500 to-orange-500';
     return 'from-gray-500 to-gray-600';
   };
 
   const getStatusText = () => {
     if (isOptimizing) return 'Đang chạy thuật toán tối ưu...';
-    // Sử dụng platesNeeded để báo cáo số tấm cần thiết
-    if (packingResult && packingResult.layersUsed > 0) return `Tối ưu hoàn thành. Cần ${packingResult.layersUsed} tấm liệu.`;
-    if (packingResult && packingResult.layersUsed === 0 && selectedCountTotal > 0) return `Lỗi: Không thể xếp hình nào.`;
+    // (*** Đổi A: dùng packingResult.totalPlates ***)
+    if (packingResult && packingResult.totalPlates > 0) return `Tối ưu hoàn thành. Cần ${packingResult.totalPlates} tấm liệu.`;
+    // (*** Đổi B: dùng packingResult.totalPlates ***)
+    if (packingResult && packingResult.totalPlates === 0 && selectedCountTotal > 0) return `Lỗi: Không thể xếp hình nào.`;
     if (selectedCountTotal > 0) return `Sẵn sàng tối ưu cho ${selectedCountTotal} hình.`;
     return 'Vui lòng chọn hình chữ nhật và cấu hình container.';
   };
 
   const getStatusIcon = () => {
     if (isOptimizing) return '⚙️';
-    if (packingResult && packingResult.layersUsed > 0) return '✅';
-    if (packingResult && packingResult.layersUsed === 0 && selectedCountTotal > 0) return '❌'; // Thêm biểu tượng lỗi
+    // (*** Đổi C: dùng packingResult.totalPlates ***)
+    if (packingResult && packingResult.totalPlates > 0) return '✅';
+    if (packingResult && packingResult.totalPlates === 0 && selectedCountTotal > 0) return '❌'; 
     if (selectedCountTotal > 0) return '🚀';
     return '📦';
   };
@@ -71,7 +74,6 @@ const StatusOverview = () => {
           </div>
         </div>
 
-        {/* Enhanced Stats Row */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 pt-4 border-t border-white/20">
           
           <div className="bg-white/10 rounded-lg p-3 text-center transition-all duration-300 hover:bg-white/20">
@@ -96,7 +98,8 @@ const StatusOverview = () => {
           
           <div className={`rounded-lg p-3 text-center transition-all duration-300 ${packingResult ? 'bg-white/20 hover:bg-white/30' : 'bg-transparent'}`}>
             <div className="text-2xl font-bold">
-              {packingResult ? packingResult.efficiency.toFixed(1) + '%' : '--'}
+              {/* (*** Đổi D: dùng packingResult.efficiency ***) */}
+              {packingResult ? (packingResult.efficiency || 0).toFixed(1) + '%' : '--'}
             </div>
             <div className="text-xs text-white/80">Hiệu suất Tối ưu (Tổng thể)</div>
           </div>
@@ -106,4 +109,4 @@ const StatusOverview = () => {
   );
 };
 
-export default StatusOverview;
+export default StatusOverview
