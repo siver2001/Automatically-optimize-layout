@@ -555,28 +555,18 @@ _bottomLeftFill(rectanglesToPack) {
   }
   // --- Base Greedy Layering Heuristic (Sử dụng kích thước cố định) ---
   _runGreedyLayeringPass(container, initialRectangles, maxLayers) {
-      let unpackedRectangles = initialRectangles.map(r => ({...r}));
-      let allPlacedRectangles = [];
-      let layersUsed = 0;
-      let placedInLayer; 
+    let unpackedRectangles = initialRectangles.map(r => ({...r}));
+    let allPlacedRectangles = [];
+    let layersUsed = 0;
+    let placedInLayer; 
 
-      // Hàm kiểm tra khả năng vừa
+    // Hàm kiểm tra khả năng vừa
+    // Hàm kiểm tra khả năng vừa
       const canFit = (r) => (r.width <= container.width && r.length <= container.length);
 
-      // Helper to sanitize placements (ĐÃ CHỈNH SỬA LOGIC KHÔNG CẦN THIẾT)
+      // Helper to sanitize placements
       const sanitizeLayer = (placed, remaining) => {
-          // Logic này ĐƯỢC CHUYỂN ra bên ngoài để đảm bảo các thuật toán 2D (như BLF) 
-          // có thể tự quản lý khoảng trống.
-          // Tuy nhiên, nếu bạn muốn một lớp bảo vệ chống chồng lấn (fallback), 
-          // đây là nơi để đặt nó.
-          
-          // DO CÁC THUẬT TOÁN ĐÓNG GÓI 2D (NHƯ BLF/MaxRects) VỐN KHÔNG CHO PHÉP 
-          // CHỒNG LẤN THEO THIẾT KẾ, chúng ta chỉ cần đảm bảo hàm này được gọi đúng.
-          // Để FIX LỖI CHỒNG LẤN, chúng ta cần tin tưởng vào thuật toán 2D của backend 
-          // và tập trung vào việc áp dụng trạng thái xoay đúng (đã làm trong optimize).
 
-          // LỖI CHỒNG LẤN có thể do lỗi tính toán tọa độ X, Y.
-          // Giữ nguyên logic này và tập trung vào việc đảm bảo nó được gọi.
           const accepted = [];
           const stillRemaining = [...remaining];
           const isWithinBounds = (r) => r.x >= 0 && r.y >= 0 && (r.x + r.width) <= container.width && (r.y + r.length) <= container.length;
@@ -592,7 +582,7 @@ _bottomLeftFill(rectanglesToPack) {
               }
               let conflict = false;
               for (const acc of accepted) {
-                  // PHẦN BỔ SUNG: Kiểm tra kỹ lưỡng chồng lấn
+                  // Kiểm tra kỹ lưỡng chồng lấn
                   if (overlaps(rect, acc)) { 
                       conflict = true; 
                       // console.log(`Conflict detected: ${rect.id} overlaps with ${acc.id}`);

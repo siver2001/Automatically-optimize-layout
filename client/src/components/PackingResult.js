@@ -1,10 +1,11 @@
 // client/src/components/PackingResult.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { usePacking } from '../context/PackingContext.js';
 
 const PackingResult = () => {
   const { packingResult, isOptimizing, container, rectangles } = usePacking();
   
+  // selectedPlate là index trong mảng packingResult.plates
   const [selectedPlate, setSelectedPlate] = useState(0); 
   const [placedRectDetails, setPlacedRectDetails] = useState({});
   
@@ -17,11 +18,34 @@ const PackingResult = () => {
     setPlacedRectDetails(details);
   }, [rectangles]);
 
-  // Reset selected plate when a new result comes in
+  // Reset selected plate and ensure it defaults to a valid index
   useEffect(() => {
-    setSelectedPlate(0);
-  }, [packingResult]);
+    if (packingResult?.plates?.length > 0 && selectedPlate >= packingResult.plates.length) {
+      setSelectedPlate(0);
+    }
+  }, [packingResult, selectedPlate]);
   
+  // Phân loại các tấm liệu thành Pure và Mixed Plates
+  const categorizedPlates = useMemo(() => {
+    if (!packingResult?.plates) return { pure: [], mixed: [] };
+
+    const pure = [];
+    const mixed = [];
+
+    packingResult.plates.forEach((plate, index) => {
+      // Logic phân loại dựa trên description đã được thiết lập trong PackingContext
+      if (plate.description && plate.description.startsWith('Tấm thuần')) {
+        pure.push({ ...plate, originalIndex: index, displayIndex: pure.length + 1 });
+      } else {
+        mixed.push({ ...plate, originalIndex: index, displayIndex: mixed.length + 1 });
+      }
+    });
+    
+    // Kết hợp các tấm thuần trước, sau đó là tấm hỗn hợp
+    return [...pure, ...mixed];
+  }, [packingResult]);
+
+
   // =================================================================
   // 1. LOADING STATE
   // =================================================================
@@ -40,7 +64,6 @@ const PackingResult = () => {
   // =================================================================
   // 2. NO RESULT STATE 
   // =================================================================
-  // Logic mới dựa trên `plates`, không phải `rectangles`
   if (!packingResult || !packingResult.plates || packingResult.plates.length === 0) {
     return (
       <div className="mb-8 card p-8 min-h-[400px] flex flex-col justify-center items-center">
@@ -61,28 +84,30 @@ const PackingResult = () => {
   // =================================================================
 
   const { 
-    plates: resultPlates = [], // Mảng các tấm liệu
-    layersPerPlate = 1,      // Số lớp trên mỗi tấm
-    efficiency: totalEfficiency = 0 // Hiệu suất tổng thể
+    layersPerPlate = 1,     
+    efficiency: totalEfficiency = 0 
   } = packingResult;
 
-  const platesNeeded = resultPlates.length; // Tổng số tấm liệu
+  const platesNeeded = categorizedPlates.length; // Tổng số tấm liệu
   
   // Lấy dữ liệu cho tấm liệu (plate) đang được chọn
-  const currentPlateData = resultPlates[selectedPlate] || { layers: [], description: 'Lỗi' };
+  const currentPlateMeta = categorizedPlates[selectedPlate];
+  const currentPlateData = packingResult.plates[currentPlateMeta.originalIndex];
+
   const currentPlateLayers = currentPlateData.layers || [];
-  const plateDescription = currentPlateData.description || `Tấm liệu ${selectedPlate + 1}`;
+  
+  // Hiển thị tên tấm liệu
+  const plateType = currentPlateMeta.description.startsWith('Tấm thuần') ? 'Thuần' : 'Hỗn Hợp';
+  const plateDisplayName = `${plateType} #${currentPlateMeta.displayIndex}`;
 
   // --- Tính toán hiệu suất của TẤM LIỆU (PLATE) ĐANG CHỌN ---
   const singleLayerArea = container.width * container.length;
   const totalPlateArea = singleLayerArea * layersPerPlate;
 
-  // Tính tổng diện tích đã sử dụng trên tấm liệu NÀY
   const plateUsedArea = currentPlateLayers
-    .flatMap(layer => layer.rectangles.filter(Boolean)) // Lấy tất cả hình chữ nhật từ tất cả các lớp của tấm này
-    .reduce((sum, rect) => sum + (rect.width * rect.length), 0); // Cộng diện tích của chúng
+    .flatMap(layer => layer.rectangles.filter(Boolean)) 
+    .reduce((sum, rect) => sum + (rect.width * rect.length), 0); 
   
-  // Hiệu suất của riêng tấm này
   const plateEfficiency = totalPlateArea > 0 
     ? (plateUsedArea / totalPlateArea * 100).toFixed(1) 
     : 0;
@@ -109,10 +134,10 @@ const PackingResult = () => {
     <div className="mb-8 card p-3"> 
       <div className="bg-white rounded-xl shadow-lg border border-gray-300 p-1 mb-4">
         
-        {/* TIÊU ĐỀ TẤM LIỆU (Đã cập nhật) */}
+        {/* TIÊU ĐỀ TẤM LIỆU */}
         <div className="flex items-center justify-between mb-3 border-b pb-1"> 
-          <h3 className="text-l font-semibold text-gray-800" title={plateDescription}>
-            {plateDescription} ({layersPerPlate} lớp)
+          <h3 className="text-l font-semibold text-gray-800" title={plateDisplayName}>
+            {plateDisplayName} ({layersPerPlate} lớp)
           </h3>
           <div className="text-l text-gray-600">
              Hiệu suất (Tấm này): <span className="font-bold text-primary-600">{plateEfficiency}%</span>
@@ -123,17 +148,19 @@ const PackingResult = () => {
         {platesNeeded > 1 && (
             <div className="mb-3 flex items-center gap-3 overflow-x-auto pb-2">
                 <span className="font-medium text-gray-700 flex-shrink-0">Chọn Tấm liệu:</span>
-                {Array.from({ length: platesNeeded }).map((_, index) => (
+                {categorizedPlates.map((plateMeta, index) => (
                 <button
-                    key={index}
+                    key={plateMeta.originalIndex}
+                    // Cập nhật selectedPlate bằng index trong mảng categorizedPlates
                     onClick={() => setSelectedPlate(index)}
                     className={`px-3 py-1 rounded-full text-sm font-medium transition-all duration-200 flex-shrink-0 border ${
                     selectedPlate === index 
                         ? 'bg-primary-600 text-white shadow-md border-primary-600' 
                         : 'bg-white text-gray-700 hover:bg-primary-50 border-gray-300'
                     }`}
+                    title={plateMeta.description}
                 >
-                    Tấm {index + 1}
+                    {plateMeta.description.startsWith('Tấm thuần') ? `Thuần ${plateMeta.displayIndex}` : `Hỗn Hợp ${plateMeta.displayIndex}`}
                 </button>
                 ))}
             </div>
@@ -168,9 +195,9 @@ const PackingResult = () => {
               ))}
             </div>
             
-            {/* HIỂN THỊ HÌNH CHỮ NHẬT (Đã cập nhật) */}
-            {currentPlateLayers // Lấy các lớp của tấm đang chọn
-              .flatMap(layer => layer.rectangles.filter(Boolean)) // Lấy tất cả hình chữ nhật từ tất cả các lớp
+            {/* HIỂN THỊ HÌNH CHỮ NHẬT */}
+            {currentPlateLayers 
+              .flatMap(layer => layer.rectangles.filter(Boolean)) 
               .map((rect) => {
               
               if (!rect || typeof rect.width !== 'number' || typeof rect.length !== 'number') {
@@ -187,7 +214,6 @@ const PackingResult = () => {
               const minDim = Math.min(finalWidth, finalLength);
               const fontSize = Math.max(8, minDim * 0.15); 
               
-              // SỬA LỖI: Đảm bảo placedRectDetails[rect.typeId] tồn tại
               const originalRect = placedRectDetails[rect.typeId] || {};
               
               const originalDims = (originalRect.width && originalRect.length)
@@ -202,7 +228,7 @@ const PackingResult = () => {
               
               return (
                 <div
-                  key={rect.id} // Sử dụng ID duy nhất (presentationIdCounter)
+                  key={rect.id} 
                   className="absolute border border-white shadow-xl flex items-center justify-center text-white font-bold transition-all duration-300 hover:scale-[1.03] hover:z-20 cursor-help"
                   style={{
                     left: `${rectX}px`,

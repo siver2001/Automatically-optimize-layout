@@ -147,7 +147,7 @@ const ContainerInput = () => {
                   id="layers"
                   type="number"
                   min="1"
-                  max="10"
+                  max="100"
                   step="1"
                   value={localContainer.layers || 1}
                   onChange={(e) => handleInputChange('layers', e.target.value)}
