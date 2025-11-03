@@ -204,7 +204,37 @@ export const PackingProvider = ({ children }) => {
     }
     return true;
   };
-  
+
+  // Helper function: Calculate quantities of each type used in a layer pattern
+  const calculatePatternQuantities = (pattern) => {
+      return pattern.reduce((acc, rect) => {
+          if (rect.typeId) { 
+              acc[rect.typeId] = (acc[rect.typeId] || 0) + 1;
+          }
+          return acc;
+      }, {});
+  };
+
+  // Helper function: Build the leftoverRects array (gán ID tạm thời cho việc xếp)
+  const buildLeftoverRects = (quantitiesToPack, rectTypes, mixedPatternTempIdCounter) => {
+      let rects = [];
+      // Lọc ra các loại hình vẫn còn số lượng cần xếp
+      const sortedTypes = rectTypes.filter(r => quantitiesToPack[r.id] > 0)
+                                   .sort((a, b) => (b.width * b.length) - (a.width * a.length));
+
+      for (const rectType of sortedTypes) {
+          const quantityLeft = quantitiesToPack[rectType.id] || 0;
+          for (let i = 0; i < quantityLeft; i++) {
+              rects.push({
+                  ...rectType,
+                  // ID tạm thời duy nhất cho việc xếp
+                  id: `mixed_${mixedPatternTempIdCounter.current++}`, 
+                  typeId: rectType.id 
+              });
+          }
+      }
+      return rects;
+  };
 
   // --- (*** LOGIC TỐI ƯU : PURE N-LAYER / MIXED N-LAYER ***) ---
   const startOptimization = async () => {
@@ -228,7 +258,8 @@ export const PackingProvider = ({ children }) => {
 
       const finalPlates = []; // Mảng chứa tất cả các tấm liệu (plates) đã tối ưu
       let plateIdCounter = 0;
-      let presentationIdCounter = 1; // ID duy nhất cho mỗi hình chữ nhật được hiển thị
+      // ID duy nhất cho mỗi hình chữ nhật được hiển thị trên UI, không reset
+      let presentationIdCounterRef = { current: 1 }; 
       const layersPerPlate = state.container.layers;
 
       // =================================================================
@@ -266,7 +297,7 @@ export const PackingProvider = ({ children }) => {
 
           const placedPerLayer = singleLayerPattern.length;
 
-          if (placedPerLayer === 0) {
+          if (placedPerLayer === 0 && quantityNeeded > 0) {
               dispatch({ 
                 type: 'SET_WARNING', 
                 payload: { 
@@ -295,7 +326,7 @@ export const PackingProvider = ({ children }) => {
                   for (let l = 0; l < layersPerPlate; l++) {
                       const layerRects = singleLayerPattern.map(rect => ({
                           ...rect,
-                          id: presentationIdCounter++, // ID duy nhất
+                          id: presentationIdCounterRef.current++, // ID duy nhất
                           layer: l,
                           plateIndex: plate.plateIndex,
                           typeId: rect.typeId
@@ -315,102 +346,114 @@ export const PackingProvider = ({ children }) => {
 
       // =================================================================
       // GIAI ĐOẠN 2: TỐI ƯU CÁC TẤM HỖN HỢP (MIXED PLATES)
+      // Tìm 1 mẫu tối ưu nhất, tính số lần lặp lại, và nhân lên số lớp.
       // =================================================================
       
-      // 1. Tạo mảng các hình còn thừa (leftovers) từ Phase 1
-      let leftoverRects = [];
-      let tempMixedId = 1;
-      // Sắp xếp các loại hình còn thừa theo diện tích giảm dần (BFD/DFL heuristic)
-      const sortedRectTypes = allSelectedTypes.slice().sort((a, b) => (b.width * b.length) - (a.width * a.length));
+      let mixedPatternTempIdCounter = { current: 1 }; 
+      let currentLeftoverRects = buildLeftoverRects(quantitiesToPack, allSelectedTypes, mixedPatternTempIdCounter);
 
-      for (const rectType of sortedRectTypes) {
-          const quantityLeft = quantitiesToPack[rectType.id];
-          for (let i = 0; i < quantityLeft; i++) {
-              // Tạo bản sao của hình chữ nhật còn thừa
-              leftoverRects.push({
-                  ...rectType,
-                  id: `mixed_${tempMixedId++}`, // ID tạm thời
-                  typeId: rectType.id 
+      while (currentLeftoverRects.length > 0) {
+          
+          // A. CHỌN MẪU XẾP 1 LỚP TỐI ƯU CHO HỖN HỢP CÒN LẠI
+          // Sử dụng một tập con của leftoverRects để tìm mẫu tối ưu (giảm tải cho server)
+          const subsetForPatternFinding = currentLeftoverRects.slice(0, 500); 
+
+          // 1. Gọi API để tìm MẪU LỚP TỐI ƯU (1 lớp)
+          const mixedPatternResult = await packingService.optimizePacking(
+              { ...state.container, layers: 1 },
+              subsetForPatternFinding, 
+              1
+          );
+
+          // Chỉ lấy các hình đã được đặt (đây là MẪU LỚP)
+          const bestMixedLayerPattern = mixedPatternResult.result.rectangles
+              .filter(r => r && r.layer === 0);
+
+          if (bestMixedLayerPattern.length === 0) {
+              // Vẫn còn leftoverRects nhưng không thể xếp thêm bất kỳ hình nào
+              dispatch({ 
+                  type: 'SET_WARNING', 
+                  payload: { 
+                      type: 'optimization', 
+                      message: `Không thể xếp được ${currentLeftoverRects.length} hình (leftovers) vào tấm liệu có kích thước ${state.container.width}x${state.container.length}mm.` 
+                  } 
               });
+              break; // Dừng vòng lặp ngoài
           }
-      }
-      
-      // 2. Lặp lại việc xếp các tấm hỗn hợp cho đến khi hết
-      while (leftoverRects.length > 0) {
-          
-          let mixedPlateLayers = [];
-          let currentUnpacked = [...leftoverRects]; 
-          let placedIdsInPlate = new Set();
-          
-          // 3. Lấp đầy các lớp của tấm hỗn hợp này (layer by layer)
-          for (let l = 0; l < layersPerPlate; l++) {
+
+          // B. TÍNH TOÁN SỐ LỚP CÓ THỂ LẶP LẠI (TỐI ĐA layersPerPlate)
+          const patternQuantitiesUsed = calculatePatternQuantities(bestMixedLayerPattern);
+          let maxLayersToRepeat = layersPerPlate;
+          let patternDescription = []; 
+
+          // Kiểm tra và tính toán giới hạn số lớp dựa trên kho hàng (quantitiesToPack)
+          for (const typeId in patternQuantitiesUsed) {
+              const patternCount = patternQuantitiesUsed[typeId];
+              const inventoryCount = quantitiesToPack[Number(typeId)] || 0;
               
-              if (currentUnpacked.length === 0) {
-                  break; // Hết hình để xếp
+              const rectTypeDetails = allSelectedTypes.find(r => r.id === Number(typeId));
+              if (rectTypeDetails) {
+                 patternDescription.push(`${patternCount}x ${rectTypeDetails.name}`);
               }
 
-              // 3a. Gọi API để xếp các hình còn lại (currentUnpacked) vào 1 lớp tối ưu
-              const layerOptimizationResult = await packingService.optimizePacking(
-                  { ...state.container, layers: 1 },
-                  currentUnpacked, 
-                  1
-              );
-
-              // Lấy các hình đã được đặt trong layer này (Layer 0 của kết quả)
-              const placedInLayerRaw = layerOptimizationResult.result.rectangles
-                  .filter(r => r && r.layer === 0);
-              
-              if (placedInLayerRaw.length === 0) {
-                  // Không thể xếp thêm bất kỳ hình nào vào layer này
+              if (inventoryCount < patternCount) {
+                  maxLayersToRepeat = 0; 
                   break; 
               }
 
-              // 3b. Cập nhật kết quả cho layer
-              const placedIdsInLayer = new Set(placedInLayerRaw.map(r => r.id));
-              
-              const layerRects = placedInLayerRaw.map(rect => {
-                  placedIdsInPlate.add(rect.id);
-                  return {    
-                      ...rect,         
-                      id: presentationIdCounter++, // ID duy nhất
-                      layer: l,
-                      plateIndex: plateIdCounter
-                  };
-              });
-
-              mixedPlateLayers.push({
-                  layerIndexInPlate: l,
-                  rectangles: layerRects
-              });
-              
-              // 3c. Cập nhật danh sách các hình chưa xếp (currentUnpacked) 
-              // để sử dụng cho layer tiếp theo của tấm này.
-              currentUnpacked = currentUnpacked.filter(r => !placedIdsInLayer.has(r.id));
+              const maxLayersForThisType = Math.floor(inventoryCount / patternCount);
+              maxLayersToRepeat = Math.min(maxLayersToRepeat, maxLayersForThisType);
           }
-          
-          // 4. Thêm tấm hỗn hợp vào kết quả
-          if (mixedPlateLayers.length > 0) {
-              const layersUsedInMixedPlate = mixedPlateLayers.length; // Số lớp thực tế được điền
+
+          // Cap số lớp lặp lại ở số lớp tối đa cho phép của tấm liệu
+          maxLayersToRepeat = Math.min(maxLayersToRepeat, layersPerPlate);
+
+          if (maxLayersToRepeat > 0) {
+              // C. XÂY DỰNG TẤM HỖN HỢP (LẶP LẠI MẪU)
               const mixedPlate = {
                   plateIndex: plateIdCounter++,
-                  layers: mixedPlateLayers,
-                  // Cập nhật mô tả để thể hiện rõ số lớp thực tế và số lớp tối đa
-                  description: `Tấm hỗn hợp (${layersUsedInMixedPlate} lớp / Tối đa ${layersPerPlate})`,
+                  layers: [],
+                  description: `Tấm hỗn hợp (${maxLayersToRepeat}/${layersPerPlate} lớp | Mẫu: ${patternDescription.join(', ')})`,
                   type: "mixed"
               };
+              
+              for (let l = 0; l < maxLayersToRepeat; l++) {
+                  // Tạo bản sao của mẫu lớp, gán ID duy nhất và cập nhật layer index
+                  const layerRects = bestMixedLayerPattern.map(rect => ({
+                      ...rect,
+                      id: presentationIdCounterRef.current++, // ID duy nhất cho việc hiển thị
+                      layer: l,
+                      plateIndex: mixedPlate.plateIndex,
+                      typeId: rect.typeId
+                  }));
+                  mixedPlate.layers.push({
+                      layerIndexInPlate: l,
+                      rectangles: layerRects
+                  });
+              }
+              
+              // D. CẬP NHẬT KHO HÀNG CÒN LẠI (quantitiesToPack)
+              for (const typeId in patternQuantitiesUsed) {
+                  const quantityUsedInLayer = patternQuantitiesUsed[typeId];
+                  // Trừ đi tổng số hình đã sử dụng (số hình trong mẫu * số lớp lặp lại)
+                  quantitiesToPack[Number(typeId)] -= quantityUsedInLayer * maxLayersToRepeat;
+              }
+              
               finalPlates.push(mixedPlate);
               
-              // Cập nhật lại leftoverRects cho vòng lặp ngoài: chỉ giữ lại những gì chưa xếp
-              leftoverRects = currentUnpacked; 
+              // Chuẩn bị cho vòng lặp tiếp theo
+              mixedPatternTempIdCounter.current = 1; // Reset temp ID counter
+              currentLeftoverRects = buildLeftoverRects(quantitiesToPack, allSelectedTypes, mixedPatternTempIdCounter);
+
           } else {
-              // Vẫn còn hình trong leftoverRects nhưng không thể xếp vào tấm mới
-              if (leftoverRects.length > 0) {
+              // Nếu không thể tạo thêm lớp lặp lại nào
+              if (currentLeftoverRects.length > 0) {
                 dispatch({ 
-                  type: 'SET_WARNING', 
-                  payload: { 
-                    type: 'optimization', 
-                    message: `Không thể xếp được ${leftoverRects.length} hình (leftovers) vào tấm liệu có kích thước ${state.container.width}x${state.container.length}mm.` 
-                  } 
+                    type: 'SET_WARNING', 
+                    payload: { 
+                        type: 'optimization', 
+                        message: `Vẫn còn hình (${currentLeftoverRects.length} tổng cộng) nhưng không đủ để tạo thêm 1 lớp lặp lại theo mẫu tối ưu. Các hình còn lại sẽ bị bỏ qua.`
+                    } 
                 });
               }
               break; // Dừng vòng lặp ngoài
@@ -429,9 +472,12 @@ export const PackingProvider = ({ children }) => {
           return sum + (rectType.width * rectType.length * rectCount);
       }, 0);
       
-      // Tổng diện tích tối đa của các tấm đã sử dụng
-      const totalUsedPlateArea = finalPlates.length * state.container.width * state.container.length * layersPerPlate;
-      
+      // Tổng diện tích tối đa của TẤT CẢ lớp đã sử dụng 
+      const totalUsedPlateArea = finalPlates.reduce((sum, plate) => {
+          // Chỉ tính diện tích lớp thực tế đã điền
+          return sum + (plate.layers.length * state.container.width * state.container.length);
+      }, 0);
+
       const efficiency = totalUsedPlateArea > 0 
               ? (initialTotalArea / totalUsedPlateArea) * 100 
               : 0;

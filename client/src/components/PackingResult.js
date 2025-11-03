@@ -27,17 +27,20 @@ const PackingResult = () => {
   
   // Phân loại các tấm liệu thành Pure và Mixed Plates
   const categorizedPlates = useMemo(() => {
-    if (!packingResult?.plates) return { pure: [], mixed: [] };
+    if (!packingResult?.plates) return []; // Sửa: Trả về mảng rỗng thay vì object rỗng
 
     const pure = [];
     const mixed = [];
 
     packingResult.plates.forEach((plate, index) => {
-      // Logic phân loại dựa trên description đã được thiết lập trong PackingContext
-      if (plate.description && plate.description.startsWith('Tấm thuần')) {
-        pure.push({ ...plate, originalIndex: index, displayIndex: pure.length + 1 });
+      // Logic phân loại dựa trên trường 'type' có trong object plate.
+      // Dùng description làm fallback.
+      const type = plate.type || (plate.description && plate.description.startsWith('Tấm thuần') ? 'pure' : 'mixed');
+
+      if (type === 'pure') {
+        pure.push({ ...plate, originalIndex: index, displayIndex: pure.length + 1, type });
       } else {
-        mixed.push({ ...plate, originalIndex: index, displayIndex: mixed.length + 1 });
+        mixed.push({ ...plate, originalIndex: index, displayIndex: mixed.length + 1, type });
       }
     });
     
@@ -97,12 +100,14 @@ const PackingResult = () => {
   const currentPlateLayers = currentPlateData.layers || [];
   
   // Hiển thị tên tấm liệu
-  const plateType = currentPlateMeta.description.startsWith('Tấm thuần') ? 'Thuần' : 'Hỗn Hợp';
+  const plateType = currentPlateMeta.type === 'pure' ? 'Thuần' : 'Hỗn Hợp';
   const plateDisplayName = `${plateType} #${currentPlateMeta.displayIndex}`;
 
   // --- Tính toán hiệu suất của TẤM LIỆU (PLATE) ĐANG CHỌN ---
   const singleLayerArea = container.width * container.length;
-  const totalPlateArea = singleLayerArea * layersPerPlate;
+  // Sửa: Dùng số lớp thực tế để tính toán diện tích tổng của tấm, không dùng layersPerPlate
+  const actualLayersUsed = currentPlateLayers.length; 
+  const totalPlateArea = singleLayerArea * actualLayersUsed; 
 
   const plateUsedArea = currentPlateLayers
     .flatMap(layer => layer.rectangles.filter(Boolean)) 
@@ -111,7 +116,6 @@ const PackingResult = () => {
   const plateEfficiency = totalPlateArea > 0 
     ? (plateUsedArea / totalPlateArea * 100).toFixed(1) 
     : 0;
-
   // --- Cài đặt hiển thị (Visualization) ---
   const containerWidth = container.width;
   const containerLength = container.length;
@@ -136,8 +140,9 @@ const PackingResult = () => {
         
         {/* TIÊU ĐỀ TẤM LIỆU */}
         <div className="flex items-center justify-between mb-3 border-b pb-1"> 
-          <h3 className="text-l font-semibold text-gray-800" title={plateDisplayName}>
-            {plateDisplayName} ({layersPerPlate} lớp)
+          {/* HIỂN THỊ SỐ LỚP THỰC TẾ TRÊN TỔNG SỐ LỚP TỐI ĐA */}
+          <h3 className="text-l font-semibold text-gray-800" title={currentPlateMeta.description}>
+            {plateDisplayName} ({actualLayersUsed}/{layersPerPlate} lớp)
           </h3>
           <div className="text-l text-gray-600">
              Hiệu suất (Tấm này): <span className="font-bold text-primary-600">{plateEfficiency}%</span>
@@ -160,7 +165,8 @@ const PackingResult = () => {
                     }`}
                     title={plateMeta.description}
                 >
-                    {plateMeta.description.startsWith('Tấm thuần') ? `Thuần ${plateMeta.displayIndex}` : `Hỗn Hợp ${plateMeta.displayIndex}`}
+                    {/* Dùng trường type đã được xác định */}
+                    {plateMeta.type === 'pure' ? `Thuần ${plateMeta.displayIndex}` : `Hỗn Hợp ${plateMeta.displayIndex}`}
                 </button>
                 ))}
             </div>
