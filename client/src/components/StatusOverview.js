@@ -34,7 +34,8 @@ const StatusOverview = () => {
   // Dynamic Status Logic
   const getStatusColor = () => {
     if (isOptimizing) return 'from-blue-500 to-indigo-500';
-    if (packingResult && packingResult.totalPlates > 0) return 'from-green-500 to-emerald-500'; // Đổi A
+    // Đổi A: Kiểm tra packingResult.platesNeeded hoặc plates.length
+    if (packingResult && packingResult.plates && packingResult.plates.length > 0) return 'from-green-500 to-emerald-500'; 
     if (packingResult) return 'from-red-500 to-red-600'; // Nếu có kết quả mà ko có tấm nào
     if (selectedCountTotal > 0) return 'from-yellow-500 to-orange-500';
     return 'from-gray-500 to-gray-600';
@@ -42,19 +43,19 @@ const StatusOverview = () => {
 
   const getStatusText = () => {
     if (isOptimizing) return 'Đang chạy thuật toán tối ưu...';
-    // (*** Đổi A: dùng packingResult.totalPlates ***)
-    if (packingResult && packingResult.totalPlates > 0) return `Tối ưu hoàn thành. Cần ${packingResult.totalPlates} tấm liệu.`;
-    // (*** Đổi B: dùng packingResult.totalPlates ***)
-    if (packingResult && packingResult.totalPlates === 0 && selectedCountTotal > 0) return `Lỗi: Không thể xếp hình nào.`;
+    // Đổi B: dùng packingResult.platesNeeded
+    if (packingResult && packingResult.platesNeeded > 0) return `Tối ưu hoàn thành. Cần ${packingResult.platesNeeded} tấm liệu.`;
+    // Đổi C: dùng packingResult.platesNeeded
+    if (packingResult && packingResult.platesNeeded === 0 && selectedCountTotal > 0) return `Lỗi: Không thể xếp hình nào.`;
     if (selectedCountTotal > 0) return `Sẵn sàng tối ưu cho ${selectedCountTotal} hình.`;
     return 'Vui lòng chọn hình chữ nhật và cấu hình container.';
   };
 
   const getStatusIcon = () => {
     if (isOptimizing) return '⚙️';
-    // (*** Đổi C: dùng packingResult.totalPlates ***)
-    if (packingResult && packingResult.totalPlates > 0) return '✅';
-    if (packingResult && packingResult.totalPlates === 0 && selectedCountTotal > 0) return '❌'; 
+    // Đổi D: dùng packingResult.platesNeeded
+    if (packingResult && packingResult.platesNeeded > 0) return '✅';
+    if (packingResult && packingResult.platesNeeded === 0 && selectedCountTotal > 0) return '❌'; 
     if (selectedCountTotal > 0) return '🚀';
     return '📦';
   };

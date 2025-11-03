@@ -38,7 +38,7 @@ const PackingResult = () => {
   }
 
   // =================================================================
-  // 2. NO RESULT STATE (SỬA LỖI: Kiểm tra `packingResult.plates`)
+  // 2. NO RESULT STATE 
   // =================================================================
   // Logic mới dựa trên `plates`, không phải `rectangles`
   if (!packingResult || !packingResult.plates || packingResult.plates.length === 0) {
@@ -57,7 +57,7 @@ const PackingResult = () => {
   }
 
   // =================================================================
-  // 3. RENDER RESULT STATE (Đã cập nhật logic)
+  // 3. RENDER RESULT STATE 
   // =================================================================
 
   const { 
@@ -95,8 +95,8 @@ const PackingResult = () => {
   const vizWidth = isLandscape ? containerWidth : containerLength;
   const vizLength = isLandscape ? containerLength : containerWidth;
 
-  const maxVisualWidth = 500; 
-  const maxVisualLength = 300; 
+  const maxVisualWidth = 700; 
+  const maxVisualLength = 500; 
   const scale = Math.min(maxVisualWidth / vizWidth, maxVisualLength / vizLength);
 
   const displayWidth = vizWidth * scale;

@@ -43,7 +43,7 @@ const RectangleList = () => {
       addRectangle({
         width: width,
         length: length,
-        name: newRect.name || `${width}x${length}mm (Custom)` 
+        name: newRect.name || `${width}x${length}mm (Custom)`,
       });
       setNewRect({ width: '', length: '', name: '' }); // Reset form
       setShowAddForm(false); // Đóng form
