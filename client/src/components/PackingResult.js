@@ -253,7 +253,7 @@ const PackingResult = () => {
                 >
                   <div className="text-center leading-none p-0.5">
                     {/* Hiển thị kích thước đã xoay (nếu có) */}
-                    <div className="text-xs">{rect.width}×{rect.length} (L{rect.layer + 1})</div>
+                    <div className="text-xs">{rect.width}×{rect.length} </div>
                   </div>
                 </div>
               );
