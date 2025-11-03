@@ -101,7 +101,7 @@ const PackingResult = () => {
   
   // Hiển thị tên tấm liệu
   const plateType = currentPlateMeta.type === 'pure' ? 'Thuần' : 'Hỗn Hợp';
-  const plateDisplayName = `${plateType} #${currentPlateMeta.displayIndex}`;
+  const plateDescription = currentPlateMeta.description || `${plateType} #${currentPlateMeta.displayIndex}`;
 
   // --- Tính toán hiệu suất của TẤM LIỆU (PLATE) ĐANG CHỌN ---
   const singleLayerArea = container.width * container.length;
@@ -142,7 +142,7 @@ const PackingResult = () => {
         <div className="flex items-center justify-between mb-3 border-b pb-1"> 
           {/* HIỂN THỊ SỐ LỚP THỰC TẾ TRÊN TỔNG SỐ LỚP TỐI ĐA */}
           <h3 className="text-l font-semibold text-gray-800" title={currentPlateMeta.description}>
-            {plateDisplayName} ({actualLayersUsed}/{layersPerPlate} lớp)
+            {plateDescription} ({actualLayersUsed}/{layersPerPlate} lớp)
           </h3>
           <div className="text-l text-gray-600">
              Hiệu suất (Tấm này): <span className="font-bold text-primary-600">{plateEfficiency}%</span>

@@ -310,88 +310,110 @@ class PackingAlgorithm {
     return { placed: placedRectangles, remaining: remainingRectangles };
   }
 
-_bottomLeftFill(rectanglesToPack) {
-    const placedRectangles = [];
-    const usedRectIds = new Set();
-    // Khởi tạo một khoảng trống duy nhất bằng container
-    let freeSpaces = [{
-      x: 0,
-      y: 0,
-      width: this.container.width,
-      length: this.container.length
-    }];
+  _bottomLeftFill(rectanglesToPack) {
+    const placedRectangles = [];
+    const usedRectIds = new Set();
+    // Khởi tạo một khoảng trống duy nhất bằng container
+    let freeSpaces = [{
+      x: 0,
+      y: 0,
+       width: this.container.width,
+       length: this.container.length
+     }]; 
+     // Bắt đầu quá trình xếp
+    for (const rect of rectanglesToPack) {
+      if (usedRectIds.has(rect.id)) continue;
+      let bestSpaceIndex = -1;
+      let bestWaste = Infinity;
+      // 1. Tìm vị trí (khoảng trống) tốt nhất
+      for (let i = 0; i < freeSpaces.length; i++) {
+          const space = freeSpaces[i];
+          if (this.canFitInSpace(rect, space)) {
+              const waste = this.calculateWaste(rect, space);
+              if (waste < bestWaste) {
+                  bestWaste = waste;
+                  bestSpaceIndex = i;
+              }
+          }
+      }
 
-    for (const rect of rectanglesToPack) {
-      if (usedRectIds.has(rect.id)) continue;
-      
-      let bestSpaceIndex = -1;
-      let bestWaste = Infinity;
+      for (let i = 0; i < freeSpaces.length; i++) {
+          const space = freeSpaces[i];
+          if (this.canFitInSpace(rect, space)) {
+              const waste = this.calculateWaste(rect, space);
+              if (waste < bestWaste) {
+                  bestWaste = waste;
+                  bestSpaceIndex = i;
+              }
+          }
+      }
 
-      // 1. Tìm vị trí (khoảng trống) tốt nhất
-      for (let i = 0; i < freeSpaces.length; i++) {
-          const space = freeSpaces[i];
-          if (this.canFitInSpace(rect, space)) { 
-              const waste = this.calculateWaste(rect, space);
-              if (waste < bestWaste) {
-                  bestWaste = waste;
-                  bestSpaceIndex = i;
-              }
-          }
-      }
-      
-      if (bestSpaceIndex !== -1) {
-        const usedSpace = freeSpaces[bestSpaceIndex];
-        
-        const placedRect = {
-            ...rect,
-            x: usedSpace.x,
-            y: usedSpace.y,
-            layer: 0,
-        };
-        
-        placedRectangles.push(placedRect);
-        usedRectIds.add(rect.id);
-        
-        // 2. Cắt và thêm các khoảng trống mới
-        const newFreeSpaces = [];
-        
-        // Cắt khoảng trống đã sử dụng thành hai khoảng mới (bên phải và bên trên)
-        const spaceRight = {
-          x: placedRect.x + placedRect.width,
-          y: placedRect.y,
-          width: usedSpace.x + usedSpace.width - (placedRect.x + placedRect.width),
-          length: placedRect.length
-        };
-        
-        const spaceAbove = {
-          x: placedRect.x,
-          y: placedRect.y + placedRect.length,
-          width: usedSpace.width,
-          length: usedSpace.y + usedSpace.length - (placedRect.y + placedRect.length) 
-        };
-        
-        // Thêm vào danh sách mới nếu chúng có kích thước dương
-        if (spaceRight.width > 0 && spaceRight.length > 0) {
-            newFreeSpaces.push(spaceRight);
-        }
-        if (spaceAbove.width > 0 && spaceAbove.length > 0) {
-            newFreeSpaces.push(spaceAbove);
-        }
-        
-        // Cập nhật danh sách freeSpaces: loại bỏ khoảng trống cũ
-        freeSpaces.splice(bestSpaceIndex, 1);
-        // Thêm các khoảng trống mới được cắt
-        freeSpaces.push(...newFreeSpaces);
+      for (let i = 0; i < freeSpaces.length; i++) {
+          const space = freeSpaces[i];
+          if (this.canFitInSpace(rect, space)) {
+              const waste = this.calculateWaste(rect, space);
+              if (waste < bestWaste) {
+                  bestWaste = waste;
+                  bestSpaceIndex = i;
+              }
+          }
+      }
 
-        // Giữ danh sách freeSpaces được sắp xếp (quan trọng cho thuật toán BLF)
-        freeSpaces.sort((a, b) => a.y - b.y || a.x - b.x); 
-      }
-    }
+      if (bestSpaceIndex !== -1) {
+        const usedSpace = freeSpaces[bestSpaceIndex];
+        const placedRect = {
+            ...rect,
+            x: usedSpace.x,
+            y: usedSpace.y,
+            layer: 0,
+        };
 
-    const remainingRectangles = rectanglesToPack.filter(rect => !usedRectIds.has(rect.id));
-    return { placed: placedRectangles, remaining: remainingRectangles };
-  }
-  
+        placedRectangles.push(placedRect);
+        usedRectIds.add(rect.id);
+
+        // 2. Cắt và thêm các khoảng trống mới
+        const newFreeSpaces = [];
+        // Cắt khoảng trống đã sử dụng thành hai khoảng mới (bên phải và bên trên)
+
+        const spaceRight = {
+          x: placedRect.x + placedRect.width,
+          y: placedRect.y,
+          width: usedSpace.x + usedSpace.width - (placedRect.x + placedRect.width),
+          length: placedRect.length
+        };
+
+        const spaceAbove = {
+          x: placedRect.x,
+          y: placedRect.y + placedRect.length,
+          width: usedSpace.width,
+          length: usedSpace.y + usedSpace.length - (placedRect.y + placedRect.length)
+        };
+        // Thêm vào danh sách mới nếu chúng có kích thước dương
+        if (spaceRight.width > 0 && spaceRight.length > 0) {
+          newFreeSpaces.push(spaceRight);
+        }
+        if (spaceAbove.width > 0 && spaceAbove.length > 0) {
+          newFreeSpaces.push(spaceAbove);
+        }
+        if (spaceRight.width > 0 && spaceRight.length > 0) {
+          newFreeSpaces.push(spaceRight);
+        }
+        if (spaceAbove.width > 0 && spaceAbove.length > 0) {
+           newFreeSpaces.push(spaceAbove);
+           }
+            // Cập nhật danh sách freeSpaces: loại bỏ khoảng trống cũ
+            freeSpaces.splice(bestSpaceIndex, 1);
+            // Thêm các khoảng trống mới được cắt
+            freeSpaces.push(...newFreeSpaces);
+            // Giữ danh sách freeSpaces được sắp xếp (quan trọng cho thuật toán BLF)
+            freeSpaces.sort((a, b) => a.y - b.y || a.x - b.x);
+       }
+     }
+      const remainingRectangles = rectanglesToPack.filter(rect => !usedRectIds.has(rect.id));
+
+    return { placed: placedRectangles, remaining: remainingRectangles };
+  }
+
   _bestFitDecreasing(rectanglesToPack) {
     // Vẫn gọi BLF, nơi logic xoay đã bị loại bỏ
     return this._bottomLeftFill(rectanglesToPack); 
