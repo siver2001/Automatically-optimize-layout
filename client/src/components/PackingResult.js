@@ -241,7 +241,7 @@ const PackingResult = () => {
                     top: `${rectY}px`,
                     width: `${finalWidth}px`,
                     height: `${finalLength}px`,
-                    backgroundColor: rect.color,
+                    backgroundColor: rect.color || (placedRectDetails[rect.typeId]?.color),
                     fontSize: `${fontSize}px`,
                     minWidth: '20px', 
                     minHeight: '15px', 

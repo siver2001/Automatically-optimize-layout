@@ -2,33 +2,30 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react';
 import { packingService } from '../services/packingService.js';
 
+
 const PackingContext = createContext();
 
 const initialState = {
   // Container settings
-  container: {
-    width: 0,
-    length: 0,
-    layers: 1
-  },
-  
+  container: { width: 0, length: 0, layers: 1 },
+
   // Rectangles data
   rectangles: [],
   selectedRectangles: [],
-  quantities: {}, 
-  
+  quantities: {},
+
   // Packing results
   packingResult: null,
   isOptimizing: false,
   optimizationProgress: 0,
-  
+
   // UI state
   showModbus: false,
   errors: [],
   warnings: []
 };
 
-// Reducer 
+// ------------------------- Reducer -------------------------
 const packingReducer = (state, action) => {
   switch (action.type) {
     case 'SET_CONTAINER':
@@ -37,19 +34,20 @@ const packingReducer = (state, action) => {
         container: { ...state.container, ...action.payload },
         errors: state.errors.filter(e => e.type !== 'container')
       };
-      
-    case 'SET_RECTANGLES':
+
+    case 'SET_RECTANGLES': {
       const initialQuantities = action.payload.reduce((acc, rect) => {
-          acc[rect.id] = 1; 
-          return acc;
+        acc[rect.id] = 1;
+        return acc;
       }, {});
       return {
         ...state,
         rectangles: action.payload,
-        selectedRectangles: [], 
+        selectedRectangles: [],
         quantities: initialQuantities
       };
-      
+    }
+
     case 'ADD_RECTANGLE':
       return {
         ...state,
@@ -57,25 +55,23 @@ const packingReducer = (state, action) => {
         quantities: { ...state.quantities, [action.payload.id]: 1 },
         selectedRectangles: [...state.selectedRectangles, action.payload.id]
       };
-      
-    case 'REMOVE_RECTANGLE':
-      const { [action.payload]: removedQuantity, ...newQuantities } = state.quantities;
+
+    case 'REMOVE_RECTANGLE': {
+      const { [action.payload]: _removed, ...newQuantities } = state.quantities;
       return {
         ...state,
-        rectangles: state.rectangles.filter(rect => rect.id !== action.payload),
+        rectangles: state.rectangles.filter(r => r.id !== action.payload),
         selectedRectangles: state.selectedRectangles.filter(id => id !== action.payload),
         quantities: newQuantities
       };
-      
+    }
+
     case 'SET_QUANTITY':
-        return {
-          ...state,
-          quantities: {
-            ...state.quantities,
-            [action.payload.id]: action.payload.quantity
-          }
-        };
-      
+      return {
+        ...state,
+        quantities: { ...state.quantities, [action.payload.id]: action.payload.quantity }
+      };
+
     case 'SELECT_RECTANGLE':
       return {
         ...state,
@@ -83,27 +79,13 @@ const packingReducer = (state, action) => {
           ? state.selectedRectangles.filter(id => id !== action.payload)
           : [...state.selectedRectangles, action.payload]
       };
-      
+
     case 'SELECT_ALL_RECTANGLES':
-      return {
-        ...state,
-        selectedRectangles: state.rectangles.map(rect => rect.id)
-      };
-      
+      return { ...state, selectedRectangles: state.rectangles.map(r => r.id) };
+
     case 'CLEAR_SELECTION':
-      return {
-        ...state,
-        selectedRectangles: []
-      };
-      
-    case 'SET_PACKING_RESULT':
-      return {
-        ...state,
-        packingResult: action.payload,
-        isOptimizing: false,
-        optimizationProgress: 100
-      };
-      
+      return { ...state, selectedRectangles: [] };
+
     case 'START_OPTIMIZATION':
       return {
         ...state,
@@ -111,500 +93,500 @@ const packingReducer = (state, action) => {
         optimizationProgress: 0,
         packingResult: null,
         errors: state.errors.filter(e => e.type !== 'optimization' && e.type !== 'rectangles'),
-        warnings: [] // Xóa cảnh báo cũ
-      };
-      
-    case 'SET_WARNING':
-      // Tránh lặp lại cảnh báo
-      if (state.warnings.find(w => w.message === action.payload.message)) return state;
-      return {
-        ...state,
-        warnings: [...state.warnings, action.payload]
-      };
-      
-    case 'UPDATE_OPTIMIZATION_PROGRESS':
-      return {
-        ...state,
-        optimizationProgress: action.payload
-      };
-      
-    case 'SET_ERROR':
-      const filteredErrors = state.errors.filter(e => e.type !== action.payload.type);
-      return {
-        ...state,
-        errors: [...filteredErrors, action.payload],
-        isOptimizing: false // Dừng tối ưu nếu có lỗi
-      };
-      
-    case 'CLEAR_ERRORS':
-      return {
-        ...state,
-        errors: [],
         warnings: []
       };
-      
-    case 'TOGGLE_MODBUS':
+
+    case 'UPDATE_OPTIMIZATION_PROGRESS':
+      return { ...state, optimizationProgress: action.payload };
+
+    case 'SET_PACKING_RESULT':
       return {
         ...state,
-        showModbus: !state.showModbus
+        packingResult: action.payload,
+        isOptimizing: false,
+        optimizationProgress: 100
       };
-      
+
+    case 'SET_WARNING': {
+      if (state.warnings.find(w => w.message === action.payload.message)) return state;
+      return { ...state, warnings: [...state.warnings, action.payload] };
+    }
+
+    case 'SET_ERROR': {
+      const filtered = state.errors.filter(e => e.type !== action.payload.type);
+      return { ...state, errors: [...filtered, action.payload], isOptimizing: false };
+    }
+
+    case 'CLEAR_ERRORS':
+      return { ...state, errors: [], warnings: [] };
+
+    case 'TOGGLE_MODBUS':
+      return { ...state, showModbus: !state.showModbus };
+
     default:
       return state;
   }
 };
 
-
+// ------------------------- Provider -------------------------
 export const PackingProvider = ({ children }) => {
   const [state, dispatch] = useReducer(packingReducer, initialState);
 
+  // Load default rectangles once
   useEffect(() => {
     const loadDefaultRectangles = async () => {
       try {
         const data = await packingService.getDefaultRectangles();
         dispatch({ type: 'SET_RECTANGLES', payload: data.rectangles });
-      } catch (error) {
-        console.error('Error loading default rectangles:', error);
+      } catch (err) {
+        console.error('Error loading default rectangles:', err);
       }
     };
     loadDefaultRectangles();
   }, []);
 
-  const getNewRectId = useCallback(() => {
-      return Math.max(0, ...state.rectangles.map(r => r.id)) + 1;
-  }, [state.rectangles]);
+  // -------- Helpers (IDs / Validation) --------
+  const getNewRectId = useCallback(
+    () => Math.max(0, ...state.rectangles.map(r => r.id)) + 1,
+    [state.rectangles]
+  );
 
   const setQuantity = useCallback((id, quantity) => {
     dispatch({ type: 'SET_QUANTITY', payload: { id, quantity } });
   }, []);
 
-  // Validation
   const validateContainer = () => {
     const { width, length, layers } = state.container;
-    const errors = [];
-    if (width <= 0) errors.push('Chiều rộng tấm liệu phải lớn hơn 0');
-    if (length <= 0) errors.push('Chiều dài tấm liệu phải lớn hơn 0');
-    if (layers <= 0) errors.push('Số lớp phải lớn hơn 0');
-    if (width > 10000 || length > 10000) errors.push('Kích thước tấm liệu quá lớn (tối đa 10000mm)');
-    
-    if (errors.length > 0) {
-        dispatch({ type: 'SET_ERROR', payload: { type: 'container', message: errors.join('. ') } });
+    const errs = [];
+    if (width <= 0) errs.push('Chiều rộng tấm liệu phải lớn hơn 0');
+    if (length <= 0) errs.push('Chiều dài tấm liệu phải lớn hơn 0');
+    if (layers <= 0) errs.push('Số lớp phải lớn hơn 0');
+    if (width > 10000 || length > 10000) errs.push('Kích thước tấm liệu quá lớn (tối đa 10000mm)');
+    if (errs.length) {
+      dispatch({ type: 'SET_ERROR', payload: { type: 'container', message: errs.join('. ') } });
+      return false;
     }
-    return errors.length === 0;
+    return true;
   };
 
   const validateRectangles = () => {
-    const totalRectanglesCount = state.rectangles
-        .filter(rect => state.selectedRectangles.includes(rect.id))
-        .reduce((sum, rect) => sum + (state.quantities[rect.id] || 0), 0);
-    
-    if (totalRectanglesCount === 0) {
-      dispatch({ type: 'SET_ERROR', payload: { type: 'rectangles', message: 'Phải chọn ít nhất một size với số lượng lớn hơn 0' } });
+    const total = state.rectangles
+      .filter(r => state.selectedRectangles.includes(r.id))
+      .reduce((sum, r) => sum + (state.quantities[r.id] || 0), 0);
+
+    if (total === 0) {
+      dispatch({
+        type: 'SET_ERROR',
+        payload: { type: 'rectangles', message: 'Phải chọn ít nhất một size với số lượng lớn hơn 0' }
+      });
       return false;
     }
     return true;
   };
 
-  // Helper function: Calculate quantities of each type used in a layer pattern
-  const calculatePatternQuantities = (pattern) => {
-      return pattern.reduce((acc, rect) => {
-          if (rect.typeId) { 
-              acc[rect.typeId] = (acc[rect.typeId] || 0) + 1;
-          }
-          return acc;
-      }, {});
-  };
+  // -------- Helpers (Pattern & Leftovers) --------
+  const calculatePatternQuantities = (pattern) =>
+    pattern.reduce((acc, rect) => {
+      if (rect.typeId != null) acc[rect.typeId] = (acc[rect.typeId] || 0) + 1;
+      return acc;
+    }, {});
 
-  // Helper function: Build the leftoverRects array (gán ID tạm thời cho việc xếp)
-  const buildLeftoverRects = (quantitiesToPack, rectTypes, mixedPatternTempIdCounter) => {
-      let rects = [];
-      // Lọc ra các loại hình vẫn còn số lượng cần xếp
-      const sortedTypes = rectTypes.filter(r => quantitiesToPack[r.id] > 0)
-                                   .sort((a, b) => (b.width * b.length) - (a.width * a.length));
+  const buildLeftoverRects = (quantitiesToPack, rectTypes, tempCounterRef) => {
+    const rects = [];
+    const sortedTypes = rectTypes
+      .filter(r => (quantitiesToPack[r.id] || 0) > 0)
+      .sort(() => Math.random() - 0.5); // xáo trộn để tránh ưu tiên cố định
 
-      for (const rectType of sortedTypes) {
-          const quantityLeft = quantitiesToPack[rectType.id] || 0;
-          for (let i = 0; i < quantityLeft; i++) {
-              rects.push({
-                  ...rectType,
-                  // ID tạm thời duy nhất cho việc xếp
-                  id: `mixed_${mixedPatternTempIdCounter.current++}`, 
-                  typeId: rectType.id 
-              });
-          }
+    for (const t of sortedTypes) {
+      const need = quantitiesToPack[t.id] || 0;
+      for (let i = 0; i < need; i++) {
+        rects.push({
+          ...t,
+          id: `mixed_${tempCounterRef.current++}`,
+          typeId: t.id
+        });
       }
-      return rects;
+    }
+    return rects;
   };
 
-  // --- (*** LOGIC TỐI ƯU : PURE N-LAYER / MIXED N-LAYER ***) ---
+  // ------------------------- Core Optimization -------------------------
   const startOptimization = async () => {
     dispatch({ type: 'CLEAR_ERRORS' });
-    if (!validateContainer() || !validateRectangles()) {
-      return false;
-    }
+    if (!validateContainer() || !validateRectangles()) return false;
     dispatch({ type: 'START_OPTIMIZATION' });
 
     try {
-      const allSelectedTypes = state.rectangles.filter(
-          rect => state.selectedRectangles.includes(rect.id) && (state.quantities[rect.id] || 0) > 0
-      );
-      
-      // 1. CHUẨN BỊ DỮ LIỆU 
-      let quantitiesToPack = allSelectedTypes.reduce((acc, rect) => {
-          acc[rect.id] = state.quantities[rect.id];
-          return acc;
-      }, {});
-
-      const finalPlates = []; // Mảng chứa tất cả các tấm liệu (plates) đã tối ưu
-      let plateIdCounter = 0;
-      let presentationIdCounterRef = { current: 1 }; 
       const layersPerPlate = state.container.layers;
 
-      // =================================================================
-      // GIAI ĐOẠN 1: TỐI ƯU CÁC TẤM THUẦN (PURE PLATES - N-LAYER)
-      // =================================================================
-      
-      for (const rectType of allSelectedTypes) {
-          const typeId = rectType.id;
-          let quantityNeeded = quantitiesToPack[typeId];
-          
-          if (quantityNeeded === 0) continue;
+      // Lấy các loại đã chọn + có quantity > 0
+      const selectedTypes = state.rectangles.filter(
+        r => state.selectedRectangles.includes(r.id) && (state.quantities[r.id] || 0) > 0
+      );
 
-          // *Gọi API với 1 lớp để tìm ra cách xếp 1 lớp tối ưu nhất (server sẽ xử lý xoay)*
-          const rectsForPatternFinding = [];
-          for (let i = 0; i < Math.min(quantityNeeded, 500); i++) { 
-              rectsForPatternFinding.push({ 
-                  ...rectType, 
-                  id: `temp_${typeId}_${i}`, 
-                  typeId: typeId 
-              });
+      // Bản đồ tồn kho cần xếp
+      const quantitiesToPack = selectedTypes.reduce((acc, r) => {
+        acc[r.id] = state.quantities[r.id];
+        return acc;
+      }, {});
+
+      const finalPlates = [];
+      let plateIndexCounter = 0;
+      let rectPresentationId = 1;
+
+      // ========== GIAI ĐOẠN 1: TẤM THUẦN ==========
+      for (const rectType of selectedTypes) {
+        let remainingQty = quantitiesToPack[rectType.id];
+        if (!remainingQty) continue;
+
+        // Tìm pattern 1 lớp tối ưu cho size này (server đã áp dụng xoay cố định & xếp đơn lớp):contentReference[oaicite:4]{index=4}
+        const patternSeed = [];
+        for (let i = 0; i < Math.min(remainingQty, 500); i++) {
+          patternSeed.push({ ...rectType, id: `temp_${rectType.id}_${i}`, typeId: rectType.id });
+        }
+
+        const patternResult = await packingService.optimizePacking(
+          { ...state.container, layers: 1 },
+          patternSeed,
+          1
+        );
+
+        const singleLayerPattern = (patternResult?.result?.rectangles || [])
+          .filter(r => r && r.layer === 0 && r.x !== undefined)
+          .map(r => ({ ...r, typeId: r.typeId }));
+
+        const perLayer = singleLayerPattern.length;
+        if (perLayer === 0) {
+          // Không xếp được size này vào tấm
+          dispatch({
+            type: 'SET_WARNING',
+            payload: {
+              type: 'optimization',
+              message: `Không thể xếp loại size ${rectType.name} vào tấm liệu (${state.container.width}x${state.container.length}mm).`
+            }
+          });
+          continue;
+        }
+
+        const perPlate = perLayer * layersPerPlate;
+        const fullPlates = Math.floor(remainingQty / perPlate);
+        const remainder = remainingQty % perPlate;
+
+        // Sinh các tấm thuần đầy đủ
+        for (let p = 0; p < fullPlates; p++) {
+          const plate = {
+            plateIndex: plateIndexCounter++,
+            type: 'pure',
+            description: `Tấm thuần Size ${rectType.name}`,
+            layers: []
+          };
+          for (let l = 0; l < layersPerPlate; l++) {
+            const layerRects = singleLayerPattern.map(r => ({
+              ...r,
+              id: rectPresentationId++,
+              layer: l,
+              plateIndex: plate.plateIndex,
+              typeId: r.typeId
+            }));
+            plate.layers.push({ layerIndexInPlate: l, rectangles: layerRects });
           }
-          
+          finalPlates.push(plate);
+        }
+
+        quantitiesToPack[rectType.id] = remainder;
+      }
+
+      // ========== GIAI ĐOẠN 2: PHẦN CÒN LẠI ==========
+      // Nếu còn 1 size duy nhất => vẫn coi là thuần & xếp nốt.
+      // Nếu >= 2 size => hỗn hợp: chọn 1 pattern 1 lớp tối ưu và lặp lại pattern cho nhiều lớp giống nhau (tối đa layersPerPlate & tồn kho):contentReference[oaicite:5]{index=5}.
+      let tempCounterRef = { current: 1 };
+      let leftovers = buildLeftoverRects(quantitiesToPack, selectedTypes, tempCounterRef);
+
+      const MAX_MIXED = 100; // an toàn
+      let mixedCount = 0;
+
+      while (leftovers.length > 0 && mixedCount < MAX_MIXED) {
+        const distinctTypeIds = [...new Set(leftovers.map(r => r.typeId))];
+
+        // (2a) Chỉ còn 1 size => xử lý như tấm thuần sót lại
+        if (distinctTypeIds.length === 1) {
+          const onlyTypeId = distinctTypeIds[0];
+          const onlyType = selectedTypes.find(t => t.id === onlyTypeId);
+          if (!onlyType) break;
+
+          // pattern 1 lớp cho phần còn lại của size này
           const patternResult = await packingService.optimizePacking(
-              { ...state.container, layers: 1 }, 
-              rectsForPatternFinding,
-              1
+            { ...state.container, layers: 1 },
+            leftovers, // toàn bộ còn lại đều cùng 1 size
+            1
           );
 
-          const singleLayerPattern = patternResult.result.rectangles
-              .filter(r => r && r.layer === 0 && r.x !== undefined)
-              .map(r => ({ ...r, typeId: r.typeId })); 
+          const singleLayerPattern = (patternResult?.result?.rectangles || [])
+            .filter(r => r && r.layer === 0 && r.x !== undefined)
+            .map(r => ({ ...r, typeId: r.typeId }));
 
-          const placedPerLayer = singleLayerPattern.length;
-
-          if (placedPerLayer === 0 && quantityNeeded > 0) {
-              dispatch({ 
-                type: 'SET_WARNING', 
-                payload: { 
-                    type: 'optimization', 
-                    message: `Không thể xếp loại size ${rectType.name} vào tấm liệu (${state.container.width}x${state.container.length}mm).` 
-                } 
-              });
-              continue; 
+          const perLayer = singleLayerPattern.length;
+          if (perLayer === 0) {
+            // Không xếp được nữa, thoát
+            quantitiesToPack[onlyTypeId] = 0;
+            leftovers = [];
+            break;
           }
 
-          const placedPerPlate = placedPerLayer * layersPerPlate;
-          const fullPlatesNeeded = Math.floor(quantityNeeded / placedPerPlate);
-          const remainingForPurePlates = quantityNeeded % placedPerPlate;
+          // Tổng số hình còn lại của size này
+          let remain = leftovers.length;
+          const platesNeeded = Math.ceil(remain / (perLayer * layersPerPlate));
 
-          if (fullPlatesNeeded > 0) {
-              for (let p = 0; p < fullPlatesNeeded; p++) {
-                  const plate = {
-                      plateIndex: plateIdCounter++,
-                      layers: [],
-                      description: `Tấm thuần Size ${rectType.name}`,
-                      type: "pure"
-                  };
+          for (let p = 0; p < platesNeeded; p++) {
+            const plate = {
+              plateIndex: plateIndexCounter++,
+              type: 'pure',
+              description: `Tấm thuần sót lại Size ${onlyType.name}`,
+              layers: []
+            };
 
-                  for (let l = 0; l < layersPerPlate; l++) {
-                      const layerRects = singleLayerPattern.map(rect => ({
-                          ...rect,
-                          id: presentationIdCounterRef.current++, 
-                          layer: l,
-                          plateIndex: plate.plateIndex,
-                          typeId: rect.typeId
-                      }));
-                      plate.layers.push({
-                          layerIndexInPlate: l,
-                          rectangles: layerRects
-                      });
-                  }
-                  finalPlates.push(plate);
-              }
+            // Số lớp thực dùng cho tấm này
+            const layersToFill = Math.min(layersPerPlate, Math.floor(remain / perLayer) || 1);
 
-              quantitiesToPack[typeId] = remainingForPurePlates;
+            for (let l = 0; l < layersToFill; l++) {
+              // Số hình đặt được ở lớp này
+              const put = Math.min(perLayer, remain);
+              const layerRects = singleLayerPattern.slice(0, put).map(r => ({
+                ...r,
+                id: rectPresentationId++,
+                layer: l,
+                plateIndex: plate.plateIndex,
+                typeId: r.typeId
+              }));
+              plate.layers.push({ layerIndexInPlate: l, rectangles: layerRects });
+              remain -= put;
+              if (remain <= 0) break;
+            }
+
+            finalPlates.push(plate);
+            if (remain <= 0) break;
           }
-      } // Kết thúc Giai đoạn 1
 
-      // =================================================================
-      // GIAI ĐOẠN 2: XỬ LÝ HÌNH CÒN LẠI (LEFT
-      // Nếu chỉ còn 1 loại size sót lại, vẫn coi nó là tấm thuần.
-      // Nếu còn >= 2 loại size sót lại, mới coi là HỖN HỢP.
-      // =================================================================
-      
-      let mixedPatternTempIdCounter = { current: 1 }; 
-      let currentLeftoverRects = buildLeftoverRects(quantitiesToPack, allSelectedTypes, mixedPatternTempIdCounter);
-      let mixedPlatesCount = 0;
-      const MAX_MIXED_PLATES = 50; 
+          // Xóa tồn kho size này
+          quantitiesToPack[onlyTypeId] = 0;
+          leftovers = [];
+          break;
+        }
 
-      while (currentLeftoverRects.length > 0 && mixedPlatesCount < MAX_MIXED_PLATES) {
-          
-          const distinctTypesInLeftover = [...new Set(currentLeftoverRects.map(r => r.typeId))];
-          
-          // --- BƯỚC MỚI VÀ QUAN TRỌNG: XỬ LÝ TRƯỜNG HỢP CÒN LẠI LÀ THUẦN ---
-          if (distinctTypesInLeftover.length === 1) {
-              // ⚠️ CHỈ CÒN MỘT LOẠI SIZE DUY NHẤT ⚠️
-              // Xử lý như Tấm Thuần sót lại và THOÁT khỏi vòng lặp hỗn hợp.
-              const rectType = allSelectedTypes.find(r => r.id === distinctTypesInLeftover[0]);
-              if (!rectType) break; // Thoát nếu không tìm thấy loại hình (không nên xảy ra)
+        // (2b) HỖN HỢP: chọn pattern 1 lớp tối ưu cho phần leftover (cắt 500 để nhanh)
+        // Gom leftovers theo typeId
+        const byType = new Map();
+        for (const r of leftovers) {
+          if (!byType.has(r.typeId)) byType.set(r.typeId, []);
+          byType.get(r.typeId).push(r);
+        }
+        // Lấy round-robin: mỗi vòng nhặt 1 cái từ từng type (ưu tiên 3–5 vòng)
+        const mixedSeed = [];
+        const ROUNDS = 10; // thử 10 lượt, <=1000 phần tử
+        for (let k = 0; k < ROUNDS; k++) {
+          for (const [, list] of byType) {
+            if (list.length) mixedSeed.push(list.shift());
+            if (mixedSeed.length >= 500) break;
+          }
+          if (mixedSeed.length >= 500) break;
+        }
+        const mixedPatternResult = await packingService.optimizePacking(
+          { ...state.container, layers: 1 },
+          mixedSeed,
+          1
+        );
 
-              // 1. Tìm mẫu 1 lớp tối ưu cho loại còn lại này
-              const subsetForPatternFinding = currentLeftoverRects; 
-              const patternResult = await packingService.optimizePacking(
-                  { ...state.container, layers: 1 }, 
-                  subsetForPatternFinding,
-                  1
-              );
-              
-              const singleLayerPattern = patternResult.result.rectangles
-                  .filter(r => r && r.layer === 0 && r.x !== undefined) 
-                  .map(r => ({ ...r, typeId: r.typeId })); 
+        const bestMixedLayerPattern = (mixedPatternResult?.result?.rectangles || [])
+          .filter(r => r && r.layer === 0 && r.x !== undefined);
 
-              const placedPerLayer = singleLayerPattern.length;
-              
-              if (placedPerLayer > 0) {
-                  // 2. Tính toán số tấm CẦN tạo ra để hết số hình còn lại
-                  const neededLayersTotal = currentLeftoverRects.length;
-                  const finalPlatesNeeded = Math.ceil(neededLayersTotal / placedPerLayer / layersPerPlate);
-                  let remainingCount = neededLayersTotal;
-                  
-                  for (let p = 0; p < finalPlatesNeeded; p++) {
-                      const plate = {
-                          plateIndex: plateIdCounter++,
-                          layers: [],
-                          // Vẫn gọi là "pure" vì nó chỉ chứa 1 loại size.
-                          description: `Tấm thuần sót lại Size ${rectType.name}`,
-                          type: "pure" 
-                      };
-                      
-                      // Số lớp thực tế cần điền trên tấm này
-                      const layersToFill = Math.min(layersPerPlate, Math.ceil(remainingCount / placedPerLayer)); 
+        if (bestMixedLayerPattern.length === 0) {
+          // Không tạo nổi mẫu hỗn hợp, dừng
+          break;
+        }
 
-                      for (let l = 0; l < layersToFill; l++) {
-                          const rectsToPlace = Math.min(placedPerLayer, remainingCount);
-                          
-                          const layerRects = singleLayerPattern.slice(0, rectsToPlace).map(rect => ({
-                              ...rect,
-                              id: presentationIdCounterRef.current++, 
-                              layer: l,
-                              plateIndex: plate.plateIndex,
-                              typeId: rect.typeId
-                          }));
-                          plate.layers.push({
-                              layerIndexInPlate: l,
-                              rectangles: layerRects
-                          });
-                          remainingCount -= placedPerLayer;
-                      }
-                      finalPlates.push(plate);
-                  }
-                  
-                  // Đánh dấu tất cả số lượng của loại này là đã dùng
-                  quantitiesToPack[rectType.id] = 0;
-                  currentLeftoverRects = []; // THOÁT LUÔN VÌ ĐÃ XỬ LÝ HẾT LOẠI DUY NHẤT CÒN LẠI
-                  break; 
+        // Đếm nhu cầu theo type trong pattern
+        const patternUse = calculatePatternQuantities(bestMixedLayerPattern);
+        let maxRepeat = layersPerPlate;
 
-              } else {
-                  // Không thể xếp được hình còn lại
-                  quantitiesToPack[rectType.id] = 0;
-                  currentLeftoverRects = [];
-                  break;
-              }
-          } 
+        // giới hạn theo tồn kho thực tế
+        for (const typeIdStr of Object.keys(patternUse)) {
+          const typeId = Number(typeIdStr);
+          const perLayerNeed = patternUse[typeId];
+          const stock = quantitiesToPack[typeId] || 0;
+          const canRepeat = Math.floor(stock / perLayerNeed);
+          maxRepeat = Math.min(maxRepeat, canRepeat);
+        }
 
+        if (maxRepeat <= 0) {
+          // Có mẫu nhưng không đủ hàng để lặp 1 lớp => dừng
+          break;
+        }
 
-          // A. CHỌN MẪU XẾP 1 LỚP TỐI ƯU CHO HỖN HỢP CÒN LẠI
-          const subsetForPatternFinding = currentLeftoverRects.slice(0, 500); 
+        // Mô tả hiển thị mẫu
+        const patternDesc = Object.entries(patternUse)
+          .map(([id, cnt]) => {
+            const t = selectedTypes.find(x => x.id === Number(id));
+            return `${cnt}x ${t ? t.name : `#${id}`}`;
+          })
+          .join(', ');
 
-          const mixedPatternResult = await packingService.optimizePacking(
-              { ...state.container, layers: 1 },
-              subsetForPatternFinding, 
-              1
+        // Sinh tấm hỗn hợp
+        const mixedPlate = {
+          plateIndex: plateIndexCounter++,
+          type: 'mixed',
+          description: `Tấm hỗn hợp (${maxRepeat}/${layersPerPlate} lớp | Mẫu: ${patternDesc})`,
+          layers: []
+        };
+
+        for (let l = 0; l < maxRepeat; l++) {
+          const layerRects = bestMixedLayerPattern.map(r => ({
+            ...r,
+            id: rectPresentationId++,
+            layer: l,
+            plateIndex: mixedPlate.plateIndex,
+            typeId: r.typeId
+          }));
+          mixedPlate.layers.push({ layerIndexInPlate: l, rectangles: layerRects });
+        }
+        finalPlates.push(mixedPlate);
+        mixedCount++;
+        if (mixedCount > selectedTypes.length * 5) break;
+
+        // Trừ tồn kho theo số lớp lặp
+        const placedCountByType = bestMixedLayerPattern.reduce((acc, r) => {
+          acc[r.typeId] = (acc[r.typeId] || 0) + 1;
+          return acc;
+        }, {});
+        for (const [typeIdStr, cnt] of Object.entries(placedCountByType)) {
+          const typeId = Number(typeIdStr);
+          quantitiesToPack[typeId] = Math.max(0, (quantitiesToPack[typeId] || 0) - cnt * maxRepeat);
+        }
+
+        // Xây lại leftovers cho vòng lặp sau
+        tempCounterRef.current = 1;
+        leftovers = buildLeftoverRects(quantitiesToPack, selectedTypes, tempCounterRef);
+      }
+      // Sau khi kết thúc hỗn hợp, nếu vẫn còn hàng lẻ thì gom và sắp phần dư
+      if (leftovers.length > 0) {
+        const remainderDistinct = [...new Set(leftovers.map(r => r.typeId))];
+        // Nếu chỉ còn 1 size => tạo tấm sót lại nhỏ
+        if (remainderDistinct.length === 1) {
+          const onlyTypeId = remainderDistinct[0];
+          const onlyType = selectedTypes.find(t => t.id === onlyTypeId);
+          const patternResult = await packingService.optimizePacking(
+            { ...state.container, layers: 1 },
+            leftovers,
+            1
           );
 
-          const bestMixedLayerPattern = mixedPatternResult.result.rectangles
-              .filter(r => r && r.layer === 0 && r.x !== undefined); 
+          const singleLayerPattern = (patternResult?.result?.rectangles || [])
+            .filter(r => r && r.layer === 0 && r.x !== undefined)
+            .map(r => ({ ...r, typeId: r.typeId }));
 
-          if (bestMixedLayerPattern.length === 0) {
-              break; 
+          if (singleLayerPattern.length > 0) {
+            const plate = {
+              plateIndex: plateIndexCounter++,
+              type: 'pure',
+              description: `Tấm lẻ Size ${onlyType.name} (phần còn lại)`,
+              layers: [{ layerIndexInPlate: 0, rectangles: singleLayerPattern }]
+            };
+            finalPlates.push(plate);
           }
+        } else {
+          // Nếu còn nhiều size nhưng ít, tạo 1 tấm hỗn hợp cuối
+          const patternResult = await packingService.optimizePacking(
+            { ...state.container, layers: 1 },
+            leftovers,
+            1
+          );
+          const mixedPattern = (patternResult?.result?.rectangles || [])
+            .filter(r => r && r.layer === 0 && r.x !== undefined);
 
-          // B. TÍNH TOÁN SỐ LỚP CÓ THỂ LẶP LẠI VÀ MÔ TẢ
-          const patternQuantitiesUsed = calculatePatternQuantities(bestMixedLayerPattern);
-          let maxLayersToRepeat = layersPerPlate;
-          let patternDescription = []; 
-
-          for (const typeId in patternQuantitiesUsed) {
-              const patternCount = patternQuantitiesUsed[typeId];
-              const inventoryCount = quantitiesToPack[Number(typeId)] || 0;
-              
-              const rectTypeDetails = allSelectedTypes.find(r => r.id === Number(typeId));
-              if (rectTypeDetails) {
-                 patternDescription.push(`${patternCount}x ${rectTypeDetails.name.split(' ')[0].replace('#', '')}#`);
-              }
-
-              const maxLayersForThisType = Math.floor(inventoryCount / patternCount);
-              maxLayersToRepeat = Math.min(maxLayersToRepeat, maxLayersForThisType);
+          if (mixedPattern.length > 0) {
+            const mixedPlate = {
+              plateIndex: plateIndexCounter++,
+              type: 'mixed',
+              description: `Tấm hỗn hợp (phần dư cuối)`,
+              layers: [{ layerIndexInPlate: 0, rectangles: mixedPattern }]
+            };
+            finalPlates.push(mixedPlate);
           }
+        }
+      }
+      // ========== GIAI ĐOẠN 3: GỘP KẾT QUẢ ==========
+      const allPlaced = finalPlates.flatMap(p => p.layers.flatMap(l => l.rectangles));
+      const totalRequested = selectedTypes.reduce((s, t) => s + (state.quantities[t.id] || 0), 0);
 
-          maxLayersToRepeat = Math.min(maxLayersToRepeat, layersPerPlate);
+      // Chỉ tính diện tích của các lớp đã dùng thực tế (mỗi lớp là 1 mặt container):contentReference[oaicite:6]{index=6}
+      const usedPlateArea = finalPlates.reduce(
+        (sum, plate) => sum + plate.layers.length * state.container.width * state.container.length,
+        0
+      );
+      const placedArea = allPlaced.reduce((sum, r) => sum + r.width * r.length, 0);
+      const efficiency = usedPlateArea > 0 ? (placedArea / usedPlateArea) * 100 : 0;
 
-          if (maxLayersToRepeat > 0) {
-              // C. XÂY DỰNG TẤM HỖN HỢP (LẶP LẠI MẪU)
-              const mixedPlate = {
-                  plateIndex: plateIdCounter++,
-                  layers: [],
-                  description: `Tấm hỗn hợp (${maxLayersToRepeat}/${layersPerPlate} lớp | Mẫu: ${patternDescription.join(', ')})`,
-                  type: "mixed" // Phân loại là hỗn hợp
-              };
-              
-              for (let l = 0; l < maxLayersToRepeat; l++) {
-                  const layerRects = bestMixedLayerPattern.map(rect => ({
-                      ...rect,
-                      id: presentationIdCounterRef.current++, 
-                      layer: l,
-                      plateIndex: mixedPlate.plateIndex,
-                      typeId: rect.typeId,
-                  }));
-                  mixedPlate.layers.push({
-                      layerIndexInPlate: l,
-                      rectangles: layerRects
-                  });
-              }
-              
-              // D. CẬP NHẬT KHO HÀNG CÒN LẠI
-              for (const typeId in patternQuantitiesUsed) {
-                  const quantityUsedInLayer = patternQuantitiesUsed[typeId];
-                  quantitiesToPack[Number(typeId)] -= quantityUsedInLayer * maxLayersToRepeat;
-              }
-              
-              finalPlates.push(mixedPlate);
-              mixedPlatesCount++;
-              
-              // Chuẩn bị cho vòng lặp tiếp theo
-              mixedPatternTempIdCounter.current = 1; 
-              currentLeftoverRects = buildLeftoverRects(quantitiesToPack, allSelectedTypes, mixedPatternTempIdCounter);
-
-          } else {
-              // TERMINATION CONDITION 2: Mẫu được tìm thấy nhưng không đủ hàng tồn kho để lặp lại
-              break; 
+      const placedCount = allPlaced.length;
+      const missing = totalRequested - placedCount;
+      if (placedCount !== totalRequested) {
+        dispatch({
+          type: 'SET_WARNING',
+          payload: {
+            type: 'optimization',
+            message: `Cảnh báo: Chỉ xếp được ${placedCount} / ${totalRequested} hình (${missing} hình bị thiếu). Các hình còn lại không đủ tạo thành mẫu hoặc không thể xếp được nữa.`
           }
-      } // End while loop (Mixed Plates)
+        });
+      }
 
-      // =================================================================
-      // GIAI ĐOẠN 3: TỔNG HỢP KẾT QUẢ
-      // =================================================================
-      const allPlacedRectangles = finalPlates.flatMap(p => p.layers.flatMap(l => l.rectangles));
-  const totalRequestedCount = allSelectedTypes.reduce((sum, r) => sum + (state.quantities[r.id] || 0), 0);
-  
-  // Tổng diện tích tối đa của TẤT CẢ lớp đã sử dụng 
-  const totalUsedPlateArea = finalPlates.reduce((sum, plate) => {
-      // Chỉ tính diện tích lớp thực tế đã điền
-      return sum + (plate.layers.length * state.container.width * state.container.length);
-  }, 0);
-  
-  // Tổng diện tích các hình đã xếp
-  const totalPlacedArea = allPlacedRectangles.reduce((sum, rect) => sum + (rect.width * rect.length), 0);
+      const result = {
+        layersUsed: finalPlates.length,          // số tấm
+        platesNeeded: finalPlates.length,
+        layersPerPlate,
+        totalRectanglesCount: totalRequested,
+        placedRectanglesCount: placedCount,
+        rectangles: allPlaced,
+        plates: finalPlates,
+        efficiency
+      };
 
-  const efficiency = totalUsedPlateArea > 0 
-          ? (totalPlacedArea / totalUsedPlateArea) * 100 
-          : 0;
-
-  const placedRectanglesCount = allPlacedRectangles.length;
-  const missingCount = totalRequestedCount - placedRectanglesCount; 
-  
-  if (placedRectanglesCount !== totalRequestedCount) {
-    dispatch({ 
-      type: 'SET_WARNING', 
-      payload: { 
-        type: 'optimization', 
-        // Cảnh báo chi tiết hơn
-        message: `Cảnh báo: Chỉ xếp được ${placedRectanglesCount} / ${totalRequestedCount} hình (${missingCount} hình bị thiếu). Các hình còn lại không đủ tạo thành mẫu hoặc không thể xếp được nữa.` 
-      } 
-    });
-  }
-
-  const finalResult = {
-      layersUsed: finalPlates.length, // Số lượng tấm liệu cần dùng
-      platesNeeded: finalPlates.length,
-      layersPerPlate: layersPerPlate,
-      totalRectanglesCount: totalRequestedCount,
-      placedRectanglesCount: placedRectanglesCount, 
-      rectangles: allPlacedRectangles,
-      plates: finalPlates, 
-      efficiency: efficiency
-  };
-
-    dispatch({ type: 'SET_PACKING_RESULT', payload: finalResult });
-    return true;
-
+      dispatch({ type: 'SET_PACKING_RESULT', payload: result });
+      return true;
     } catch (error) {
       console.error('Lỗi tối ưu:', error);
-      dispatch({ type: 'SET_ERROR', payload: { 
-        type: 'optimization', 
-        message: `Lỗi trong quá trình tối ưu: ${error.message}` 
-      }});
-      dispatch({ type: 'SET_PACKING_RESULT', payload: { plates: [], rectangles: [] } }); 
+      dispatch({
+        type: 'SET_ERROR',
+        payload: { type: 'optimization', message: `Lỗi trong quá trình tối ưu: ${error.message}` }
+      });
+      dispatch({ type: 'SET_PACKING_RESULT', payload: { plates: [], rectangles: [] } });
       return false;
     }
   };
 
-  const clearErrors = () => {
-    dispatch({ type: 'CLEAR_ERRORS' });
-  };
+  // ------------------------- Public API -------------------------
+  const clearErrors = () => dispatch({ type: 'CLEAR_ERRORS' });
+  const toggleModbus = () => dispatch({ type: 'TOGGLE_MODBUS' });
 
-  const toggleModbus = () => {
-    dispatch({ type: 'TOGGLE_MODBUS' });
-  };
-  
   const addRectangle = (rectangle) => {
     const newId = getNewRectId();
-    // Cố định màu cho size tùy chỉnh (dựa trên logic getColorForRectangle của server)
-    const defaultColor = '#3498db'; 
-    dispatch({ type: 'ADD_RECTANGLE', payload: { 
-        ...rectangle, 
-        id: newId, 
-        color: defaultColor, 
-        typeId: newId 
-    } });
+    const defaultColor = '#3498db';
+    dispatch({
+      type: 'ADD_RECTANGLE',
+      payload: { ...rectangle, id: newId, color: defaultColor, typeId: newId }
+    });
   };
 
-  const updateRectangle = (id, updates) => {
-    // Logic cập nhật không được cung cấp trong reducer, giữ nguyên nếu không cần thiết
+  const updateRectangle = (_id, _updates) => {
+    // tuỳ nhu cầu mở rộng sau
   };
 
-  const removeRectangle = (id) => {
-    dispatch({ type: 'REMOVE_RECTANGLE', payload: id });
-  };
-
-  const selectRectangle = (id) => {
-    dispatch({ type: 'SELECT_RECTANGLE', payload: id });
-  };
-
-  const selectAllRectangles = () => {
-    dispatch({ type: 'SELECT_ALL_RECTANGLES' });
-  };
-
-  const clearSelection = () => {
-    dispatch({ type: 'CLEAR_SELECTION' });
-  };
-  
-  const setContainer = (containerData) => {
-    dispatch({ type: 'SET_CONTAINER', payload: containerData });
-  };
+  const removeRectangle = (id) => dispatch({ type: 'REMOVE_RECTANGLE', payload: id });
+  const selectRectangle = (id) => dispatch({ type: 'SELECT_RECTANGLE', payload: id });
+  const selectAllRectangles = () => dispatch({ type: 'SELECT_ALL_RECTANGLES' });
+  const clearSelection = () => dispatch({ type: 'CLEAR_SELECTION' });
+  const setContainer = (data) => dispatch({ type: 'SET_CONTAINER', payload: data });
 
   const value = {
     ...state,
+    // setters
     setContainer,
     setQuantity,
     addRectangle,
@@ -613,24 +595,20 @@ export const PackingProvider = ({ children }) => {
     selectRectangle,
     selectAllRectangles,
     clearSelection,
+    // actions
     startOptimization,
     clearErrors,
     toggleModbus,
+    // validators
     validateContainer,
     validateRectangles
   };
 
-  return (
-    <PackingContext.Provider value={value}>
-      {children}
-    </PackingContext.Provider>
-  );
+  return <PackingContext.Provider value={value}>{children}</PackingContext.Provider>;
 };
 
 export const usePacking = () => {
-  const context = useContext(PackingContext);
-  if (!context) {
-    throw new Error('usePacking must be used within a PackingProvider');
-  }
-  return context;
+  const ctx = useContext(PackingContext);
+  if (!ctx) throw new Error('usePacking must be used within a PackingProvider');
+  return ctx;
 };
