@@ -32,28 +32,15 @@ class PackingAlgorithm {
     return array;
   }
   
-  // --- HÀM MỚI: Chỉ chạy 1 chiến lược nhanh để kiểm tra xoay ---
-  _runQuickSingleLayerPacking(rectanglesToPack) {
-    // Chỉ chạy chiến lược đầu tiên (MaxRectsBSSF) để ước tính
-    // Sắp xếp trước khi chạy
-    const sortedRects = this.sortRectanglesByArea(rectanglesToPack);
-    const { placed: currentPlaced, remaining: currentRemaining } = this._maxRectsBSSF(sortedRects.map(r => ({...r})));
-    const currentUsedArea = currentPlaced.reduce((sum, rect) => sum + (rect.width * rect.length), 0);
-
-    return {
-      placed: currentPlaced.map(r => ({...r, layer: 0})),
-      remaining: currentRemaining.map(r => ({...r})),
-      usedArea: currentUsedArea
-    };
-  }
-  
-  // ---  Chạy thuật toán 2D đóng gói đơn lớp (KHÔNG XOAY TẠI CHỖ) ---
+  // ---  Chạy thuật toán 2D đóng gói đơn lớp ---
   _runSingleLayerPacking(rectanglesToPack) {
     // Sắp xếp các hình chữ nhật NGAY TẠI ĐÂY
     const sortedRectangles = this.sortRectanglesByArea(rectanglesToPack); 
 
     const strategies = [
+      // Thuật toán MaxRectsBSSF (đã nâng cấp để tự xoay) là chiến lược chính
       () => this._maxRectsBSSF(sortedRectangles.map(r => ({...r}))),
+      // Giữ lại NFD làm phương án dự phòng
       () => this._nextFitDecreasing(sortedRectangles.map(r => ({...r})))
     ];
 
@@ -77,63 +64,33 @@ class PackingAlgorithm {
     return bestResult;
   }
   
-  // --- : Xác định hướng xoay tối ưu (0 độ hoặc 90 độ) cho mỗi loại ---
-  determineOptimalRotations(_container, allRectangles) {
-      const optimalRotations = new Map(); 
-      
-      const originalTypeDetails = allRectangles.reduce((acc, rect) => {
-          acc[rect.typeId] = acc[rect.typeId] || { rect: rect, count: 0 };
-          acc[rect.typeId].count++;
-          return acc;
-      }, {});
-
-      for (const typeId in originalTypeDetails) {
-          const originalRect = originalTypeDetails[typeId].rect;
-          const rectsOfType = allRectangles.filter(r => r.typeId === Number(typeId));
-
-          // 1. Kiểm tra trường hợp KHÔNG xoay
-          const rectsNoRotate = rectsOfType.map(r => ({ ...r, width: originalRect.width, length: originalRect.length, rotated: false }));
-          const resultNoRotate = this._runQuickSingleLayerPacking(rectsNoRotate);
-          const areaNoRotate = resultNoRotate.usedArea; 
-
-          // 2. Kiểm tra trường hợp XOAY 90 độ
-          const rectsRotated = rectsOfType.map(r => ({ ...r, width: originalRect.length, length: originalRect.width, rotated: true }));
-          const resultRotated = this._runQuickSingleLayerPacking(rectsRotated);
-          const areaRotated = resultRotated.usedArea; 
-
-          // Chọn hướng nào tối đa hóa DIỆN TÍCH
-          if (areaRotated > areaNoRotate) {
-              optimalRotations.set(Number(typeId), true);
-          } else {
-              optimalRotations.set(Number(typeId), false);
-          }
-      }
-      return optimalRotations;
-  }
 
   // --- Core 2D Packing Logic (Đã được đơn giản hóa) ---
   run2DPacking(rectanglesToPack) {
     return this._runSingleLayerPacking(rectanglesToPack);
   }
 
-  // --- Implementations of 2D Packing Algorithms (KHÔNG XOAY TẠI CHỖ) ---
+  // --- Implementations of 2D Packing Algorithms ---
 
+  // [NÂNG CẤP] Thuật toán này đã được nâng cấp để tự động thử xoay 90 độ
   _maxRectsBSSF(rectanglesToPack) {
     const placedRectangles = [];
     const usedRectIds = new Set();
     const freeNodes = [{ x: 0, y: 0, width: this.container.width, length: this.container.length }];
 
-    const fitsIn = (rect, node) => rect.width <= node.width && rect.length <= node.length;
+    // [NÂNG CẤP] Helper chấp nhận w, h
+    const fitsIn = (w, h, node) => w <= node.width && h <= node.length;
 
-    const scoreFor = (rect, node) => {
-      const dw = node.width - rect.width;
-      const dh = node.length - rect.length;
+    // [NÂNG CẤP] Helper chấp nhận w, h
+    const scoreFor = (w, h, node) => {
+      const dw = node.width - w;
+      const dh = node.length - h;
       const shortFit = Math.min(dw, dh);
       const longFit = Math.max(dw, dh);
       return { shortFit, longFit };
     };
     
-    // Đây là logic Guillotine Split chuẩn
+    // Logic Guillotine Split
     const splitFreeNode = (node, placed) => {
         const remainingNodes = [];
         
@@ -163,24 +120,19 @@ class PackingAlgorithm {
     const rectContains = (a, b) => a.x <= b.x && a.y <= b.y && (a.x + a.width) >= (b.x + b.width) && (a.y + a.length) >= (b.y + b.length);
 
     const pruneFreeList = (nodes) => {
-        // Lặp ngược để tránh lỗi index khi splice
         for (let i = nodes.length - 1; i >= 0; i--) {
-            // Nếu i không còn tồn tại (do đã bị xóa bởi vòng lặp j), bỏ qua
             if (!nodes[i]) continue;
-            
             for (let j = nodes.length - 1; j >= 0; j--) {
                 if (i === j || !nodes[j]) continue;
-                
-                // Nếu node[i] nằm hoàn toàn trong node[j]
                 if (rectContains(nodes[j], nodes[i])) {
                     nodes.splice(i, 1);
-                    break; // Dừng vòng lặp j và tiếp tục vòng lặp i (đã lùi 1)
+                    break; 
                 }
             }
         }
     };
 
-
+    // [NÂNG CẤP] Vòng lặp chính
     for (const rect of rectanglesToPack) {
       if (usedRectIds.has(rect.id)) continue;
 
@@ -188,39 +140,60 @@ class PackingAlgorithm {
       let bestShort = Infinity;
       let bestLong = Infinity;
       let chosenNode = null;
+      let bestWasRotated = false; // Theo dõi hướng xoay tốt nhất
 
       for (let i = 0; i < freeNodes.length; i++) {
         const node = freeNodes[i];
 
-        if (fitsIn(rect, node)) {
-          const s = scoreFor(rect, node);
+        // 1. Thử không xoay
+        if (fitsIn(rect.width, rect.length, node)) {
+          const s = scoreFor(rect.width, rect.length, node);
           if (s.shortFit < bestShort || (s.shortFit === bestShort && s.longFit < bestLong)) {
             bestShort = s.shortFit;
             bestLong = s.longFit;
             bestIndex = i;
             chosenNode = node;
+            bestWasRotated = false;
           }
         }
-      }
+
+        // 2. Thử xoay 90 độ
+        if (fitsIn(rect.length, rect.width, node)) {
+          const s = scoreFor(rect.length, rect.width, node);
+          if (s.shortFit < bestShort || (s.shortFit === bestShort && s.longFit < bestLong)) {
+            bestShort = s.shortFit;
+            bestLong = s.longFit;
+            bestIndex = i;
+            chosenNode = node;
+            bestWasRotated = true;
+          }
+        }
+      } // Kết thúc vòng lặp freeNodes
 
       if (bestIndex !== -1 && chosenNode) {
+        // Lấy kích thước dựa trên hướng xoay tốt nhất
+        const placedWidth = bestWasRotated ? rect.length : rect.width;
+        const placedLength = bestWasRotated ? rect.width : rect.length;
+
         const placed = {
             ...rect,
             x: chosenNode.x,
-            y: chosenNode.y
+            y: chosenNode.y,
+            width: placedWidth,
+            length: placedLength,
+            rotated: bestWasRotated
         };
         placedRectangles.push(placed);
         usedRectIds.add(rect.id);
 
         const usedNode = freeNodes.splice(bestIndex, 1)[0];
         
-        // Dùng logic split mới
-        const splits = splitFreeNode(usedNode, placed);
+        const splits = splitFreeNode(usedNode, placed); // 'placed' đã có w/l chính xác
         freeNodes.push(...splits);
         
         pruneFreeList(freeNodes); 
       }
-    }
+    } // Kết thúc vòng lặp rectanglesToPack
 
     const remainingRectangles = rectanglesToPack.filter(rect => !usedRectIds.has(rect.id));
     return { placed: placedRectangles, remaining: remainingRectangles };
@@ -254,8 +227,6 @@ class PackingAlgorithm {
               }
           }
       }
-
-      // (Đã xóa 2 vòng lặp thừa)
 
       if (bestSpaceIndex !== -1) {
         const usedSpace = freeSpaces[bestSpaceIndex];
@@ -305,6 +276,7 @@ class PackingAlgorithm {
   }
 
   _bestFitDecreasing(rectanglesToPack) {
+    // Tạm thời trỏ đến BSSF (Guillotine) vì nó thường hiệu quả hơn
     return this._maxRectsBSSF(rectanglesToPack); 
   }
 
@@ -337,8 +309,17 @@ class PackingAlgorithm {
             fit = checkFit(currentX, currentY, width, length);
             
             if (!fit) {
-                remainingRectangles.push(rect);
-                continue;
+                // [NÂNG CẤP] Thử xoay hình trước khi bỏ qua
+                [width, length] = [length, width];
+                fit = checkFit(currentX, currentY, width, length);
+
+                if (!fit) {
+                  remainingRectangles.push(rect); // Vẫn thêm hình gốc
+                  continue;
+                }
+                
+                // Nếu xoay mà vừa, cập nhật trạng thái xoay
+                rect.rotated = !rect.rotated; 
             }
         }
         
@@ -348,7 +329,8 @@ class PackingAlgorithm {
             length: length,
             x: currentX,
             y: currentY,
-            layer: 0
+            layer: 0,
+            rotated: rect.rotated // đảm bảo trạng thái xoay được ghi lại
         };
         
         placedRectangles.push(placedRect);
@@ -364,7 +346,6 @@ class PackingAlgorithm {
         }
     }
 
-    //  Gán lại remainingRectangles
     remainingRectangles = rectanglesToPack.filter(rect => !usedRectIds.has(rect.id));
 
     return { placed: placedRectangles, remaining: remainingRectangles };
@@ -463,7 +444,7 @@ class PackingAlgorithm {
     let layersUsed = 0;
     let placedInLayer; 
 
-      const canFit = (r) => (r.width <= container.width && r.length <= container.length);
+      const canFit = (r) => (r.width <= container.width && r.length <= container.length) || (r.length <= container.width && r.width <= container.length);
 
       // Helper to sanitize placements
       const sanitizeLayer = (placed, remaining) => {
@@ -495,16 +476,17 @@ class PackingAlgorithm {
           return { accepted, stillRemaining };
       };
       
-      const layer = 0;
+      // vì logic gộp lớp (layering) đã được chuyển lên PackingContext
+      const layer = 0; 
         
-      
-      // Chạy thuật toán 2D tốt nhất
+      // Chạy thuật toán 2D (đã hỗ trợ xoay)
       const { placed: placedRaw, remaining: remainingRaw } = this._runSingleLayerPacking(unpackedRectangles);
       
       // Chỉ sanitize những hình đã đặt
       const sanitizeResult = sanitizeLayer(placedRaw, []); 
       placedInLayer = sanitizeResult.accepted;
 
+      // Các hình không hợp lệ + các hình còn lại
       unpackedRectangles = [...sanitizeResult.stillRemaining, ...remainingRaw]; 
 
       placedInLayer.forEach(rect => {
@@ -520,14 +502,13 @@ class PackingAlgorithm {
       const finalUsedArea = allPlacedRectangles.reduce((sum, rect) => 
         sum + (rect.width * rect.length), 0
       );
-      const totalUsedArea = containerAreaPerLayer * layersUsed; // Chỉ tính diện tích của các lớp đã dùng
+      const totalUsedArea = containerAreaPerLayer * layersUsed; 
 
       return {
         rectangles: allPlacedRectangles,
         remainingRectangles: unpackedRectangles,
         remainingFeasibleCount: unpackedRectangles.filter(canFit).length,
         remainingUnfitCount: unpackedRectangles.length - unpackedRectangles.filter(canFit).length,
-        // Hiệu suất là (diện tích hình đã xếp) / (diện tích các lớp đã dùng)
         efficiency: totalUsedArea > 0 ? (finalUsedArea / totalUsedArea) * 100 : 0, 
         usedArea: finalUsedArea,
         totalArea: totalUsedArea, 
@@ -536,54 +517,24 @@ class PackingAlgorithm {
       };
     }
 
+  // [NÂNG CẤP] Hàm optimize chính
   async optimize(container, initialRectangles, maxLayers) {
-    this.startTime = Date.now(); // Bắt đầu đếm thời gian
+    this.startTime = Date.now(); 
     console.log(`[Algorithm] Bắt đầu tối ưu ${initialRectangles.length} hình`);
     
     this.container = container;
     
     try {
-      // BƯỚC 1: Xác định trạng thái xoay
-      console.log('[Algorithm] Bước 1: Xác định hướng xoay tối ưu...');
+      
+      // BƯỚC 3: Chạy thuật toán sắp xếp (đã tích hợp xoay)
+      console.log('[Algorithm] Bước 3: Chạy thuật toán sắp xếp (cho 1 lớp)...');
       this.checkTimeout(30);
       
-      const optimalRotations = this.determineOptimalRotations(
-        container, 
-        initialRectangles.map(r => ({...r}))
-      );
-      
-      console.log('[Algorithm] Hoàn thành xác định xoay');
-      
-      // BƯỚC 2: Áp dụng xoay
-      console.log('[Algorithm] Bước 2: Áp dụng trạng thái xoay...');
-      const transformedRectangles = initialRectangles.map(rect => {
-        let shouldRotate = optimalRotations.get(rect.typeId) || false; 
-        
-        let width = rect.width;
-        let length = rect.length;
-
-        if (shouldRotate) {
-          [width, length] = [length, width];
-        }
-        
-        return {
-          ...rect,
-          width: width,
-          length: length,
-          rotated: shouldRotate 
-        };
-      });
-      
-      console.log('[Algorithm] Hoàn thành áp dụng xoay');
-      
-      // BƯỚC 3: Chạy thuật toán xếp lớp
-      console.log('[Algorithm] Bước 3: Chạy thuật toán sắp xếp...');
-      this.checkTimeout(30);
-      
+      // Chỉ chạy cho 1 lớp. Logic xếp nhiều lớp/tấm đã ở PackingContext.
       const bestResult = this._runGreedyLayeringPass(
         container, 
-        transformedRectangles, 
-        1
+        initialRectangles, // Truyền hình chữ nhật gốc
+        1 // Chỉ chạy 1 lớp
       );
 
       const elapsed = ((Date.now() - this.startTime) / 1000).toFixed(2);
@@ -599,66 +550,6 @@ class PackingAlgorithm {
     }
   }
 
-  // Thêm logging vào determineOptimalRotations
-  determineOptimalRotations(_container, allRectangles) {
-    console.log(`[Algorithm] Xác định xoay cho ${allRectangles.length} hình...`);
-    const optimalRotations = new Map(); 
-    
-    const originalTypeDetails = allRectangles.reduce((acc, rect) => {
-      acc[rect.typeId] = acc[rect.typeId] || { rect: rect, count: 0 };
-      acc[rect.typeId].count++;
-      return acc;
-    }, {});
-
-    const typeCount = Object.keys(originalTypeDetails).length;
-    console.log(`[Algorithm] Có ${typeCount} loại size khác nhau`);
-    
-    let processed = 0;
-    for (const typeId in originalTypeDetails) {
-      processed++;
-      const originalRect = originalTypeDetails[typeId].rect;
-      const rectsOfType = allRectangles.filter(r => r.typeId === Number(typeId));
-
-      // Kiểm tra timeout mỗi loại
-      this.checkTimeout(30);
-
-      // 1. Kiểm tra không xoay
-      const rectsNoRotate = rectsOfType.map(r => ({ 
-        ...r, 
-        width: originalRect.width, 
-        length: originalRect.length, 
-        rotated: false 
-      }));
-      const resultNoRotate = this._runQuickSingleLayerPacking(rectsNoRotate);
-      const areaNoRotate = resultNoRotate.usedArea; 
-
-      // 2. Kiểm tra xoay 90°
-      const rectsRotated = rectsOfType.map(r => ({ 
-        ...r, 
-        width: originalRect.length, 
-        length: originalRect.width, 
-        rotated: true 
-      }));
-      const resultRotated = this._runQuickSingleLayerPacking(rectsRotated);
-      const areaRotated = resultRotated.usedArea; 
-
-      // Chọn hướng tối ưu
-      if (areaRotated > areaNoRotate) {
-        optimalRotations.set(Number(typeId), true);
-        console.log(`[Algorithm] Type ${typeId}: Xoay (${areaRotated} > ${areaNoRotate})`);
-      } else {
-        optimalRotations.set(Number(typeId), false);
-        console.log(`[Algorithm] Type ${typeId}: Không xoay (${areaNoRotate} >= ${areaRotated})`);
-      }
-      
-      if (processed % 5 === 0) {
-        console.log(`[Algorithm] Đã xử lý ${processed}/${typeCount} loại...`);
-      }
-    }
-    
-    console.log(`[Algorithm] Hoàn thành xác định xoay cho ${typeCount} loại`);
-    return optimalRotations;
-  }
 }
 
 export default PackingAlgorithm;

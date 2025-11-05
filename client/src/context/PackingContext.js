@@ -214,7 +214,8 @@ export const PackingProvider = ({ children }) => {
         y: r.y,
         width: r.width,
         length: r.length,
-        rotated: r.rotated || false
+        rotated: r.rotated || false,
+        color: r.color // SỬA LỖI: Giữ lại màu sắc từ server
       }));
 
     const perLayer = pattern.length;
@@ -253,7 +254,8 @@ export const PackingProvider = ({ children }) => {
         width: r.width,
         length: r.length,
         layer: r.layer || 0,
-        rotated: r.rotated || false
+        rotated: r.rotated || false,
+        color: r.color // SỬA LỖI: Giữ lại màu sắc từ server
       }));
 
     // Xác định size nào được sử dụng
@@ -355,7 +357,7 @@ export const PackingProvider = ({ children }) => {
                 layer: l,
                 plateIndex: plate.plateIndex,
                 typeId: rectType.id,
-                color: rectType.color
+                color: rectType.color // Giữ màu gốc của type
               }));
               plate.layers.push({ layerIndexInPlate: l, rectangles: layerRects });
             }
@@ -480,7 +482,7 @@ export const PackingProvider = ({ children }) => {
           width: r.width,
           length: r.length,
           rotated: r.rotated || false,
-          color: selectedTypes.find(t => t.id === r.typeId)?.color
+          color: r.color // SỬA LỖI: Đảm bảo giữ màu
         }));
 
         // Tạo signature cho pattern này (dựa trên layer 0)
@@ -500,7 +502,7 @@ export const PackingProvider = ({ children }) => {
             width: r.width,
             length: r.length,
             rotated: r.rotated || false,
-            color: selectedTypes.find(t => t.id === r.typeId)?.color
+            color: r.color // SỬA LỖI: Đảm bảo giữ màu
           });
         });
 
@@ -571,75 +573,9 @@ export const PackingProvider = ({ children }) => {
 
           console.log(`✨ Pattern mới! Tạo Tấm #${plate.plateIndex} với ${newLayers.length} lớp (${typeDesc})`);
         }
-
-        const newLayers = Array.from(layerMap.entries())
-          .sort((a, b) => a[0] - b[0])
-          .map(([_, rects]) => rects);
-
-        // Kiểm tra xem pattern này đã tồn tại chưa
-        if (mixedPatterns.has(signature)) {
-          // Pattern đã tồn tại -> Thêm layers vào plate hiện có
-          const existingData = mixedPatterns.get(signature);
-          
-          // Gán ID và plateIndex cho các rect trong layers mới
-          const layersToAdd = newLayers.map((rects, layerOffset) => {
-            const currentLayerIndex = existingData.layers.length + layerOffset;
-            return {
-              layerIndexInPlate: currentLayerIndex,
-              rectangles: rects.map(r => ({
-                ...r,
-                id: rectPresentationId++,
-                layer: currentLayerIndex,
-                plateIndex: existingData.plate.plateIndex
-              }))
-            };
-          });
-
-          existingData.layers.push(...layersToAdd);
-          existingData.repetitions++;
-
-          console.log(`♻️  Pattern trùng! Thêm ${newLayers.length} lớp vào Tấm #${existingData.plate.plateIndex} (Tổng: ${existingData.layers.length} lớp, ${existingData.repetitions} lần lặp)`);
-
-        } else {
-          // Pattern mới -> Tạo plate mới
-          const typeDesc = Object.entries(typeCount)
-            .map(([id, cnt]) => {
-              const t = selectedTypes.find(x => x.id === Number(id));
-              return `${cnt}×${t ? t.name : `#${id}`}`;
-            }).join(', ');
-
-          const plate = {
-            plateIndex: plateIndexCounter++,
-            type: 'mixed',
-            description: `Tấm Hỗn Hợp #${mixedPlateCounter}`,
-            patternDescription: typeDesc,
-            layers: []
-          };
-
-          // Gán ID và plateIndex cho các rect
-          const initialLayers = newLayers.map((rects, layerIdx) => ({
-            layerIndexInPlate: layerIdx,
-            rectangles: rects.map(r => ({
-              ...r,
-              id: rectPresentationId++,
-              layer: layerIdx,
-              plateIndex: plate.plateIndex
-            }))
-          }));
-
-          plate.layers = initialLayers;
-
-          mixedPatterns.set(signature, {
-            plate: plate,
-            layers: initialLayers,
-            repetitions: 1
-          });
-
-          mixedPlateCounter++;
-
-          console.log(`✨ Pattern mới! Tạo Tấm #${plate.plateIndex} với ${newLayers.length} lớp (${typeDesc})`);
-        }
-
+        
+        // ---------- [SỬA LỖI] KHỐI CODE BỊ LẶP ĐÃ BỊ XÓA TỪ ĐÂY ----------
+        
         // Loại bỏ các hình đã xếp khỏi pool
         pool = pool.filter(r => !placedIds.has(r.id));
 
@@ -647,7 +583,7 @@ export const PackingProvider = ({ children }) => {
       }
 
       // Thêm tất cả các plate từ mixedPatterns vào finalPlates
-      for (const [_, data] of mixedPatterns.entries()) {
+      for (const [, data] of mixedPatterns.entries()) {
         const { plate, layers, repetitions } = data;
         
         // Cập nhật description với số lớp thực tế
