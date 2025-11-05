@@ -4,6 +4,14 @@ class PackingAlgorithm {
   constructor() {
     this.container = null;
     this.layers = 1;
+    this.startTime = null; // Theo dõi thời gian
+  }
+
+  // Kiểm tra timeout
+  checkTimeout(maxSeconds = 30) {
+    if (this.startTime && (Date.now() - this.startTime) / 1000 > maxSeconds) {
+      throw new Error(`Thuật toán vượt quá ${maxSeconds} giây`);
+    }
   }
 
   // Sắp xếp hình chữ nhật theo diện tích giảm dần
@@ -529,35 +537,127 @@ class PackingAlgorithm {
     }
 
   async optimize(container, initialRectangles, maxLayers) {
+    this.startTime = Date.now(); // Bắt đầu đếm thời gian
+    console.log(`[Algorithm] Bắt đầu tối ưu ${initialRectangles.length} hình`);
+    
     this.container = container;
     
-    // BƯỚC 1: Xác định trạng thái xoay cố định tối ưu cho từng loại
-    // (SỬ DỤNG HÀM NHANH)
-    const optimalRotations = this.determineOptimalRotations(container, initialRectangles.map(r => ({...r})));
-    
-    // BƯỚC 2: Áp dụng trạng thái xoay đã chọn cho TẤT CẢ bản sao
-    const transformedRectangles = initialRectangles.map(rect => {
+    try {
+      // BƯỚC 1: Xác định trạng thái xoay
+      console.log('[Algorithm] Bước 1: Xác định hướng xoay tối ưu...');
+      this.checkTimeout(30);
+      
+      const optimalRotations = this.determineOptimalRotations(
+        container, 
+        initialRectangles.map(r => ({...r}))
+      );
+      
+      console.log('[Algorithm] Hoàn thành xác định xoay');
+      
+      // BƯỚC 2: Áp dụng xoay
+      console.log('[Algorithm] Bước 2: Áp dụng trạng thái xoay...');
+      const transformedRectangles = initialRectangles.map(rect => {
         let shouldRotate = optimalRotations.get(rect.typeId) || false; 
         
         let width = rect.width;
         let length = rect.length;
 
         if (shouldRotate) {
-            [width, length] = [length, width];
+          [width, length] = [length, width];
         }
         
         return {
-            ...rect,
-            width: width,
-            length: length,
-            rotated: shouldRotate 
+          ...rect,
+          width: width,
+          length: length,
+          rotated: shouldRotate 
         };
-    });
-    
-    // BƯỚC 3: Chạy thuật toán xếp lớp 
-    const bestResult = this._runGreedyLayeringPass(container, transformedRectangles, 1);
+      });
+      
+      console.log('[Algorithm] Hoàn thành áp dụng xoay');
+      
+      // BƯỚC 3: Chạy thuật toán xếp lớp
+      console.log('[Algorithm] Bước 3: Chạy thuật toán sắp xếp...');
+      this.checkTimeout(30);
+      
+      const bestResult = this._runGreedyLayeringPass(
+        container, 
+        transformedRectangles, 
+        1
+      );
 
-    return bestResult;
+      const elapsed = ((Date.now() - this.startTime) / 1000).toFixed(2);
+      console.log(`[Algorithm] ✓ Hoàn thành trong ${elapsed}s`);
+      console.log(`[Algorithm] Đã sắp ${bestResult.rectangles.length}/${initialRectangles.length} hình`);
+      
+      return bestResult;
+      
+    } catch (error) {
+      const elapsed = ((Date.now() - this.startTime) / 1000).toFixed(2);
+      console.error(`[Algorithm] ✗ Lỗi sau ${elapsed}s:`, error);
+      throw error;
+    }
+  }
+
+  // Thêm logging vào determineOptimalRotations
+  determineOptimalRotations(_container, allRectangles) {
+    console.log(`[Algorithm] Xác định xoay cho ${allRectangles.length} hình...`);
+    const optimalRotations = new Map(); 
+    
+    const originalTypeDetails = allRectangles.reduce((acc, rect) => {
+      acc[rect.typeId] = acc[rect.typeId] || { rect: rect, count: 0 };
+      acc[rect.typeId].count++;
+      return acc;
+    }, {});
+
+    const typeCount = Object.keys(originalTypeDetails).length;
+    console.log(`[Algorithm] Có ${typeCount} loại size khác nhau`);
+    
+    let processed = 0;
+    for (const typeId in originalTypeDetails) {
+      processed++;
+      const originalRect = originalTypeDetails[typeId].rect;
+      const rectsOfType = allRectangles.filter(r => r.typeId === Number(typeId));
+
+      // Kiểm tra timeout mỗi loại
+      this.checkTimeout(30);
+
+      // 1. Kiểm tra không xoay
+      const rectsNoRotate = rectsOfType.map(r => ({ 
+        ...r, 
+        width: originalRect.width, 
+        length: originalRect.length, 
+        rotated: false 
+      }));
+      const resultNoRotate = this._runQuickSingleLayerPacking(rectsNoRotate);
+      const areaNoRotate = resultNoRotate.usedArea; 
+
+      // 2. Kiểm tra xoay 90°
+      const rectsRotated = rectsOfType.map(r => ({ 
+        ...r, 
+        width: originalRect.length, 
+        length: originalRect.width, 
+        rotated: true 
+      }));
+      const resultRotated = this._runQuickSingleLayerPacking(rectsRotated);
+      const areaRotated = resultRotated.usedArea; 
+
+      // Chọn hướng tối ưu
+      if (areaRotated > areaNoRotate) {
+        optimalRotations.set(Number(typeId), true);
+        console.log(`[Algorithm] Type ${typeId}: Xoay (${areaRotated} > ${areaNoRotate})`);
+      } else {
+        optimalRotations.set(Number(typeId), false);
+        console.log(`[Algorithm] Type ${typeId}: Không xoay (${areaNoRotate} >= ${areaRotated})`);
+      }
+      
+      if (processed % 5 === 0) {
+        console.log(`[Algorithm] Đã xử lý ${processed}/${typeCount} loại...`);
+      }
+    }
+    
+    console.log(`[Algorithm] Hoàn thành xác định xoay cho ${typeCount} loại`);
+    return optimalRotations;
   }
 }
 
