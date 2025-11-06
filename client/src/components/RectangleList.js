@@ -70,9 +70,6 @@ const RectangleList = () => {
     
   const totalSelectedTypes = selectedRectsWithQuantities.length;
   const totalRectanglesCount = selectedRectsWithQuantities.reduce((sum, rect) => sum + rect.quantity, 0);
-  const totalSelectedArea = selectedRectsWithQuantities.reduce((sum, rect) => 
-    sum + (rect.width * rect.length * rect.quantity), 0
-  );
 
   const getRectangleStyle = (rect) => {
     const maxWidth = 100; // Reduced for more compact cards
@@ -115,8 +112,7 @@ const RectangleList = () => {
       
       <div className="mb-2 bg-blue-50 border border-blue-200 rounded-lg p-3">
         
-        {/* HÀNG DUY NHẤT TRÊN CÁC MÀN HÌNH LỚN HƠN */}
-        <div className="flex flex-col gap-3 md:flex-row md:justify-between md:items-center">
+        <div className="flex flex-col gap-1 md:flex-row md:justify-between md:items-center">
           
           <div className="flex gap-2 flex-shrink-0">
             <button 
@@ -135,13 +131,12 @@ const RectangleList = () => {
             </button>
           </div>
           
-          <div className="text-xs text-gray-700 font-medium bg-white border border-gray-200 rounded-md p-2 flex-1 min-w-[200px] flex justify-between items-center">
+          <div className="text-xs text-gray-700 font-medium bg-white border border-gray-200 rounded-md px-2 py-1.5 flex-shrink-0 w-fit">
             <span className="text-sm">
               <span className="text-primary-600 font-bold">{totalSelectedTypes}</span> loại | 
               <span className="text-blue-600 font-bold ml-1">{totalRectanglesCount}</span> hình
             </span>
             <span className="text-xs text-red-600 font-bold ml-3">
-              {totalSelectedArea.toLocaleString()} mm²
             </span>
           </div>
 
@@ -160,7 +155,7 @@ const RectangleList = () => {
       
       {/* Rectangle Grid - Enhanced Card Design */}
       <div className="rounded-xl p-4 border border-gray-200">
-        <div className="flex space-x-4 pb-4 overflow-x-auto custom-scrollbar">
+        <div className="flex space-x-[1vw] pb-[1vw] overflow-x-auto custom-scrollbar">
           
           {/* ADD NEW RECTANGLE CARD */}
           <div 

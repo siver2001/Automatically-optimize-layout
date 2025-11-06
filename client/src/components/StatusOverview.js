@@ -75,7 +75,7 @@ const StatusOverview = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 pt-4 border-t border-white/20">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-[1.5vw] pt-[1vw] border-t border-white/20">
           
           <div className="bg-white/10 rounded-lg p-3 text-center transition-all duration-300 hover:bg-white/20">
             <div className="text-2xl font-bold">{container.width || 0}x{container.length || 0}</div>

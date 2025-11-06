@@ -1,4 +1,3 @@
-// client/src/components/MainLayout.js
 import React from 'react';
 
 const MainLayout = ({ children }) => {
@@ -6,42 +5,38 @@ const MainLayout = ({ children }) => {
   
   if (childrenArray.length === 1) {
     return (
-      <div className="space-y-8">
+      <div className="space-y-4 md:space-y-6 lg:space-y-8">
         {children}
       </div>
     );
   }
   
-  // Layout components: [ContainerInput, RectangleList, PackingResult]
   const containerInput = childrenArray[0]; 
   const rectangleList = childrenArray[1]; 
   const packingResult = childrenArray[2]; 
 
   return (
-    // Giữ nguyên grid 12 cột. Column Left: Input + List; Column Right: Result
-    // h-[calc(100vh-96px)] đảm bảo chiều cao tối đa của khu vực làm việc
-    <div className="grid grid-cols-12 gap-2 md:h-[calc(100vh-96px)] w-full">
+    <div className="grid grid-cols-12 gap-3 md:gap-4 lg:gap-2 md:h-[calc(100vh-120px)] lg:h-[calc(100vh-130px)] w-full mx-auto">
       
-      {/* Cột trái: Thiết kế tấm liệu + Quản lý size. Giữ nguyên 6 cột */}
-      <div className="col-span-12 md:col-span-6 flex flex-col gap-2 md:h-full">
+      {/* Cột trái: Thiết kế tấm liệu + Quản lý size */}
+      <div className="col-span-12 lg:col-span-6 xl:col-span-5 flex flex-col gap-3 md:gap-4 md:h-full">
         
-        {/* Hàng trên: Container Input (42.5% chiều cao của cột trái) */}
-        <div className="flex-[0.425] md:overflow-auto custom-scrollbar">
+        {/* Container Input - chiều cao linh hoạt theo nội dung */}
+        <div className="flex-none md:flex-[0.42] lg:flex-[0.40] md:overflow-auto custom-scrollbar">
           {containerInput}
         </div>
         
-        {/* Hàng dưới: Rectangle List (57.5% chiều cao còn lại của cột trái) */}
-        <div className="flex-[0.575] md:overflow-auto custom-scrollbar">
+        {/* Rectangle List - chiếm phần còn lại */}
+        <div className="flex-1 md:flex-[0.58] lg:flex-[0.60] md:overflow-auto custom-scrollbar">
           {rectangleList}
         </div>
       </div>
 
-      {/* Cột phải: Packing Result. Giữ nguyên 6 cột. Có thể cuộn độc lập */}
-      <div className="col-span-12 md:col-span-6 md:h-full md:overflow-auto space-y-2 custom-scrollbar">
+      {/* Cột phải: Packing Result - tự động điều chỉnh theo màn hình */}
+      <div className="col-span-12 lg:col-span-6 xl:col-span-7 md:h-full md:overflow-auto custom-scrollbar">
         {packingResult}
       </div>
 
-      {/* Render extras if any */}
       {childrenArray.slice(3)}
     </div>
   );

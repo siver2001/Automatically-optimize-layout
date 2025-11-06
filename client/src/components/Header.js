@@ -10,16 +10,16 @@ const Header = () => {
   const isModbusView = location.pathname === '/modbus';
 
   return (
-    <header className="bg-white/10 backdrop-blur-md border-b border-white/20 px-8 py-4 mb-4">
-      <div className="flex justify-between items-center max-w-7xl mx-auto">
-        <Link to="/" className="text-white text-3xl font-bold m-0 drop-shadow-lg">
+    <header className="bg-white/10 backdrop-blur-md border-b border-white/20 px-4 sm:px-6 md:px-8 lg:px-10 py-3 md:py-2 mb-3 md:mb-4">
+      <div className="flex justify-between items-center max-w-full mx-auto">
+        <Link to="/" className="text-white text-xl sm:text-2xl md:text-3xl font-bold m-0 drop-shadow-lg">
           📦 Optimize Size Layout
         </Link>
         
-        <nav className="flex gap-4">
+        <nav className="flex gap-2 sm:gap-3 md:gap-4">
           <Link 
             to="/"
-            className={`px-4 py-2 rounded-lg font-medium transition-all duration-300 hover:-translate-y-0.5 ${
+            className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-sm sm:text-base font-medium transition-all duration-300 hover:-translate-y-0.5 ${
               isPackingView 
                 ? 'bg-white/20 text-white border border-white/30' 
                 : 'bg-transparent text-white/80 border border-white/20 hover:bg-white/10'
@@ -29,9 +29,8 @@ const Header = () => {
           </Link>
           <Link 
             to="/modbus"
-            // Toggle modbus state only when navigating to /modbus, as requested by initial App structure
             onClick={!isModbusView ? toggleModbus : undefined} 
-            className={`px-4 py-2 rounded-lg font-medium transition-all duration-300 hover:-translate-y-0.5 ${
+            className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-sm sm:text-base font-medium transition-all duration-300 hover:-translate-y-0.5 ${
               isModbusView 
                 ? 'bg-white/20 text-white border border-white/30' 
                 : 'bg-transparent text-white/80 border border-white/20 hover:bg-white/10'
