@@ -61,7 +61,7 @@
   },
   "build": {
     "appId": "com.rectanglepacking.optimizer",
-    "productName": "Rectangle Packing Optimizer",
+    "productName": "Tự động sắp xếp liệu",
     "directories": {
       "output": "dist"
     },
@@ -70,8 +70,11 @@
       "public/electron.js",
       "node_modules/**/*"
     ],
+    
+    "icon": "build/icon.png", 
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "build/icon.ico"
     }
   },
   "type": "module"

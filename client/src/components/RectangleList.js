@@ -254,6 +254,7 @@ const RectangleList = () => {
                   onChange={(e) => setNewRect(prev => ({ ...prev, name: e.target.value }))}
                   placeholder="Ví dụ: 13#"
                   className="input-field"
+                  disabled={isOptimizing} // <-- THÊM VÀO
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -268,6 +269,7 @@ const RectangleList = () => {
                     placeholder="Width (mm)"
                     className="input-field"
                     required
+                    disabled={isOptimizing} // <-- THÊM VÀO
                   />
                 </div>
                 <div>
@@ -281,6 +283,7 @@ const RectangleList = () => {
                     placeholder="Length (mm)"
                     className="input-field"
                     required
+                    disabled={isOptimizing} 
                   />
                 </div>
               </div>
@@ -289,14 +292,17 @@ const RectangleList = () => {
                   type="button"
                   onClick={() => setShowAddForm(false)}
                   className="btn-secondary px-4 py-2 text-sm"
+                  disabled={isOptimizing} 
                 >
                   Hủy
                 </button>
                 <button
                   type="submit"
                   className="btn-primary px-4 py-2 text-sm"
+                  disabled={isOptimizing} 
                 >
-                  Thêm Size
+                  {/* Thay đổi text của nút khi đang tối ưu */}
+                  {isOptimizing ? 'Đang tính toán...' : 'Thêm Size'}
                 </button>
               </div>
             </form>

@@ -1,14 +1,47 @@
-import React, { useState, useEffect, useMemo } from 'react';
+// client/src/components/PackingResult.js - UPDATED VERSION WITH DRAG & DROP
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { usePacking } from '../context/PackingContext.js';
+import DraggableRectangle from './DraggableRectangle.js';
+import EditModeControls from './EditModeControls.js';
 
 const PackingResult = () => {
   const { packingResult, isOptimizing, container, rectangles } = usePacking();
   
-  const [selectedPlate, setSelectedPlate] = useState(0); 
+  const [selectedPlate, setSelectedPlate] = useState(0);
   const [placedRectDetails, setPlacedRectDetails] = useState({});
   const [visualScale, setVisualScale] = useState(1);
   
-  // Cập nhật scale khi resize màn hình
+  // Edit Mode States
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editedRectangles, setEditedRectangles] = useState([]);
+  const [selectedRectIds, setSelectedRectIds] = useState([]);
+  const [snapEnabled, setSnapEnabled] = useState(true);
+  const [snapThreshold, setSnapThreshold] = useState(10);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [originalRectangles, setOriginalRectangles] = useState([]);
+  
+  const containerRef = useRef(null);
+  const [containerBounds, setContainerBounds] = useState(null);
+
+  // Update container bounds
+  useEffect(() => {
+    if (containerRef.current) {
+      const bounds = containerRef.current.getBoundingClientRect();
+      setContainerBounds(bounds);
+    }
+
+    const handleResize = () => {
+      if (containerRef.current) {
+        const bounds = containerRef.current.getBoundingClientRect();
+        setContainerBounds(bounds);
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+  
+  // Update scale on resize
   useEffect(() => {
     const updateScale = () => {
       const containerWidth = container.width || 600;
@@ -21,19 +54,15 @@ const PackingResult = () => {
       let maxVisualWidth, maxVisualLength;
       
       if (screenWidth >= 1920) {
-        // Desktop lớn - Tăng từ 35% lên 50%
         maxVisualWidth = screenWidth * 0.52;
         maxVisualLength = window.innerHeight * 0.65;
       } else if (screenWidth >= 1536) {
-        // Desktop trung bình - Tăng từ 38% lên 48%
         maxVisualWidth = screenWidth * 0.50;
         maxVisualLength = window.innerHeight * 0.62;
       } else if (screenWidth >= 1280) {
-        // Laptop lớn - Tăng từ 40% lên 46%
         maxVisualWidth = screenWidth * 0.48;
         maxVisualLength = window.innerHeight * 0.58;
       } else {
-        // Laptop nhỏ / tablet - Tăng từ 42% lên 44%
         maxVisualWidth = screenWidth * 0.46;
         maxVisualLength = window.innerHeight * 0.55;
       }
@@ -58,6 +87,19 @@ const PackingResult = () => {
   useEffect(() => {
     if (packingResult?.plates?.length > 0 && selectedPlate >= packingResult.plates.length) {
       setSelectedPlate(0);
+    }
+  }, [packingResult, selectedPlate]);
+
+  // Initialize edited rectangles when plate changes or packing result changes
+  useEffect(() => {
+    if (packingResult?.plates?.[selectedPlate]) {
+      const currentPlate = packingResult.plates[selectedPlate];
+      const rects = currentPlate.layers.flatMap(layer => layer.rectangles.filter(Boolean));
+      setEditedRectangles(rects.map(r => ({...r})));
+      setOriginalRectangles(rects.map(r => ({...r})));
+      setHasUnsavedChanges(false);
+      setIsEditMode(false);
+      setSelectedRectIds([]);
     }
   }, [packingResult, selectedPlate]);
   
@@ -87,6 +129,138 @@ const PackingResult = () => {
     }, 0);
   }, [packingResult]);
 
+  // Edit Mode Handlers
+  const handleToggleEditMode = useCallback(() => {
+    if (isEditMode && hasUnsavedChanges) {
+      if (window.confirm('Bạn có thay đổi chưa lưu. Bạn có muốn thoát không?')) {
+        setEditedRectangles([...originalRectangles]);
+        setHasUnsavedChanges(false);
+        setIsEditMode(false);
+        setSelectedRectIds([]);
+      }
+    } else {
+      setIsEditMode(!isEditMode);
+      setSelectedRectIds([]);
+    }
+  }, [isEditMode, hasUnsavedChanges, originalRectangles]);
+
+  const handleSelectRectangle = useCallback((id, addToSelection = false) => {
+    if (!isEditMode) return;
+
+    setSelectedRectIds(prev => {
+      if (addToSelection) {
+        return prev.includes(id) ? prev.filter(rid => rid !== id) : [...prev, id];
+      }
+      return [id];
+    });
+  }, [isEditMode]);
+
+  const handleDragRectangle = useCallback((updatedRect) => {
+    setEditedRectangles(prev => 
+      prev.map(r => r.id === updatedRect.id ? updatedRect : r)
+    );
+    setHasUnsavedChanges(true);
+  }, []);
+
+  const handleDeleteSelected = useCallback(() => {
+    if (selectedRectIds.length === 0) return;
+    
+    if (window.confirm(`Bạn có chắc muốn xóa ${selectedRectIds.length} hình đã chọn?`)) {
+      setEditedRectangles(prev => 
+        prev.filter(r => !selectedRectIds.includes(r.id))
+      );
+      setSelectedRectIds([]);
+      setHasUnsavedChanges(true);
+    }
+  }, [selectedRectIds]);
+
+  const handleRotateSelected = useCallback(() => {
+    if (selectedRectIds.length === 0) return;
+
+    setEditedRectangles(prev => 
+      prev.map(r => {
+        if (selectedRectIds.includes(r.id)) {
+          return {
+            ...r,
+            width: r.length,
+            length: r.width,
+            rotated: !r.rotated
+          };
+        }
+        return r;
+      })
+    );
+    setHasUnsavedChanges(true);
+  }, [selectedRectIds]);
+
+  const handleAlignSelected = useCallback((alignType) => {
+    if (selectedRectIds.length < 2) return;
+
+    const selectedRects = editedRectangles.filter(r => selectedRectIds.includes(r.id));
+    
+    setEditedRectangles(prev => {
+      const updated = [...prev];
+      
+      if (alignType === 'left') {
+        const minX = Math.min(...selectedRects.map(r => r.x));
+        selectedRects.forEach(r => {
+          const idx = updated.findIndex(ur => ur.id === r.id);
+          if (idx !== -1) updated[idx] = { ...updated[idx], x: minX };
+        });
+      } else if (alignType === 'top') {
+        const minY = Math.min(...selectedRects.map(r => r.y));
+        selectedRects.forEach(r => {
+          const idx = updated.findIndex(ur => ur.id === r.id);
+          if (idx !== -1) updated[idx] = { ...updated[idx], y: minY };
+        });
+      } else if (alignType === 'center') {
+        const avgX = selectedRects.reduce((sum, r) => sum + r.x + r.width / 2, 0) / selectedRects.length;
+        selectedRects.forEach(r => {
+          const idx = updated.findIndex(ur => ur.id === r.id);
+          if (idx !== -1) updated[idx] = { ...updated[idx], x: avgX - r.width / 2 };
+        });
+      }
+      
+      return updated;
+    });
+    setHasUnsavedChanges(true);
+  }, [selectedRectIds, editedRectangles]);
+
+  const handleSaveChanges = useCallback(() => {
+    // TODO: Implement save to backend or context
+    setOriginalRectangles([...editedRectangles]);
+    setHasUnsavedChanges(false);
+    alert('Đã lưu thay đổi thành công!');
+  }, [editedRectangles]);
+
+  const handleCancelEdit = useCallback(() => {
+    if (hasUnsavedChanges) {
+      if (window.confirm('Bạn có thay đổi chưa lưu. Bạn có muốn hủy không?')) {
+        setEditedRectangles([...originalRectangles]);
+        setHasUnsavedChanges(false);
+        setIsEditMode(false);
+        setSelectedRectIds([]);
+      }
+    } else {
+      setIsEditMode(false);
+      setSelectedRectIds([]);
+    }
+  }, [hasUnsavedChanges, originalRectangles]);
+
+  // Click outside to deselect
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (isEditMode && containerRef.current && !e.target.closest('.rectangle-item')) {
+        if (!e.ctrlKey && !e.metaKey) {
+          setSelectedRectIds([]);
+        }
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isEditMode]);
+
   if (isOptimizing) {
     return (
       <div className="mb-4 card p-6 md:p-8 min-h-[300px] md:min-h-[400px] flex flex-col justify-center items-center">
@@ -114,11 +288,7 @@ const PackingResult = () => {
     );
   }
 
-  const { 
-    layersPerPlate = 1,     
-    efficiency: totalEfficiency = 0 
-  } = packingResult;
-
+  const { layersPerPlate = 1, efficiency: totalEfficiency = 0 } = packingResult;
   const platesNeeded = categorizedPlates.length;
   
   const currentPlateMeta = categorizedPlates[selectedPlate];
@@ -129,42 +299,51 @@ const PackingResult = () => {
   const plateDescription = currentPlateMeta.description || `${plateType} #${currentPlateMeta.displayIndex}`;
 
   const singleLayerArea = container.width * container.length;
-  const actualLayersUsed = currentPlateLayers.length; 
-  const totalPlateArea = singleLayerArea * actualLayersUsed; 
+  const actualLayersUsed = currentPlateLayers.length;
+  const totalPlateArea = singleLayerArea * actualLayersUsed;
 
-  const plateUsedArea = currentPlateLayers
-    .flatMap(layer => layer.rectangles.filter(Boolean)) 
-    .reduce((sum, rect) => sum + (rect.width * rect.length), 0); 
-  
-  const plateEfficiency = totalPlateArea > 0 
-    ? (plateUsedArea / totalPlateArea * 100).toFixed(1) 
-    : 0;
+  const displayRectangles = isEditMode ? editedRectangles : currentPlateLayers.flatMap(layer => layer.rectangles.filter(Boolean));
+
+  const plateUsedArea = displayRectangles.reduce((sum, rect) => sum + (rect.width * rect.length), 0);
+  const plateEfficiency = totalPlateArea > 0 ? (plateUsedArea / totalPlateArea * 100).toFixed(1) : 0;
 
   const containerWidth = container.width;
   const containerLength = container.length;
-
   const isLandscape = containerWidth > containerLength;
   const vizWidth = isLandscape ? containerWidth : containerLength;
   const vizLength = isLandscape ? containerLength : containerWidth;
-
   const scale = visualScale;
-
   const displayWidth = vizWidth * scale;
   const displayLength = vizLength * scale;
-  
   const gridWidth = isLandscape ? container.width : container.length;
   const gridLength = isLandscape ? container.length : container.width;
 
   return (
-    <div className="mb-4 card p-3 md:p-4"> 
+    <div className="mb-4 card p-1 md:p-4">
+      {/* Edit Mode Controls */}
+      <EditModeControls
+        isEditMode={isEditMode}
+        onToggleEditMode={handleToggleEditMode}
+        selectedRectangles={selectedRectIds}
+        onDeleteSelected={handleDeleteSelected}
+        onRotateSelected={handleRotateSelected}
+        onAlignSelected={handleAlignSelected}
+        snapEnabled={snapEnabled}
+        onToggleSnap={() => setSnapEnabled(!snapEnabled)}
+        snapThreshold={snapThreshold}
+        onSnapThresholdChange={setSnapThreshold}
+        onSaveChanges={handleSaveChanges}
+        onCancelEdit={handleCancelEdit}
+        hasUnsavedChanges={hasUnsavedChanges}
+      />
+
       <div className="bg-white rounded-xl shadow-lg border border-gray-300 p-2 md:p-3 mb-3 md:mb-4">
-        
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-3 border-b pb-2 gap-2"> 
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-3 border-b pb-2 gap-2">
           <h3 className="text-sm md:text-base lg:text-lg font-semibold text-gray-800" title={currentPlateMeta.description}>
             {plateDescription} ({actualLayersUsed}/{layersPerPlate} lớp)
           </h3>
           <div className="text-xs md:text-sm lg:text-base text-gray-600">
-             Hiệu suất (Tấm này): <span className="font-bold text-primary-600">{plateEfficiency}%</span>
+            Hiệu suất (Tấm này): <span className="font-bold text-primary-600">{plateEfficiency}%</span>
           </div>
         </div>
         
@@ -190,6 +369,7 @@ const PackingResult = () => {
         
         <div className="flex justify-center p-2 overflow-x-auto overflow-y-auto">
           <div 
+            ref={containerRef}
             className="relative border-4 border-gray-900 rounded-lg shadow-inner bg-gray-200 flex-shrink-0"
             style={{ 
               maxWidth: '100%',
@@ -199,6 +379,7 @@ const PackingResult = () => {
               minHeight: 'min(200px, 40vh)'
             }}
           >
+            {/* Grid */}
             <div className="absolute inset-0 opacity-20">
               {Array.from({length: Math.floor(gridWidth/100)}).map((_, i) => (
                 <div 
@@ -216,38 +397,50 @@ const PackingResult = () => {
               ))}
             </div>
             
-            {currentPlateLayers 
-              .flatMap(layer => layer.rectangles.filter(Boolean)) 
-              .map((rect) => {
-              
+            {/* Rectangles */}
+            {displayRectangles.map((rect) => {
               if (!rect || typeof rect.width !== 'number' || typeof rect.length !== 'number') {
-                  return null;
+                return null;
               }
-              
+
+              if (isEditMode) {
+                return (
+                  <DraggableRectangle
+                    key={rect.id}
+                    rect={rect}
+                    scale={scale}
+                    isLandscape={isLandscape}
+                    onDrag={handleDragRectangle}
+                    snapEnabled={snapEnabled}
+                    snapThreshold={snapThreshold}
+                    isSelected={selectedRectIds.includes(rect.id)}
+                    onSelect={(id) => handleSelectRectangle(id, window.event?.ctrlKey || window.event?.metaKey)}
+                    containerBounds={containerBounds}
+                    allRectangles={displayRectangles}
+                  />
+                );
+              }
+
+              // Static display (non-edit mode)
               const rectWidth = rect.width * scale;
               const rectLength = rect.length * scale;
               const rectX = isLandscape ? rect.x * scale : rect.y * scale;
               const rectY = isLandscape ? rect.y * scale : rect.x * scale;
               const finalWidth = isLandscape ? rectWidth : rectLength;
               const finalLength = isLandscape ? rectLength : rectWidth;
-              
               const minDim = Math.min(finalWidth, finalLength);
-              const fontSize = Math.max(8, Math.min(16, minDim * 0.15)); 
-              
+              const fontSize = Math.max(8, Math.min(16, minDim * 0.15));
               const originalRect = placedRectDetails[rect.typeId] || {};
-              
               const originalDims = (originalRect.width && originalRect.length)
                 ? `${originalRect.width}×${originalRect.length}mm` 
                 : 'Kích thước gốc không xác định';
-
               const rectName = originalRect.name || `ID ${rect.typeId}`;
-              
-              const opacity = 1 - (rect.layer / layersPerPlate) * 0.4; 
-              const zIndex = 10 + (layersPerPlate - rect.layer); 
+              const opacity = 1 - (rect.layer / layersPerPlate) * 0.4;
+              const zIndex = 10 + (layersPerPlate - rect.layer);
               
               return (
                 <div
-                  key={rect.id} 
+                  key={rect.id}
                   className="absolute border border-white shadow-xl flex items-center justify-center text-white font-bold transition-all duration-300 hover:scale-[1.03] hover:z-20 cursor-help"
                   style={{
                     left: `${rectX}px`,
@@ -256,11 +449,11 @@ const PackingResult = () => {
                     height: `${finalLength}px`,
                     backgroundColor: rect.color || (placedRectDetails[rect.typeId]?.color),
                     fontSize: `${fontSize}px`,
-                    minWidth: '20px', 
-                    minHeight: '15px', 
+                    minWidth: '20px',
+                    minHeight: '15px',
                     overflow: 'hidden',
-                    opacity: opacity, 
-                    zIndex: zIndex 
+                    opacity: opacity,
+                    zIndex: zIndex
                   }}
                   title={`[Tấm ${rect.plateIndex + 1}, Lớp ${rect.layer + 1}] ${rectName} (${originalDims}) tại X:${rect.x} Y:${rect.y} ${rect.rotated ? '(Xoay 90°)' : ''}`}
                 >
@@ -278,7 +471,7 @@ const PackingResult = () => {
             <span className="text-gray-500 font-medium">Tổng cộng {totalLayersUsed} lớp</span>
           </div>
           <div className="text-xs md:text-sm text-gray-700 font-semibold">
-            Hiệu suất tổng thể: <span className="text-base md:text-xl text-blue-600">{totalEfficiency.toFixed(1)}%</span> 
+            Hiệu suất tổng thể: <span className="text-base md:text-xl text-blue-600">{totalEfficiency.toFixed(1)}%</span>
           </div>
         </div>
       </div>
