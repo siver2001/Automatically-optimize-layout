@@ -12,7 +12,7 @@ function App() {
   return (
     <PackingProvider>
       <Router>
-        <div className="h-screen overflow-hidden bg-gradient-to-br from-primary-500 to-secondary-500 font-sans">
+        <div className="min-h-screen bg-gradient-to-br from-primary-500 to-secondary-500 font-sans">
           <Header />
           <div className="w-full px-2">
             <Routes>

@@ -520,14 +520,12 @@ class PackingAlgorithm {
   // [NÂNG CẤP] Hàm optimize chính
   async optimize(container, initialRectangles, maxLayers) {
     this.startTime = Date.now(); 
-    console.log(`[Algorithm] Bắt đầu tối ưu ${initialRectangles.length} hình`);
     
     this.container = container;
     
     try {
       
       // BƯỚC 3: Chạy thuật toán sắp xếp (đã tích hợp xoay)
-      console.log('[Algorithm] Bước 3: Chạy thuật toán sắp xếp (cho 1 lớp)...');
       this.checkTimeout(30);
       
       // Chỉ chạy cho 1 lớp. Logic xếp nhiều lớp/tấm đã ở PackingContext.
@@ -538,8 +536,6 @@ class PackingAlgorithm {
       );
 
       const elapsed = ((Date.now() - this.startTime) / 1000).toFixed(2);
-      console.log(`[Algorithm] ✓ Hoàn thành trong ${elapsed}s`);
-      console.log(`[Algorithm] Đã sắp ${bestResult.rectangles.length}/${initialRectangles.length} hình`);
       
       return bestResult;
       

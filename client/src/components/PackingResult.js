@@ -48,6 +48,16 @@ const PackingResult = () => {
     return [...pure, ...mixed];
   }, [packingResult]);
 
+  // [FIX] Tính tổng số LỚP (layers) đã sử dụng trên tất cả các tấm
+  // (Đã di chuyển lên đầu component để tránh lỗi Rules of Hooks)
+  const totalLayersUsed = useMemo(() => {
+    if (!packingResult?.plates) return 0;
+    return packingResult.plates.reduce((sum, plate) => {
+      // plate.layers là một mảng, .length là số lớp trong tấm đó
+      return sum + (plate.layers ? plate.layers.length : 0);
+    }, 0);
+  }, [packingResult]);
+
 
   // =================================================================
   // 1. LOADING STATE
@@ -177,6 +187,7 @@ const PackingResult = () => {
           <div 
             className="relative border-4 border-gray-900 rounded-lg shadow-inner bg-gray-200 flex-shrink-0"
             style={{ 
+              maxWidth: '100%',
               width: `${displayWidth}px`, 
               height: `${displayLength}px`,
               minWidth: '300px',
@@ -261,11 +272,11 @@ const PackingResult = () => {
           </div>
         </div>
         
-        {/* Thông tin hiệu suất tổng thể */}
+        {/* [FIX] Thông tin hiệu suất tổng thể */}
         <div className="mt-3 flex justify-end">
             <div className="text-sm text-gray-700 font-semibold">
+                <span className="text-gray-500 font-medium mr-2"> (tổng cộng {totalLayersUsed} lớp)</span>
                 Hiệu suất tổng thể: <span className="text-xl text-blue-600">{totalEfficiency.toFixed(1)}%</span> 
-                <span className="text-gray-500 font-medium ml-2"> (trên {platesNeeded} tấm)</span>
             </div>
         </div>
       </div>

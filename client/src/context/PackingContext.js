@@ -189,7 +189,6 @@ export const PackingProvider = ({ children }) => {
   // GIAI ĐOẠN 1: TÌM PATTERN THUẦN TỐI ƯU CHO MỖI SIZE
   // ============================================================
   const findPurePattern = async (rectType, sampleSize = 200) => {
-    console.log(`🔍 Tìm pattern thuần cho ${rectType.name} (${rectType.width}×${rectType.length})...`);
     
     // Tạo mẫu để test
     const testRects = Array.from({ length: sampleSize }, (_, i) => ({
@@ -219,7 +218,6 @@ export const PackingProvider = ({ children }) => {
       }));
 
     const perLayer = pattern.length;
-    console.log(`✅ Pattern thuần: ${perLayer} hình/lớp`);
 
     return { pattern, perLayer };
   };
@@ -230,7 +228,6 @@ export const PackingProvider = ({ children }) => {
   const createMixedPlate = async (pool, layersPerPlate) => {
     if (pool.length === 0) return null;
 
-    console.log(`🎨 Tạo tấm hỗn hợp từ ${pool.length} hình trong pool...`);
 
     // Sắp xếp pool theo diện tích giảm dần
     const sortedPool = [...pool].sort((a, b) => 
@@ -268,7 +265,6 @@ export const PackingProvider = ({ children }) => {
       typeCount[r.typeId] = (typeCount[r.typeId] || 0) + 1;
     });
 
-    console.log(`✅ Đã xếp ${placed.length} hình vào tấm hỗn hợp:`, typeCount);
 
     return { placed, placedIds, usedTypeIds, typeCount };
   };
@@ -289,21 +285,11 @@ export const PackingProvider = ({ children }) => {
         r => state.selectedRectangles.includes(r.id) && (state.quantities[r.id] || 0) > 0
       );
 
-      console.log('\n========================================');
-      console.log('🚀 BẮT ĐẦU TỐI ƯU HÓA');
-      console.log('========================================');
-      console.log('📦 Tấm liệu:', state.container);
-      console.log('📊 Số loại size:', selectedTypes.length);
-      console.log('📋 Tồn kho ban đầu:', selectedTypes.map(t => 
-        `${t.name}: ${state.quantities[t.id]}`
-      ).join(', '));
-
       const finalPlates = [];
       let plateIndexCounter = 0;
       let rectPresentationId = 1;
 
       // ========== GIAI ĐOẠN 1: TẤM THUẦN ==========
-      console.log('\n🎯 === GIAI ĐOẠN 1: TẤM THUẦN ===\n');
 
       const purePatterns = new Map(); // Lưu pattern cho mỗi size
       const stock = new Map(); // Tồn kho hiện tại
@@ -317,7 +303,6 @@ export const PackingProvider = ({ children }) => {
         purePatterns.set(rectType.id, { pattern, perLayer });
 
         if (perLayer === 0) {
-          console.warn(`⚠️  Size ${rectType.name} không thể xếp vào tấm liệu!`);
           dispatch({
             type: 'SET_WARNING',
             payload: {
@@ -335,10 +320,6 @@ export const PackingProvider = ({ children }) => {
         const fullPlates = Math.floor(totalQuantity / perPlate);
 
         if (fullPlates > 0) {
-          console.log(`\n📦 Size ${rectType.name}:`);
-          console.log(`   - Pattern: ${perLayer} hình/lớp × ${layersPerPlate} lớp = ${perPlate} hình/tấm`);
-          console.log(`   - Tồn kho: ${totalQuantity} hình`);
-          console.log(`   - Tạo ${fullPlates} tấm thuần`);
 
           // Tạo các tấm thuần
           for (let p = 0; p < fullPlates; p++) {
@@ -369,25 +350,13 @@ export const PackingProvider = ({ children }) => {
           const used = fullPlates * perPlate;
           const remaining = totalQuantity - used;
           stock.set(rectType.id, remaining);
-          console.log(`   - Đã sử dụng: ${used} hình`);
-          console.log(`   - Còn lại: ${remaining} hình`);
         } else {
           console.log(`\n📦 Size ${rectType.name}: Số lượng không đủ để tạo tấm thuần (${totalQuantity} < ${perPlate})`);
         }
       }
 
-      console.log('\n✅ Hoàn thành Giai đoạn 1');
-      console.log('📊 Tồn kho sau tấm thuần:', 
-        Array.from(stock.entries())
-          .filter(([_, qty]) => qty > 0)
-          .map(([id, qty]) => {
-            const t = selectedTypes.find(x => x.id === id);
-            return `${t.name}: ${qty}`;
-          }).join(', ') || 'Trống'
-      );
 
       // ========== GIAI ĐOẠN 2: TẤM HỖN HỢP ==========
-      console.log('\n🎨 === GIAI ĐOẠN 2: TẤM HỖN HỢP ===\n');
 
       // Tạo pool từ tồn kho còn lại
       let pool = [];
@@ -407,8 +376,6 @@ export const PackingProvider = ({ children }) => {
           });
         }
       }
-
-      console.log(`📦 Pool ban đầu: ${pool.length} hình`);
 
       if (pool.length === 0) {
         console.log('✅ Không còn hình nào cần xếp trong pool!');
@@ -440,12 +407,10 @@ export const PackingProvider = ({ children }) => {
 
       while (pool.length > 0 && iterationCount < MAX_ITERATIONS) {
         iterationCount++;
-        console.log(`\n🎨 Lần lặp #${iterationCount} (Pool còn ${pool.length} hình)...`);
 
         const mixedResult = await createMixedPlate(pool, layersPerPlate);
 
         if (!mixedResult || mixedResult.placed.length === 0) {
-          console.warn('⚠️  Không thể xếp thêm hình nào vào tấm hỗn hợp. Dừng lại.');
           
           // Thông báo cho user về các hình không xếp được
           const remainingByType = {};
@@ -532,8 +497,6 @@ export const PackingProvider = ({ children }) => {
           existingData.layers.push(...layersToAdd);
           existingData.repetitions++;
 
-          console.log(`♻️  Pattern trùng! Thêm ${newLayers.length} lớp vào Tấm #${existingData.plate.plateIndex} (Tổng: ${existingData.layers.length} lớp, ${existingData.repetitions} lần lặp)`);
-
         } else {
           // Pattern mới -> Tạo plate mới
           const typeDesc = Object.entries(typeCount)
@@ -571,7 +534,6 @@ export const PackingProvider = ({ children }) => {
 
           mixedPlateCounter++;
 
-          console.log(`✨ Pattern mới! Tạo Tấm #${plate.plateIndex} với ${newLayers.length} lớp (${typeDesc})`);
         }
         
         // ---------- [SỬA LỖI] KHỐI CODE BỊ LẶP ĐÃ BỊ XÓA TỪ ĐÂY ----------
@@ -579,7 +541,6 @@ export const PackingProvider = ({ children }) => {
         // Loại bỏ các hình đã xếp khỏi pool
         pool = pool.filter(r => !placedIds.has(r.id));
 
-        console.log(`   Pool còn lại: ${pool.length} hình`);
       }
 
       // Thêm tất cả các plate từ mixedPatterns vào finalPlates
@@ -607,14 +568,7 @@ export const PackingProvider = ({ children }) => {
         });
       }
 
-      console.log(`\n✅ Hoàn thành tạo ${mixedPatterns.size} tấm hỗn hợp (từ ${iterationCount} lần lặp)`);
-
-      console.log('\n✅ Hoàn thành Giai đoạn 2');
-
       // ========== TỔNG KẾT ==========
-      console.log('\n========================================');
-      console.log('📊 TỔNG KẾT');
-      console.log('========================================');
 
       const allPlaced = finalPlates.flatMap(p => p.layers.flatMap(l => l.rectangles));
       const totalRequested = selectedTypes.reduce((s, t) => s + (state.quantities[t.id] || 0), 0);
@@ -623,10 +577,6 @@ export const PackingProvider = ({ children }) => {
       const pureCount = finalPlates.filter(p => p.type === 'pure').length;
       const mixedCount = finalPlates.filter(p => p.type === 'mixed').length;
 
-      console.log(`🎯 Tổng số tấm: ${finalPlates.length} (${pureCount} thuần + ${mixedCount} hỗn hợp)`);
-      console.log(`📦 Tổng hình yêu cầu: ${totalRequested}`);
-      console.log(`✅ Đã xếp: ${placedCount}`);
-      console.log(`❌ Chưa xếp: ${totalRequested - placedCount}`);
 
       // Tính hiệu suất
       const containerArea = state.container.width * state.container.length;
@@ -636,8 +586,6 @@ export const PackingProvider = ({ children }) => {
       );
       const placedArea = allPlaced.reduce((sum, r) => sum + r.width * r.length, 0);
       const efficiency = totalPlateArea > 0 ? (placedArea / totalPlateArea) * 100 : 0;
-
-      console.log(`📈 Hiệu suất: ${efficiency.toFixed(1)}%`);
 
       const missing = totalRequested - placedCount;
       if (missing > 0) {
@@ -664,7 +612,6 @@ export const PackingProvider = ({ children }) => {
       };
 
       dispatch({ type: 'SET_PACKING_RESULT', payload: result });
-      console.log('========================================\n');
       return true;
 
     } catch (error) {
