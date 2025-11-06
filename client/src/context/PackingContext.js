@@ -275,9 +275,10 @@ export const PackingProvider = ({ children }) => {
   const startOptimization = async () => {
     dispatch({ type: 'CLEAR_ERRORS' });
     if (!validateContainer() || !validateRectangles()) return false;
-    dispatch({ type: 'START_OPTIMIZATION' });
+    
 
     try {
+      dispatch({ type: 'START_OPTIMIZATION' });
       const layersPerPlate = state.container.layers;
 
       // Lấy các loại đã chọn + có quantity > 0
@@ -536,8 +537,6 @@ export const PackingProvider = ({ children }) => {
 
         }
         
-        // ---------- [SỬA LỖI] KHỐI CODE BỊ LẶP ĐÃ BỊ XÓA TỪ ĐÂY ----------
-        
         // Loại bỏ các hình đã xếp khỏi pool
         pool = pool.filter(r => !placedIds.has(r.id));
 
@@ -586,6 +585,7 @@ export const PackingProvider = ({ children }) => {
       );
       const placedArea = allPlaced.reduce((sum, r) => sum + r.width * r.length, 0);
       const efficiency = totalPlateArea > 0 ? (placedArea / totalPlateArea) * 100 : 0;
+
 
       const missing = totalRequested - placedCount;
       if (missing > 0) {

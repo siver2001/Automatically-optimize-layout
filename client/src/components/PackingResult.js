@@ -291,7 +291,9 @@ const PackingResult = () => {
   const { layersPerPlate = 1, efficiency: totalEfficiency = 0 } = packingResult;
   const platesNeeded = categorizedPlates.length;
   
-  const currentPlateMeta = categorizedPlates[selectedPlate];
+  const safeIndex = selectedPlate >= platesNeeded ? 0 : selectedPlate;
+  const currentPlateMeta = categorizedPlates[safeIndex];
+  
   const currentPlateData = packingResult.plates[currentPlateMeta.originalIndex];
   const currentPlateLayers = currentPlateData.layers || [];
   
