@@ -1,5 +1,5 @@
 // client/src/components/RectangleList.js
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { usePacking } from '../context/PackingContext.js';
 
 const RectangleList = () => {
@@ -12,21 +12,13 @@ const RectangleList = () => {
     clearSelection,
     setQuantity, 
     startOptimization,
-    addRectangle, // Đã thêm
-    removeRectangle, // Đã thêm
+    addRectangle, 
+    removeRectangle, 
     isOptimizing
   } = usePacking();
   
   const [showAddForm, setShowAddForm] = useState(false); // State để hiển thị form thêm size
   const [newRect, setNewRect] = useState({ width: '', length: '', name: '' }); // State cho input size mới
-  
-  useEffect(() => {
-    rectangles.forEach(rect => {
-      if (quantities[rect.id] === undefined) {
-        setQuantity(rect.id, 1); 
-      }
-    });
-  }, [rectangles, quantities, setQuantity]);
 
   const handleQuantityChange = useCallback((rectId, value) => {
     const quantity = Math.max(0, parseInt(value) || 0);
@@ -95,8 +87,8 @@ const RectangleList = () => {
     };
   };
 
-  // Các ID từ 1 đến 16 là size mặc định (không cho phép xóa)
-  const isCustomRect = (id) => id > 16;
+  // Các ID từ 1 đến 8 là size mặc định (không cho phép xóa)
+  const isCustomRect = (id) => id > 8;
 
 
   return (
@@ -254,7 +246,7 @@ const RectangleList = () => {
                   onChange={(e) => setNewRect(prev => ({ ...prev, name: e.target.value }))}
                   placeholder="Ví dụ: 13#"
                   className="input-field"
-                  disabled={isOptimizing} // <-- THÊM VÀO
+                  disabled={isOptimizing} 
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -269,7 +261,7 @@ const RectangleList = () => {
                     placeholder="Width (mm)"
                     className="input-field"
                     required
-                    disabled={isOptimizing} // <-- THÊM VÀO
+                    disabled={isOptimizing} 
                   />
                 </div>
                 <div>

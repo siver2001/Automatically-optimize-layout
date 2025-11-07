@@ -179,7 +179,7 @@ export const PackingProvider = ({ children }) => {
     dispatch({ type: 'SET_QUANTITY', payload: { id, quantity } });
   }, []);
 
-  const validateContainer = () => {
+  const validateContainer = useCallback(() => {
     const { width, length, layers } = state.container;
     const errs = [];
     if (width <= 0) errs.push('Chiều rộng tấm liệu phải lớn hơn 0');
@@ -191,9 +191,9 @@ export const PackingProvider = ({ children }) => {
       return false;
     }
     return true;
-  };
+  }, [state.container]);
 
-  const validateRectangles = () => {
+  const validateRectangles = useCallback(() => {
     const total = state.rectangles
       .filter(r => state.selectedRectangles.includes(r.id))
       .reduce((sum, r) => sum + (state.quantities[r.id] || 0), 0);
@@ -206,7 +206,7 @@ export const PackingProvider = ({ children }) => {
       return false;
     }
     return true;
-  };
+  }, [state.rectangles, state.selectedRectangles, state.quantities]);
 
   // ============================================================
   // NÂNG CẤP 1: TÌM PATTERN THUẦN TỐI ƯU VỚI ADAPTIVE SAMPLE SIZE
@@ -996,20 +996,144 @@ export const PackingProvider = ({ children }) => {
           }
         });
       }
+      // ============================================================
+      // NÂNG CẤP MỚI: GIAI ĐOẠN 3 - TỐI ƯU TÀN DƯ (CHIA RỘNG)
+      // ============================================================
+      console.log(`\n\n📋 GIAI ĐOẠN 3: TỐI ƯU TÀN DƯ (CHIA RỘNG)\n`);
+      console.log(`📦 Bắt đầu Giai đoạn 3 với ${pool.length} items còn lại`);
+      
+      const MIN_SPLIT_WIDTH = 10; // Ngưỡng chia nhỏ nhất (ví dụ: 10mm)
+
+      // Hàm helper để kiểm tra xem 1 hình có vừa 1 gap không
+      // (Chúng ta định nghĩa nó ở đây để nó có thể truy cập `analyzeGaps`)
+      const canFit = (gap, rect) => {
+        // Check normal
+        if (rect.width <= gap.width && rect.length <= gap.length) {
+          return { rotated: false, placeWidth: rect.width, placeLength: rect.length };
+        }
+        // Check rotated (cho phép xoay nửa đã chia)
+        if (rect.length <= gap.width && rect.width <= gap.length) {
+          return { rotated: true, placeWidth: rect.length, placeLength: rect.width };
+        }
+        return null;
+      };
+      
+      const itemsToSplit = [...pool]; // Lấy danh sách tàn dư
+      pool = []; // Reset pool, sẽ add lại những gì thất bại
+
+      for (const item of itemsToSplit) {
+        const newWidth = item.width / 2;
+        
+        // Kiểm tra xem có đáng để chia không
+        if (newWidth < MIN_SPLIT_WIDTH) {
+          console.log(`   ❌ ${item.name}: Chiều rộng mới (${newWidth.toFixed(1)}mm) quá nhỏ, bỏ qua.`);
+          pool.push(item);
+          continue;
+        }
+
+        console.log(`   🔍 Đang thử chia ${item.name} (${item.width}x${item.length}) -> 2x (${newWidth.toFixed(1)}x${item.length})`);
+
+        const half_1 = { ...item, width: newWidth, id: `split_1_${item.id}`, typeId: item.typeId };
+        const half_2 = { ...item, width: newWidth, id: `split_2_${item.id}`, typeId: item.typeId };
+
+        // 1. Thu thập TẤT CẢ các gaps từ TẤT CẢ các tấm và lớp
+        const all_gaps = [];
+        finalPlates.forEach((plate, plateIndex) => {
+          plate.layers.forEach((layer, layerIndex) => {
+            // Dùng state.container vì 'container' không có trong scope này
+            const gaps = analyzeGaps(layer.rectangles, state.container); 
+            gaps.forEach(gap => {
+              // Thêm tham chiếu 'layerRef' để có thể thêm rect vào
+              all_gaps.push({ ...gap, plateIndex, layerIndex, layerRef: layer });
+            });
+          });
+        });
+
+        // 2. Tìm gap cho half_1
+        let loc1 = null, fit1 = null, gap_1_idx = -1;
+        for (let i = 0; i < all_gaps.length; i++) {
+           fit1 = canFit(all_gaps[i], half_1);
+           if (fit1) {
+             gap_1_idx = i;
+             break;
+           }
+        }
+
+        if (gap_1_idx === -1) {
+          console.log(`      -> Không tìm thấy chỗ cho nửa 1.`);
+          pool.push(item);
+          continue;
+        }
+        loc1 = all_gaps.splice(gap_1_idx, 1)[0]; // Lấy và XÓA gap 1
+
+        // 3. Tìm gap cho half_2 (từ các gaps còn lại)
+        let loc2 = null, fit2 = null, gap_2_idx = -1;
+        for (let i = 0; i < all_gaps.length; i++) {
+           fit2 = canFit(all_gaps[i], half_2);
+           if (fit2) {
+             gap_2_idx = i;
+             break;
+           }
+        }
+        
+        if (gap_2_idx === -1) {
+          console.log(`      -> Tìm thấy chỗ cho nửa 1, nhưng KHÔNG tìm thấy chỗ cho nửa 2.`);
+          pool.push(item); // Thất bại, trả lại hình gốc
+          continue;
+        }
+        loc2 = all_gaps.splice(gap_2_idx, 1)[0]; // Lấy và XÓA gap 2
+
+        // 4. THÀNH CÔNG! Đã tìm thấy cả 2.
+        console.log(`   ✅ SUCCESS: Đặt 2 nửa của ${item.name} vào Tấm ${loc1.plateIndex+1}/Lớp ${loc1.layerIndex} và Tấm ${loc2.plateIndex+1}/Lớp ${loc2.layerIndex}`);
+        
+        // Thêm rect 1 vào layer (dùng layerRef)
+        loc1.layerRef.rectangles.push({
+          ...half_1,
+          id: rectPresentationId++, // Dùng ID duy nhất
+          name: `1/2 ${half_1.name}`, // Đánh dấu là nửa
+          x: loc1.x,
+          y: loc1.y,
+          width: fit1.placeWidth,
+          length: fit1.placeLength,
+          rotated: fit1.rotated,
+          color: half_1.color,
+          plateIndex: loc1.plateIndex,
+          layer: loc1.layerIndex
+        });
+
+        // Thêm rect 2 vào layer (dùng layerRef)
+        loc2.layerRef.rectangles.push({
+          ...half_2,
+          id: rectPresentationId++, // Dùng ID duy nhất
+          name: `1/2 ${half_2.name}`, // Đánh dấu là nửa
+          x: loc2.x,
+          y: loc2.y,
+          width: fit2.placeWidth,
+          length: fit2.placeLength,
+          rotated: fit2.rotated,
+          color: half_2.color,
+          plateIndex: loc2.plateIndex,
+          layer: loc2.layerIndex
+        });
+        
+        // Không push 'item' vào pool nữa, vì nó đã được xếp thành công
+      }
+      
+      console.log(`📦 Kết thúc Giai đoạn 3, còn lại ${pool.length} items không thể xếp.`);
 
       // ========== TỔNG KẾT ==========
       console.log('\n\n📊 ========== TỔNG KẾT ==========\n');
 
       const allPlaced = finalPlates.flatMap(p => p.layers.flatMap(l => l.rectangles));
       const totalRequested = selectedTypes.reduce((s, t) => s + (state.quantities[t.id] || 0), 0);
-      const placedCount = allPlaced.length;
+      const placedCount = totalRequested - pool.length;
 
       const pureCount = finalPlates.filter(p => p.type === 'pure').length;
       const hybridCount = finalPlates.filter(p => p.type === 'hybrid').length;
       const mixedCount = finalPlates.filter(p => p.type === 'mixed').length;
 
       console.log(`✓ Total plates: ${finalPlates.length} (Pure: ${pureCount}, Hybrid: ${hybridCount}, Mixed: ${mixedCount})`);
-      console.log(`✓ Rectangles: ${placedCount}/${totalRequested} placed`);
+      console.log(`✓ Rectangles: ${placedCount}/${totalRequested} (hình gốc) đã xếp`);
 
       const containerArea = state.container.width * state.container.length;
       const totalPlateArea = finalPlates.reduce(
@@ -1024,20 +1148,39 @@ export const PackingProvider = ({ children }) => {
 
       // Calculate per-type efficiency
       console.log('\n📋 Per-type breakdown:');
+      const remainingTypes = pool.reduce((acc, rect) => {
+        acc[rect.typeId] = (acc[rect.typeId] || 0) + 1;
+        return acc;
+      }, {});
+
       selectedTypes.forEach(type => {
-        const typePlaced = allPlaced.filter(r => r.typeId === type.id);
         const requested = state.quantities[type.id] || 0;
-        console.log(`   ${type.name}: ${typePlaced.length}/${requested} (${((typePlaced.length/requested)*100).toFixed(1)}%)`);
+        const remaining = remainingTypes[type.id] || 0;
+        const placed = requested - remaining;
+        const percentage = requested > 0 ? (placed / requested) * 100 : 0;
+        console.log(`   ${type.name}: ${placed}/${requested} (${percentage.toFixed(1)}%)`);
       });
 
-      const missing = totalRequested - placedCount;
+      const missing = pool.length;
       if (missing > 0) {
-        console.log(`\n⚠ Warning: ${missing} rectangles could not be placed`);
+        console.log(`\n⚠ Warning: ${missing} (hình gốc) could not be placed`);
+        
+        // Tạo thông báo lỗi từ pool
+        const remainingByType = {};
+          pool.forEach(r => {
+            remainingByType[r.typeId] = (remainingByType[r.typeId] || 0) + 1;
+          });
+          const msg = Object.entries(remainingByType)
+            .map(([id, cnt]) => {
+              const t = selectedTypes.find(x => x.id === Number(id));
+              return `${t ? t.name : `#${id}`}: ${cnt}`;
+            }).join(', ');
+            
         dispatch({
           type: 'SET_WARNING',
           payload: {
             type: 'optimization',
-            message: `Chỉ sắp được ${placedCount}/${totalRequested} hình. ${missing} hình không thể xếp vào tấm liệu.`
+            message: `Chỉ sắp được ${placedCount}/${totalRequested} hình. ${missing} hình không thể xếp (Ngay cả khi đã thử chia đôi): ${msg}`
           }
         });
       }
@@ -1073,10 +1216,10 @@ export const PackingProvider = ({ children }) => {
     }
   };
 
-  const clearErrors = () => dispatch({ type: 'CLEAR_ERRORS' });
-  const toggleModbus = () => dispatch({ type: 'TOGGLE_MODBUS' });
+  const clearErrors = useCallback(() => dispatch({ type: 'CLEAR_ERRORS' }), []);
+  const toggleModbus = useCallback(() => dispatch({ type: 'TOGGLE_MODBUS' }), []);
 
-  const addRectangle = (rectangle) => {
+  const addRectangle = useCallback((rectangle) => {
     const newId = getNewRectId();
     const defaultColor = '#3498db';
     
@@ -1091,17 +1234,17 @@ export const PackingProvider = ({ children }) => {
         typeId: newId 
       }
     });
-  };
+  }, [getNewRectId]);
 
-  const updateRectangle = (_id, _updates) => {};
-  const removeRectangle = (id) => {
+  const updateRectangle = useCallback((_id, _updates) => {}, []);
+  const removeRectangle = useCallback((id) => {
     console.log(`🗑️ Removing rectangle with ID: ${id}`);
     dispatch({ type: 'REMOVE_RECTANGLE', payload: id });
-  };
-  const selectRectangle = (id) => dispatch({ type: 'SELECT_RECTANGLE', payload: id });
-  const selectAllRectangles = () => dispatch({ type: 'SELECT_ALL_RECTANGLES' });
-  const clearSelection = () => dispatch({ type: 'CLEAR_SELECTION' });
-  const setContainer = (data) => dispatch({ type: 'SET_CONTAINER', payload: data });
+  }, []);
+  const selectRectangle = useCallback((id) => dispatch({ type: 'SELECT_RECTANGLE', payload: id }), []);
+  const selectAllRectangles = useCallback(() => dispatch({ type: 'SELECT_ALL_RECTANGLES' }), []);
+  const clearSelection = useCallback(() => dispatch({ type: 'CLEAR_SELECTION' }), []);
+  const setContainer = useCallback((data) => dispatch({ type: 'SET_CONTAINER', payload: data }), []);
 
   const value = {
     ...state,
