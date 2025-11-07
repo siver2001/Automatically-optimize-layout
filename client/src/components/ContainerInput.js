@@ -45,8 +45,8 @@ const ContainerInput = () => {
     const effectiveLength = Math.min(localContainer.width, localContainer.length);
 
     // Responsive sizes
-    const maxWidth = Math.min(window.innerWidth * 0.25, 350);
-    const maxLength = Math.min(window.innerHeight * 0.18, 200);
+    const maxWidth = Math.min(window.innerWidth * 0.15, 350);
+    const maxLength = Math.min(window.innerHeight * 0.8, 200);
     const aspectRatio = effectiveWidth / effectiveLength;
     
     let displayWidth, displayLength;
