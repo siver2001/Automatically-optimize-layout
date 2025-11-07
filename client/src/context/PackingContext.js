@@ -61,7 +61,6 @@ const packingReducer = (state, action) => {
       };
 
     case 'REMOVE_RECTANGLE': {
-      // Clean up both rectangles and quantities completely
       const idToRemove = action.payload;
       const { [idToRemove]: _removed, ...newQuantities } = state.quantities;
       
@@ -70,7 +69,6 @@ const packingReducer = (state, action) => {
         rectangles: state.rectangles.filter(r => r.id !== idToRemove),
         selectedRectangles: state.selectedRectangles.filter(id => id !== idToRemove),
         quantities: newQuantities,
-        // Clear any packing results that might reference the removed rectangle
         packingResult: state.packingResult ? {
           ...state.packingResult,
           plates: state.packingResult.plates?.map(plate => ({
@@ -161,12 +159,10 @@ export const PackingProvider = ({ children }) => {
     loadDefaultRectangles();
   }, []);
 
-  // Use a ref to track the highest ID ever assigned (prevents ID reuse)
   const nextIdRef = React.useRef(Math.max(0, ...initialState.rectangles.map(r => r?.id || 0)) + 1);
   
   const getNewRectId = useCallback(() => {
     const currentMaxId = Math.max(0, ...state.rectangles.map(r => r.id));
-    // Ensure we never reuse IDs
     if (currentMaxId >= nextIdRef.current) {
       nextIdRef.current = currentMaxId + 1;
     }
@@ -209,14 +205,14 @@ export const PackingProvider = ({ children }) => {
   }, [state.rectangles, state.selectedRectangles, state.quantities]);
 
   // ============================================================
-  // NÂNG CẤP 1: TÌM PATTERN THUẦN TỐI ƯU VỚI ADAPTIVE SAMPLE SIZE
+  // HELPER FUNCTIONS
   // ============================================================
+  
   const findPurePatternAdvanced = async (rectType) => {
     const containerArea = state.container.width * state.container.length;
     const rectArea = rectType.width * rectType.length;
     const theoreticalMax = Math.floor(containerArea / rectArea);
     
-    // Adaptive sample size: tối thiểu 200, tối đa 500
     const sampleSize = Math.min(Math.max(theoreticalMax * 2, 200), 500);
     
     console.log(`🔍 Testing pattern for ${rectType.name}: ${sampleSize} samples (theoretical max: ${theoreticalMax})`);
@@ -266,50 +262,42 @@ export const PackingProvider = ({ children }) => {
     };
   };
 
-  // ============================================================
-  // NÂNG CẤP 2: SMART DYNAMIC THRESHOLD CALCULATION
-  // ============================================================
   const calculateDynamicThreshold = (rectType, patternData, allTypes) => {
-    const {  packingDensity } = patternData;
+    const { packingDensity } = patternData;
     
-    let threshold = 85; // Base threshold
+    let threshold = 85;
     
-    // 1. Điều chỉnh theo tỷ lệ kích thước (aspect ratio)
     const aspectRatio = Math.min(rectType.width, rectType.length) / 
                        Math.max(rectType.width, rectType.length);
     if (aspectRatio < 0.5) {
-      threshold -= 5; // Hình dài khó sắp → nới lỏng
+      threshold -= 5;
     } else if (aspectRatio > 0.9) {
-      threshold += 3; // Hình gần vuông dễ sắp → yêu cầu cao hơn
+      threshold += 3;
     }
     
-    // 2. Điều chỉnh theo số lượng size khác có sẵn để lấp đầy
     const smallerSizes = allTypes.filter(t => 
       t.id !== rectType.id && 
       t.width * t.length < rectType.width * rectType.length * 0.3
     );
     
     if (allTypes.length <= 2) {
-      threshold -= 10; // Ít size → khó lấp đầy → nới lỏng
+      threshold -= 10;
     } else if (smallerSizes.length >= 3) {
-      threshold += 5; // Nhiều size nhỏ → dễ lấp đầy → yêu cầu cao hơn
+      threshold += 5;
     }
     
-    // 3. Điều chỉnh theo packing density
     if (packingDensity > 0.8) {
-      threshold -= 5; // Đã pack rất tốt so với lý thuyết
+      threshold -= 5;
     } else if (packingDensity < 0.5) {
-      threshold -= 8; // Pack kém → có thể do hình phức tạp
+      threshold -= 8;
     }
     
-    // 4. Điều chỉnh theo kích thước tuyệt đối
     const sizeRatio = (rectType.width * rectType.length) / 
                      (state.container.width * state.container.length);
     if (sizeRatio > 0.3) {
-      threshold -= 7; // Size lớn chiếm >30% tấm → khó lấp đầy
+      threshold -= 7;
     }
     
-    // Giới hạn threshold trong khoảng 70-92%
     const finalThreshold = Math.max(70, Math.min(92, threshold));
     
     console.log(`   📊 Dynamic threshold for ${rectType.name}: ${finalThreshold}% (base: 85%, adjustments: aspect=${aspectRatio.toFixed(2)}, sizes=${allTypes.length}, density=${(packingDensity*100).toFixed(1)}%)`);
@@ -317,16 +305,12 @@ export const PackingProvider = ({ children }) => {
     return finalThreshold;
   };
 
-  // ============================================================
-  // NÂNG CẤP 3: INTELLIGENT GAP ANALYSIS
-  // ============================================================
   const analyzeGaps = (placedRects, container) => {
-    const resolution = 10; // 10mm grid resolution
+    const resolution = 5;
     const gridW = Math.ceil(container.width / resolution);
     const gridH = Math.ceil(container.length / resolution);
     const grid = Array(gridH).fill(0).map(() => Array(gridW).fill(0));
     
-    // Mark occupied cells
     for (const rect of placedRects) {
       const x1 = Math.floor(rect.x / resolution);
       const y1 = Math.floor(rect.y / resolution);
@@ -340,7 +324,6 @@ export const PackingProvider = ({ children }) => {
       }
     }
     
-    // Find gaps using flood fill
     const gaps = [];
     const visited = new Set();
     
@@ -348,7 +331,7 @@ export const PackingProvider = ({ children }) => {
       for (let x = 0; x < gridW; x++) {
         if (grid[y][x] === 0 && !visited.has(`${x},${y}`)) {
           const gap = floodFill(grid, x, y, visited, resolution);
-          if (gap.area > 1000) { // Only consider gaps > 1000mm²
+          if (gap.area > 1000) {
             gaps.push(gap);
           }
         }
@@ -377,7 +360,6 @@ export const PackingProvider = ({ children }) => {
       minY = Math.min(minY, y);
       maxY = Math.max(maxY, y);
       
-      // Check 4 directions
       const neighbors = [[x+1,y], [x-1,y], [x,y+1], [x,y-1]];
       for (const [nx, ny] of neighbors) {
         const key = `${nx},${ny}`;
@@ -401,17 +383,168 @@ export const PackingProvider = ({ children }) => {
   };
 
   // ============================================================
-  // NÂNG CẤP 4: SMART GAP FILLING WITH PRIORITIZATION
+  // NÂNG CẤP MỚI: SMART SPLITTING FUNCTIONS
   // ============================================================
-  const findBestFillCandidates = (purePlate, availableTypes, stock) => {
+  
+  const MIN_SPLIT_WIDTH = 10;
+  
+  const findSplittableSizes = (stock, gaps, selectedTypes) => {
+    const candidates = [];
+    
+    for (const [typeId, qty] of stock.entries()) {
+      if (qty === 0) continue;
+      
+      const rectType = selectedTypes.find(t => t.id === typeId);
+      if (!rectType) continue;
+      
+      const halfWidth = rectType.width / 2;
+      const halfLength = rectType.length / 2;
+      
+      if (halfWidth < MIN_SPLIT_WIDTH && halfLength < MIN_SPLIT_WIDTH) {
+        continue;
+      }
+      
+      let score = 0;
+      let fitCountWidth = 0;
+      let fitCountLength = 0;
+      
+      for (const gap of gaps) {
+        if (halfWidth >= MIN_SPLIT_WIDTH) {
+          if (halfWidth <= gap.width && rectType.length <= gap.length) {
+            const fitRatio = (halfWidth * rectType.length) / gap.area;
+            score += fitRatio * 10;
+            fitCountWidth++;
+          }
+          if (rectType.length <= gap.width && halfWidth <= gap.length) {
+            const fitRatio = (halfWidth * rectType.length) / gap.area;
+            score += fitRatio * 9.5;
+            fitCountWidth++;
+          }
+        }
+        
+        if (halfLength >= MIN_SPLIT_WIDTH) {
+          if (rectType.width <= gap.width && halfLength <= gap.length) {
+            const fitRatio = (rectType.width * halfLength) / gap.area;
+            score += fitRatio * 10;
+            fitCountLength++;
+          }
+          if (halfLength <= gap.width && rectType.width <= gap.length) {
+            const fitRatio = (rectType.width * halfLength) / gap.area;
+            score += fitRatio * 9.5;
+            fitCountLength++;
+          }
+        }
+      }
+      
+      if (score > 0) {
+        const preferSplitDirection = fitCountWidth >= fitCountLength ? 'width' : 'length';
+        const halfDim = preferSplitDirection === 'width' ? halfWidth : halfLength;
+        
+        candidates.push({
+          typeId,
+          rectType,
+          score,
+          availableQty: qty,
+          splitDirection: preferSplitDirection,
+          halfDim,
+          fitCount: Math.max(fitCountWidth, fitCountLength)
+        });
+      }
+    }
+    
+    return candidates.sort((a, b) => b.score - a.score);
+  };
+
+  const trySplitAndFill = async (purePlate, splitCandidate, stock, layersPerPlate) => {
+    const { typeId, rectType, splitDirection, halfDim } = splitCandidate;
+    
+    const maxSplit = Math.min(stock.get(typeId), 30);
+    
+    console.log(`   🔧 Trying to split ${rectType.name} (${splitDirection}): ${maxSplit} items available`);
+    
+    const splitPool = [];
+    for (let i = 0; i < maxSplit; i++) {
+      const split1 = { ...rectType, id: `split_${typeId}_${i}_1`, typeId };
+      const split2 = { ...rectType, id: `split_${typeId}_${i}_2`, typeId };
+      
+      if (splitDirection === 'width') {
+        split1.width = halfDim;
+        split2.width = halfDim;
+      } else {
+        split1.length = halfDim;
+        split2.length = halfDim;
+      }
+      
+      splitPool.push(split1, split2);
+    }
+    
+    const existingRects = purePlate.layers.flatMap(l => l.rectangles);
+    const combinedRects = [...existingRects, ...splitPool];
+    
+    const result = await packingService.optimizePacking(
+      { ...state.container, layers: layersPerPlate },
+      combinedRects,
+      layersPerPlate
+    );
+    
+    const placed = (result?.result?.rectangles || []).filter(r => r && r.x !== undefined);
+    const originalIds = new Set(existingRects.map(r => r.id));
+    const newlyPlaced = placed.filter(r => !originalIds.has(r.id));
+    
+    if (newlyPlaced.length === 0) {
+      console.log(`   ✗ Split failed: No new rectangles placed`);
+      return null;
+    }
+    
+    const totalArea = state.container.width * state.container.length * layersPerPlate;
+    const usedArea = placed.reduce((s, r) => s + r.width * r.length, 0);
+    const newEfficiency = totalArea > 0 ? (usedArea / totalArea) * 100 : 0;
+    
+    const usedOriginals = Math.ceil(newlyPlaced.length / 2);
+    
+    console.log(`   ✓ Split successful: ${newlyPlaced.length} split pieces placed, efficiency: ${newEfficiency.toFixed(1)}%`);
+    
+    const layerMap = new Map();
+    placed.forEach(r => {
+      if (!layerMap.has(r.layer)) {
+        layerMap.set(r.layer, []);
+      }
+      layerMap.get(r.layer).push(r);
+    });
+    
+    const newLayers = Array.from(layerMap.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([layerIdx, rects]) => ({
+        layerIndexInPlate: layerIdx,
+        rectangles: rects
+      }));
+    
+    return {
+      plate: {
+        ...purePlate,
+        layers: newLayers,
+        type: 'hybrid',
+        description: `Tấm Lai (Split ${rectType.name})`
+      },
+      newEfficiency,
+      usedTypes: { [typeId]: usedOriginals },
+      splitInfo: {
+        typeId,
+        direction: splitDirection,
+        count: usedOriginals
+      }
+    };
+  };
+
+  const fillWithExistingStock = async (purePlate, availableTypes, stock, layersPerPlate) => {
     const existingRects = purePlate.layers.flatMap(layer => layer.rectangles);
     const gaps = analyzeGaps(existingRects, state.container);
     
     if (gaps.length === 0) {
-      return [];
+      return null;
     }
     
-    console.log(`   🔍 Found ${gaps.length} gaps, total gap area: ${gaps.reduce((s, g) => s + g.area, 0).toFixed(0)}mm²`);
+    console.log(`   🔍 Found ${gaps.length} gaps for filling`);
     
     const candidates = [];
     
@@ -423,86 +556,53 @@ export const PackingProvider = ({ children }) => {
       
       let score = 0;
       let fitCount = 0;
-      let bestFitRatio = 0;
       
       for (const gap of gaps) {
-        // Test normal orientation
         if (type.width <= gap.width && type.length <= gap.length) {
           const rectArea = type.width * type.length;
           const fitRatio = rectArea / gap.area;
           fitCount++;
-          score += fitRatio; // Ưu tiên size fill đầy gap
-          bestFitRatio = Math.max(bestFitRatio, fitRatio);
+          score += fitRatio;
         }
         
-        // Test rotated orientation
         if (type.length <= gap.width && type.width <= gap.length) {
           const rectArea = type.width * type.length;
           const fitRatio = rectArea / gap.area;
           fitCount++;
-          score += fitRatio * 0.95; // Small penalty for rotation
-          bestFitRatio = Math.max(bestFitRatio, fitRatio);
+          score += fitRatio * 0.95;
         }
       }
       
       if (fitCount > 0) {
         const rectArea = type.width * type.length;
-        const priority = score / rectArea * 1000; // Normalize by area
+        const priority = score / rectArea * 1000;
         
         candidates.push({
           type,
           score,
           fitCount,
           priority,
-          bestFitRatio,
           availableQty
         });
       }
     }
     
-    // Sort by priority (higher is better)
     candidates.sort((a, b) => b.priority - a.priority);
     
-    if (candidates.length > 0) {
-      console.log(`   ✓ Top 3 fill candidates:`);
-      candidates.slice(0, 3).forEach((c, i) => {
-        console.log(`     ${i+1}. ${c.type.name}: priority=${c.priority.toFixed(2)}, fits=${c.fitCount} gaps, ratio=${(c.bestFitRatio*100).toFixed(1)}%`);
-      });
-    }
-    
-    return candidates;
-  };
-
-  // ============================================================
-  // NÂNG CẤP 5: ENHANCED GAP FILLING WITH SMART SELECTION
-  // ============================================================
-  const fillPurePlateGapsAdvanced = async (purePlate, availableTypes, stock) => {
-    if (!purePlate || !purePlate.layers || purePlate.layers.length === 0) return null;
-    
-    const existingRects = purePlate.layers.flatMap(layer => layer.rectangles);
-    
-    // Find best candidates
-    const candidates = findBestFillCandidates(purePlate, availableTypes, stock);
-    
     if (candidates.length === 0) {
-      console.log(`   ⚠ No suitable candidates for gap filling`);
       return null;
     }
     
-    // Create smart fill pool: prioritize best candidates
     const fillPool = [];
     let poolId = 0;
-    
-    // Take top candidates up to total sample limit
     const MAX_FILL_POOL_SIZE = 100;
     let remainingSlots = MAX_FILL_POOL_SIZE;
     
     for (const candidate of candidates) {
       if (remainingSlots <= 0) break;
       
-      // Allocate more slots to better candidates
       const slotsForThis = Math.min(
-        Math.ceil(candidate.priority * 0.5), // Proportional to priority
+        Math.ceil(candidate.priority * 0.5),
         candidate.availableQty,
         remainingSlots
       );
@@ -520,52 +620,64 @@ export const PackingProvider = ({ children }) => {
     
     if (fillPool.length === 0) return null;
     
-    console.log(`   🔧 Created fill pool with ${fillPool.length} items from ${new Set(fillPool.map(r => r.typeId)).size} types`);
-    
-    // Combine and re-pack
     const combinedRects = [...existingRects, ...fillPool];
     
     const result = await packingService.optimizePacking(
-      { ...state.container, layers: purePlate.layers.length },
+      { ...state.container, layers: layersPerPlate },
       combinedRects,
-      purePlate.layers.length
+      layersPerPlate
     );
 
-    const placed = (result?.result?.rectangles || [])
-      .filter(r => r && r.x !== undefined);
-
+    const placed = (result?.result?.rectangles || []).filter(r => r && r.x !== undefined);
     const originalIds = new Set(existingRects.map(r => r.id));
     const newlyPlaced = placed.filter(r => !originalIds.has(r.id));
 
     if (newlyPlaced.length === 0) {
-      console.log(`   ❌ Gap filling didn't add any new rectangles`);
       return null;
     }
 
     const usedTypeIds = new Set(newlyPlaced.map(r => r.typeId));
-    const placedIds = new Set(newlyPlaced.map(r => r.id));
-
     const typeCount = {};
     newlyPlaced.forEach(r => {
       typeCount[r.typeId] = (typeCount[r.typeId] || 0) + 1;
     });
 
+    const totalArea = state.container.width * state.container.length * layersPerPlate;
+    const usedArea = placed.reduce((s, r) => s + r.width * r.length, 0);
+    const newEfficiency = totalArea > 0 ? (usedArea / totalArea) * 100 : 0;
+
+    const layerMap = new Map();
+    placed.forEach(r => {
+      if (!layerMap.has(r.layer)) {
+        layerMap.set(r.layer, []);
+      }
+      layerMap.get(r.layer).push(r);
+    });
+
+    const newLayers = Array.from(layerMap.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([layerIdx, rects]) => ({
+        layerIndexInPlate: layerIdx,
+        rectangles: rects
+      }));
+
+    console.log(`   ✓ Fill successful: ${newlyPlaced.length} items added, efficiency: ${newEfficiency.toFixed(1)}%`);
+
     return {
-      newlyPlaced,
-      placedIds,
-      usedTypeIds,
-      typeCount,
-      allPlaced: placed
+      plate: {
+        ...purePlate,
+        layers: newLayers,
+        type: 'hybrid'
+      },
+      newEfficiency,
+      usedTypes: typeCount,
+      usedTypeIds
     };
   };
 
-  // ============================================================
-  // NÂNG CẤP 6: MULTI-STRATEGY MIXED PLATE PACKING
-  // ============================================================
   const createMixedPlateMultiStrategy = async (pool, layersPerPlate) => {
     if (pool.length === 0) return null;
 
-    // Try multiple sorting strategies
     const strategies = [
       {
         name: 'Area Descending',
@@ -643,11 +755,12 @@ export const PackingProvider = ({ children }) => {
   // ============================================================
   // THUẬT TOÁN CHÍNH - NÂNG CẤP HOÀN CHỈNH
   // ============================================================
+  
   const startOptimization = async () => {
     dispatch({ type: 'CLEAR_ERRORS' });
     if (!validateContainer() || !validateRectangles()) return false;
     
-    console.log('\n🚀 ========== BẮT ĐẦU TỐI ƯU NÂNG CẤP ==========\n');
+    console.log('\n🚀 ========== BẮT ĐẦU TỐI ƯU NÂNG CẤP (V2.0) ==========\n');
 
     try {
       dispatch({ type: 'START_OPTIMIZATION' });
@@ -661,8 +774,8 @@ export const PackingProvider = ({ children }) => {
       let plateIndexCounter = 0;
       let rectPresentationId = 1;
 
-      // ========== GIAI ĐOẠN 1: TẤM THUẦN VỚI DYNAMIC THRESHOLD ==========
-      console.log('📋 GIAI ĐOẠN 1: TẠO TẤM THUẦN\n');
+      // ========== GIAI ĐOẠN 1: TẤM THUẦN VỚI SMART SPLITTING ==========
+      console.log('📋 GIAI ĐOẠN 1: Tạo Tấm Thuần (Smart Splitting)\n');
 
       const purePatterns = new Map();
       const stock = new Map();
@@ -672,7 +785,6 @@ export const PackingProvider = ({ children }) => {
       for (const rectType of selectedTypes) {
         console.log(`\n🔍 Analyzing ${rectType.name} (${rectType.width}×${rectType.length}mm)...`);
         
-        // Use advanced pattern finding
         const patternData = await findPurePatternAdvanced(rectType);
         purePatterns.set(rectType.id, patternData);
 
@@ -688,116 +800,155 @@ export const PackingProvider = ({ children }) => {
           continue;
         }
 
-        // Calculate dynamic threshold
         const dynamicThreshold = calculateDynamicThreshold(rectType, patternData, selectedTypes);
-
         const totalQuantity = stock.get(rectType.id) || 0;
         const perPlate = patternData.perLayer * layersPerPlate;
-        const fullPlates = Math.floor(totalQuantity / perPlate);
 
-        console.log(`   📊 Quantity: ${totalQuantity}, per plate: ${perPlate}, full plates: ${fullPlates}`);
+        if (totalQuantity < perPlate) {
+          console.log(`   ⚠️ Quantity ${totalQuantity} < ${perPlate} → Cannot create pure plate.`);
+          continue;
+        }
 
-        if (fullPlates > 0) {
-          for (let p = 0; p < fullPlates; p++) {
-            const plate = {
-              plateIndex: plateIndexCounter++,
-              type: 'pure',
-              primaryTypeId: rectType.id,
-              description: `Tấm Thuần ${rectType.name} (#${p + 1})`,
-              efficiency: patternData.efficiency,
-              layers: []
-            };
+        let potentialFullPlates = Math.floor(totalQuantity / perPlate);
+        let createdPlates = 0;
+        
+        console.log(`   📊 Quantity: ${totalQuantity}, per plate: ${perPlate}, potential plates: ${potentialFullPlates}`);
 
-            for (let l = 0; l < layersPerPlate; l++) {
-              const layerRects = patternData.pattern.map(r => ({
-                ...r,
-                id: rectPresentationId++,
-                layer: l,
-                plateIndex: plate.plateIndex,
-                typeId: rectType.id,
-                color: rectType.color
-              }));
-              plate.layers.push({ layerIndexInPlate: l, rectangles: layerRects });
-            }
+        for (let p = 0; p < potentialFullPlates; p++) {
+          let isPlateSuccessful = false;
+          
+          const plate = {
+            plateIndex: plateIndexCounter,
+            type: 'pure',
+            primaryTypeId: rectType.id,
+            description: `Tấm Thuần ${rectType.name} (#${p + 1})`,
+            efficiency: patternData.efficiency,
+            layers: []
+          };
 
-            // ========== GAP FILLING WITH SMART SELECTION ==========
-            if (patternData.efficiency < dynamicThreshold) {
-              console.log(`\n   🔧 Efficiency ${patternData.efficiency.toFixed(1)}% < threshold ${dynamicThreshold}% → Attempting gap fill...`);
-              
-              const fillResult = await fillPurePlateGapsAdvanced(plate, selectedTypes, stock);
-              
-              if (fillResult && fillResult.newlyPlaced.length > 0) {
-                console.log(`   ✅ Gap filling SUCCESS: Added ${fillResult.newlyPlaced.length} items`);
-                
-                plate.type = 'hybrid';
-                
-                const otherTypesDesc = Array.from(fillResult.usedTypeIds)
-                  .filter(id => id !== rectType.id)
-                  .map(id => {
-                    const t = selectedTypes.find(x => x.id === id);
-                    const count = fillResult.typeCount[id] || 0;
-                    return `${count}×${t ? t.name : `#${id}`}`;
-                  })
-                  .join(', ');
-                
-                plate.description = `Tấm Lai ${rectType.name} + [${otherTypesDesc}] (#${p + 1})`;
-                
-                const newUsedArea = fillResult.allPlaced.reduce((sum, r) => sum + (r.width * r.length), 0);
-                const totalPlateArea = state.container.width * state.container.length * layersPerPlate;
-                const newEfficiency = totalPlateArea > 0 ? (newUsedArea / totalPlateArea) * 100 : 0;
-                plate.efficiency = newEfficiency;
-                
-                console.log(`   📈 Efficiency improved: ${patternData.efficiency.toFixed(1)}% → ${newEfficiency.toFixed(1)}%`);
-                
-                const layerMap = new Map();
-                fillResult.allPlaced.forEach(r => {
-                  if (!layerMap.has(r.layer)) {
-                    layerMap.set(r.layer, []);
-                  }
-                  layerMap.get(r.layer).push({
-                    ...r,
-                    id: rectPresentationId++,
-                    plateIndex: plate.plateIndex,
-                    color: r.color
-                  });
-                });
-
-                plate.layers = Array.from(layerMap.entries())
-                  .sort((a, b) => a[0] - b[0])
-                  .map(([layerIdx, rects]) => ({
-                    layerIndexInPlate: layerIdx,
-                    rectangles: rects
-                  }));
-
-                // Update stock for filled types
-                for (const [fillTypeId, fillCount] of Object.entries(fillResult.typeCount)) {
-                  if (Number(fillTypeId) !== rectType.id) {
-                    const currentStock = stock.get(Number(fillTypeId)) || 0;
-                    stock.set(Number(fillTypeId), Math.max(0, currentStock - fillCount));
-                    console.log(`   📦 Used ${fillCount}×${selectedTypes.find(t => t.id === Number(fillTypeId))?.name || fillTypeId} from stock`);
-                  }
-                }
-              } else {
-                console.log(`   ⚠ Gap filling failed: No suitable items found`);
-              }
-            } else {
-              console.log(`   ✓ Efficiency ${patternData.efficiency.toFixed(1)}% >= threshold ${dynamicThreshold}% → No gap filling needed`);
-            }
-
-            finalPlates.push(plate);
+          for (let l = 0; l < layersPerPlate; l++) {
+            const layerRects = patternData.pattern.map(r => ({
+              ...r,
+              id: rectPresentationId++,
+              layer: l,
+              plateIndex: plate.plateIndex,
+              typeId: rectType.id,
+              color: rectType.color
+            }));
+            plate.layers.push({ layerIndexInPlate: l, rectangles: layerRects });
           }
 
-          const used = fullPlates * perPlate;
-          const remaining = totalQuantity - used;
-          stock.set(rectType.id, remaining);
-          console.log(`   ✓ Created ${fullPlates} pure plates, remaining: ${remaining}`);
-        } else {
-          console.log(`   ⚠ Quantity ${totalQuantity} < ${perPlate} → Cannot create pure plate`);
+          // === LOGIC QUYẾT ĐỊNH MỚI ===
+          if (patternData.efficiency >= dynamicThreshold) {
+            // CASE 1: Hiệu suất tốt → Chấp nhận
+            console.log(`   ✓ Plate #${p+1}: Efficiency OK (${patternData.efficiency.toFixed(1)}%) → Create Pure Plate.`);
+            isPlateSuccessful = true;
+            
+          } else {
+            // CASE 2: Hiệu suất kém → Thử cải thiện
+            console.log(`   🔧 Plate #${p+1}: Efficiency ${patternData.efficiency.toFixed(1)}% < threshold ${dynamicThreshold}% → Try improvement...`);
+            
+            // B1: Thử fill bằng size có sẵn
+            const fillResult = await fillWithExistingStock(plate, selectedTypes, stock, layersPerPlate);
+            
+            if (fillResult && fillResult.newEfficiency >= dynamicThreshold) {
+              console.log(`   ✅ Fill with existing stock successful → Hybrid plate`);
+              isPlateSuccessful = true;
+              
+              plate.type = 'hybrid';
+              plate.efficiency = fillResult.newEfficiency;
+              plate.layers = fillResult.plate.layers;
+              
+              const otherTypesDesc = Array.from(fillResult.usedTypeIds)
+                .filter(id => id !== rectType.id)
+                .map(id => {
+                  const t = selectedTypes.find(x => x.id === id);
+                  const count = fillResult.usedTypes[id] || 0;
+                  return `${count}×${t ? t.name : `#${id}`}`;
+                })
+                .join(', ');
+              
+              plate.description = `Tấm Lai ${rectType.name} + [${otherTypesDesc}] (#${p + 1})`;
+              
+              for (const [fillTypeId, fillCount] of Object.entries(fillResult.usedTypes)) {
+                if (Number(fillTypeId) !== rectType.id) {
+                  const currentStock = stock.get(Number(fillTypeId)) || 0;
+                  stock.set(Number(fillTypeId), Math.max(0, currentStock - fillCount));
+                }
+              }
+            } else {
+              // B2: Fill thất bại → Thử split
+              console.log(`   🔨 Fill failed → Trying split...`);
+              
+              const gaps = analyzeGaps(plate.layers.flatMap(l => l.rectangles), state.container);
+              const splitCandidates = findSplittableSizes(stock, gaps, selectedTypes);
+              
+              let splitSuccess = false;
+              
+              for (const splitCandidate of splitCandidates.slice(0, 3)) {
+                if (splitCandidate.typeId === rectType.id) continue;
+                
+                const splitResult = await trySplitAndFill(
+                  plate,
+                  splitCandidate,
+                  stock,
+                  layersPerPlate
+                );
+                
+                if (splitResult && splitResult.newEfficiency >= dynamicThreshold) {
+                  console.log(`   ✅ Split successful with ${splitCandidate.rectType.name} → Hybrid plate`);
+                  
+                  isPlateSuccessful = true;
+                  splitSuccess = true;
+                  
+                  plate.type = 'hybrid';
+                  plate.efficiency = splitResult.newEfficiency;
+                  plate.layers = splitResult.plate.layers;
+                  
+                  const splitInfo = splitResult.splitInfo;
+                  const splitType = selectedTypes.find(t => t.id === splitInfo.typeId);
+                  
+                  plate.description = `Tấm Lai ${rectType.name} + [Split ${splitInfo.count}×${splitType?.name || splitInfo.typeId}] (#${p + 1})`;
+                  
+                  for (const [usedTypeId, usedCount] of Object.entries(splitResult.usedTypes)) {
+                    const currentStock = stock.get(Number(usedTypeId)) || 0;
+                    stock.set(Number(usedTypeId), Math.max(0, currentStock - usedCount));
+                  }
+                  
+                  break;
+                }
+              }
+              
+              if (!splitSuccess) {
+                // B3: Split cũng thất bại → HỦY tấm này
+                console.log(`   ⚠️ Plate #${p+1}: Both fill and split failed. Cancel this plate.`);
+                isPlateSuccessful = false;
+              }
+            }
+          }
+
+          // === RA QUYẾT ĐỊNH CUỐI CÙNG ===
+          if (isPlateSuccessful) {
+            finalPlates.push(plate);
+            createdPlates++;
+            plateIndexCounter++;
+            
+            const currentStock = stock.get(rectType.id) || 0;
+            stock.set(rectType.id, Math.max(0, currentStock - perPlate));
+            
+          } else {
+            console.log(`   🛑 Stop creating pure/hybrid plates for ${rectType.name}. Push ${stock.get(rectType.id)} remaining to Mixed.`);
+            
+            rectPresentationId -= (perPlate);
+            break;
+          }
         }
+
+        console.log(`   ✓ Created ${createdPlates} Pure/Hybrid plates. Remaining ${stock.get(rectType.id)} of ${rectType.name} for Stage 2.`);
       }
 
-      // ========== GIAI ĐOẠN 2: TẤM HỖN HỢP VỚI MULTI-STRATEGY ==========
-      console.log('\n\n📋 GIAI ĐOẠN 2: TẠO TẤM HỖN HỢP\n');
+      // ========== GIAI ĐOẠN 2: TẤM HỖN HỢP ==========
+      console.log('\n\n📋 GIAI ĐOẠN 2: Tạo Tấm Hỗn Hợp\n');
 
       let pool = [];
       let poolCounter = 0;
@@ -846,11 +997,10 @@ export const PackingProvider = ({ children }) => {
         iterationCount++;
         console.log(`\n🔄 Mixed plate iteration ${iterationCount}, pool size: ${pool.length}`);
 
-        // Use multi-strategy approach
         const mixedResult = await createMixedPlateMultiStrategy(pool, layersPerPlate);
 
         if (!mixedResult || mixedResult.placed.length === 0) {
-          console.log(`   ❌ Cannot pack remaining ${pool.length} items`);
+          console.log(`   ✗ Cannot pack remaining ${pool.length} items`);
           
           const remainingByType = {};
           pool.forEach(r => {
@@ -973,7 +1123,6 @@ export const PackingProvider = ({ children }) => {
         console.log(`   ✓ Removed ${placedIds.size} items from pool`);
       }
 
-      // Add all mixed plates to final result
       for (const [, data] of mixedPatterns.entries()) {
         const { plate, layers, repetitions } = data;
         
@@ -987,7 +1136,7 @@ export const PackingProvider = ({ children }) => {
       }
 
       if (pool.length > 0 && iterationCount >= MAX_ITERATIONS) {
-        console.error(`\n❌ Reached iteration limit! ${pool.length} items still remaining`);
+        console.error(`\n✗ Reached iteration limit! ${pool.length} items still remaining`);
         dispatch({
           type: 'SET_ERROR',
           payload: {
@@ -996,134 +1145,153 @@ export const PackingProvider = ({ children }) => {
           }
         });
       }
-      // ============================================================
-      // NÂNG CẤP MỚI: GIAI ĐOẠN 3 - TỐI ƯU TÀN DƯ (CHIA RỘNG)
-      // ============================================================
-      console.log(`\n\n📋 GIAI ĐOẠN 3: TỐI ƯU TÀN DƯ (CHIA RỘNG)\n`);
-      console.log(`📦 Bắt đầu Giai đoạn 3 với ${pool.length} items còn lại`);
-      
-      const MIN_SPLIT_WIDTH = 10; // Ngưỡng chia nhỏ nhất (ví dụ: 10mm)
 
-      // Hàm helper để kiểm tra xem 1 hình có vừa 1 gap không
-      // (Chúng ta định nghĩa nó ở đây để nó có thể truy cập `analyzeGaps`)
-      const canFit = (gap, rect) => {
-        // Check normal
-        if (rect.width <= gap.width && rect.length <= gap.length) {
-          return { rotated: false, placeWidth: rect.width, placeLength: rect.length };
+      // ========== GIAI ĐOẠN 3: TỐI ƯU TÀN DƯ (Split cuối cùng) ==========
+      console.log(`\n\n📋 GIAI ĐOẠN 3: Tối Ưu Tàn Dư (Split Cuối Cùng)\n`);
+      console.log(`📦 Starting Stage 3 with ${pool.length} remaining items`);
+      
+      const overlaps = (r1, r2) => {
+        if (r1.x + r1.width <= r2.x || r1.x >= r2.x + r2.width) {
+          return false;
         }
-        // Check rotated (cho phép xoay nửa đã chia)
-        if (rect.length <= gap.width && rect.width <= gap.length) {
-          return { rotated: true, placeWidth: rect.length, placeLength: rect.width };
+        if (r1.y + r1.length <= r2.y || r1.y >= r2.y + r2.length) {
+          return false;
+        }
+        return true;
+      };
+
+      const layerOverlaps = (newRect, existingRects) => {
+        for (const rect of existingRects) {
+          if (overlaps(newRect, rect)) {
+            return true;
+          }
+        }
+        return false;
+      };
+
+      const findFirstAvailableSlot = (rectToPlace, gapsList, allPlates) => {
+        const orientations = [
+          { placeWidth: rectToPlace.width, placeLength: rectToPlace.length, rotated: false },
+          { placeWidth: rectToPlace.length, placeLength: rectToPlace.width, rotated: true },
+        ];
+        
+        for (let i = 0; i < gapsList.length; i++) {
+          const gap = gapsList[i];
+          const layerRects = allPlates[gap.plateIndex].layers[gap.layerIndex].rectangles;
+
+          for (const o of orientations) {
+            const { placeWidth, placeLength, rotated } = o;
+            
+            if (placeWidth > gap.width || placeLength > gap.length) {
+              continue;
+            }
+
+            const placements = [
+              { x: gap.x, y: gap.y, width: placeWidth, length: placeLength, rotated },
+              { x: gap.x, y: gap.y + gap.length - placeLength, width: placeWidth, length: placeLength, rotated },
+              { x: gap.x + gap.width - placeWidth, y: gap.y, width: placeWidth, length: placeLength, rotated },
+              { x: gap.x + gap.width - placeWidth, y: gap.y + gap.length - placeLength, width: placeWidth, length: placeLength, rotated },
+            ];
+
+            for (const p of placements) {
+              if (!layerOverlaps(p, layerRects)) {
+                return {
+                  loc: { plateIndex: gap.plateIndex, layerIndex: gap.layerIndex },
+                  placement: p,
+                  gap_idx: i,
+                };
+              }
+            }
+          }
         }
         return null;
       };
       
-      const itemsToSplit = [...pool]; // Lấy danh sách tàn dư
-      pool = []; // Reset pool, sẽ add lại những gì thất bại
+      const all_gaps = [];
+      finalPlates.forEach((plate, plateIndex) => {
+        plate.layers.forEach((layer, layerIndex) => {
+          const gaps = analyzeGaps(layer.rectangles, state.container); 
+          gaps.forEach(gap => {
+            all_gaps.push({ ...gap, plateIndex, layerIndex });
+          });
+        });
+      });
+      
+      all_gaps.sort((a, b) => b.area - a.area);
+
+      const itemsToSplit = [...pool]; 
+      pool = [];
 
       for (const item of itemsToSplit) {
         const newWidth = item.width / 2;
         
-        // Kiểm tra xem có đáng để chia không
         if (newWidth < MIN_SPLIT_WIDTH) {
-          console.log(`   ❌ ${item.name}: Chiều rộng mới (${newWidth.toFixed(1)}mm) quá nhỏ, bỏ qua.`);
+          console.log(`   ✗ ${item.name}: New width (${newWidth.toFixed(1)}mm) too small, skip.`);
           pool.push(item);
           continue;
         }
 
-        console.log(`   🔍 Đang thử chia ${item.name} (${item.width}x${item.length}) -> 2x (${newWidth.toFixed(1)}x${item.length})`);
+        console.log(`   🔍 Trying to split ${item.name} (${item.width}x${item.length}) -> 2x (${newWidth.toFixed(1)}x${item.length})`);
 
         const half_1 = { ...item, width: newWidth, id: `split_1_${item.id}`, typeId: item.typeId };
         const half_2 = { ...item, width: newWidth, id: `split_2_${item.id}`, typeId: item.typeId };
 
-        // 1. Thu thập TẤT CẢ các gaps từ TẤT CẢ các tấm và lớp
-        const all_gaps = [];
-        finalPlates.forEach((plate, plateIndex) => {
-          plate.layers.forEach((layer, layerIndex) => {
-            // Dùng state.container vì 'container' không có trong scope này
-            const gaps = analyzeGaps(layer.rectangles, state.container); 
-            gaps.forEach(gap => {
-              // Thêm tham chiếu 'layerRef' để có thể thêm rect vào
-              all_gaps.push({ ...gap, plateIndex, layerIndex, layerRef: layer });
-            });
-          });
-        });
-
-        // 2. Tìm gap cho half_1
-        let loc1 = null, fit1 = null, gap_1_idx = -1;
-        for (let i = 0; i < all_gaps.length; i++) {
-           fit1 = canFit(all_gaps[i], half_1);
-           if (fit1) {
-             gap_1_idx = i;
-             break;
-           }
-        }
-
-        if (gap_1_idx === -1) {
-          console.log(`      -> Không tìm thấy chỗ cho nửa 1.`);
+        const loc1 = findFirstAvailableSlot(half_1, all_gaps, finalPlates);
+        
+        if (!loc1) {
+          console.log(`      -> Cannot find slot for half 1.`);
           pool.push(item);
           continue;
         }
-        loc1 = all_gaps.splice(gap_1_idx, 1)[0]; // Lấy và XÓA gap 1
-
-        // 3. Tìm gap cho half_2 (từ các gaps còn lại)
-        let loc2 = null, fit2 = null, gap_2_idx = -1;
-        for (let i = 0; i < all_gaps.length; i++) {
-           fit2 = canFit(all_gaps[i], half_2);
-           if (fit2) {
-             gap_2_idx = i;
-             break;
-           }
-        }
         
-        if (gap_2_idx === -1) {
-          console.log(`      -> Tìm thấy chỗ cho nửa 1, nhưng KHÔNG tìm thấy chỗ cho nửa 2.`);
-          pool.push(item); // Thất bại, trả lại hình gốc
+        all_gaps.splice(loc1.gap_idx, 1);
+        
+        const loc2 = findFirstAvailableSlot(half_2, all_gaps, finalPlates);
+        
+        if (!loc2) {
+          console.log(`      -> Found slot for half 1, but NOT for half 2.`);
+          pool.push(item);
           continue;
         }
-        loc2 = all_gaps.splice(gap_2_idx, 1)[0]; // Lấy và XÓA gap 2
 
-        // 4. THÀNH CÔNG! Đã tìm thấy cả 2.
-        console.log(`   ✅ SUCCESS: Đặt 2 nửa của ${item.name} vào Tấm ${loc1.plateIndex+1}/Lớp ${loc1.layerIndex} và Tấm ${loc2.plateIndex+1}/Lớp ${loc2.layerIndex}`);
+        console.log(`   ✅ SUCCESS: Placed both halves of ${item.name} into Plate ${loc1.loc.plateIndex+1} and Plate ${loc2.loc.plateIndex+1}`);
         
-        // Thêm rect 1 vào layer (dùng layerRef)
-        loc1.layerRef.rectangles.push({
+        all_gaps.splice(loc2.gap_idx, 1);
+        
+        const layer1 = finalPlates[loc1.loc.plateIndex].layers[loc1.loc.layerIndex];
+        layer1.rectangles.push({
           ...half_1,
-          id: rectPresentationId++, // Dùng ID duy nhất
-          name: `1/2 ${half_1.name}`, // Đánh dấu là nửa
-          x: loc1.x,
-          y: loc1.y,
-          width: fit1.placeWidth,
-          length: fit1.placeLength,
-          rotated: fit1.rotated,
+          id: rectPresentationId++, 
+          name: `1/2 ${half_1.name}`,
+          x: loc1.placement.x,
+          y: loc1.placement.y,
+          width: loc1.placement.width,
+          length: loc1.placement.length,
+          rotated: loc1.placement.rotated,
           color: half_1.color,
-          plateIndex: loc1.plateIndex,
-          layer: loc1.layerIndex
+          plateIndex: loc1.loc.plateIndex,
+          layer: loc1.loc.layerIndex
         });
 
-        // Thêm rect 2 vào layer (dùng layerRef)
-        loc2.layerRef.rectangles.push({
+        const layer2 = finalPlates[loc2.loc.plateIndex].layers[loc2.loc.layerIndex];
+        layer2.rectangles.push({
           ...half_2,
-          id: rectPresentationId++, // Dùng ID duy nhất
-          name: `1/2 ${half_2.name}`, // Đánh dấu là nửa
-          x: loc2.x,
-          y: loc2.y,
-          width: fit2.placeWidth,
-          length: fit2.placeLength,
-          rotated: fit2.rotated,
+          id: rectPresentationId++, 
+          name: `1/2 ${half_2.name}`,
+          x: loc2.placement.x,
+          y: loc2.placement.y,
+          width: loc2.placement.width,
+          length: loc2.placement.length,
+          rotated: loc2.placement.rotated,
           color: half_2.color,
-          plateIndex: loc2.plateIndex,
-          layer: loc2.layerIndex
+          plateIndex: loc2.loc.plateIndex,
+          layer: loc2.loc.layerIndex
         });
-        
-        // Không push 'item' vào pool nữa, vì nó đã được xếp thành công
       }
       
-      console.log(`📦 Kết thúc Giai đoạn 3, còn lại ${pool.length} items không thể xếp.`);
+      console.log(`📦 Finished Stage 3, ${pool.length} items cannot be placed.`);
 
       // ========== TỔNG KẾT ==========
-      console.log('\n\n📊 ========== TỔNG KẾT ==========\n');
-
       const allPlaced = finalPlates.flatMap(p => p.layers.flatMap(l => l.rectangles));
       const totalRequested = selectedTypes.reduce((s, t) => s + (state.quantities[t.id] || 0), 0);
       const placedCount = totalRequested - pool.length;
@@ -1132,8 +1300,8 @@ export const PackingProvider = ({ children }) => {
       const hybridCount = finalPlates.filter(p => p.type === 'hybrid').length;
       const mixedCount = finalPlates.filter(p => p.type === 'mixed').length;
 
-      console.log(`✓ Total plates: ${finalPlates.length} (Pure: ${pureCount}, Hybrid: ${hybridCount}, Mixed: ${mixedCount})`);
-      console.log(`✓ Rectangles: ${placedCount}/${totalRequested} (hình gốc) đã xếp`);
+      console.log(`\n✓ Total plates: ${finalPlates.length} (Pure: ${pureCount}, Hybrid: ${hybridCount}, Mixed: ${mixedCount})`);
+      console.log(`✓ Rectangles: ${placedCount}/${totalRequested} placed`);
 
       const containerArea = state.container.width * state.container.length;
       const totalPlateArea = finalPlates.reduce(
@@ -1146,7 +1314,6 @@ export const PackingProvider = ({ children }) => {
       console.log(`✓ Total area: ${totalPlateArea.toFixed(0)}mm², Used: ${placedArea.toFixed(0)}mm²`);
       console.log(`✓ Overall efficiency: ${efficiency.toFixed(2)}%`);
 
-      // Calculate per-type efficiency
       console.log('\n📋 Per-type breakdown:');
       const remainingTypes = pool.reduce((acc, rect) => {
         acc[rect.typeId] = (acc[rect.typeId] || 0) + 1;
@@ -1163,24 +1330,23 @@ export const PackingProvider = ({ children }) => {
 
       const missing = pool.length;
       if (missing > 0) {
-        console.log(`\n⚠ Warning: ${missing} (hình gốc) could not be placed`);
+        console.log(`\n⚠️ Warning: ${missing} items could not be placed`);
         
-        // Tạo thông báo lỗi từ pool
         const remainingByType = {};
-          pool.forEach(r => {
-            remainingByType[r.typeId] = (remainingByType[r.typeId] || 0) + 1;
-          });
-          const msg = Object.entries(remainingByType)
-            .map(([id, cnt]) => {
-              const t = selectedTypes.find(x => x.id === Number(id));
-              return `${t ? t.name : `#${id}`}: ${cnt}`;
-            }).join(', ');
+        pool.forEach(r => {
+          remainingByType[r.typeId] = (remainingByType[r.typeId] || 0) + 1;
+        });
+        const msg = Object.entries(remainingByType)
+          .map(([id, cnt]) => {
+            const t = selectedTypes.find(x => x.id === Number(id));
+            return `${t ? t.name : `#${id}`}: ${cnt}`;
+          }).join(', ');
             
         dispatch({
           type: 'SET_WARNING',
           payload: {
             type: 'optimization',
-            message: `Chỉ sắp được ${placedCount}/${totalRequested} hình. ${missing} hình không thể xếp (Ngay cả khi đã thử chia đôi): ${msg}`
+            message: `Chỉ sắp được ${placedCount}/${totalRequested} hình. ${missing} hình không thể xếp (kể cả khi đã thử chia đôi): ${msg}`
           }
         });
       }
@@ -1199,13 +1365,13 @@ export const PackingProvider = ({ children }) => {
         mixedCount
       };
 
-      console.log('\n🎉 ========== TỐI ƯU HOÀN THÀNH ==========\n');
+      console.log('\n🎉 ========== TỐI ƯU HOÀN THÀNH (V2.0) ==========\n');
 
       dispatch({ type: 'SET_PACKING_RESULT', payload: result });
       return true;
 
     } catch (error) {
-      console.error('\n❌ ========== LỖI TỐI ƯU ==========');
+      console.error('\n✗ ========== LỖI TỐI ƯU ==========');
       console.error('Error:', error);
       dispatch({
         type: 'SET_ERROR',
