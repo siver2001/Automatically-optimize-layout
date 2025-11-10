@@ -258,7 +258,6 @@ export const PackingProvider = ({ children }) => {
 
     let bestResult = null;
     let bestArea = 0;
-    let bestStrategyName = '';
 
     for (const strategy of strategies) {
       const sortedPool = [...pool].sort(strategy.sort);
@@ -296,13 +295,11 @@ export const PackingProvider = ({ children }) => {
       if (totalArea > bestArea) {
         bestArea = totalArea;
         bestResult = placed;
-        bestStrategyName = strategy.name;
       }
     }
 
     if (!bestResult || bestResult.length === 0) return null;
 
-    console.log(`   ✔ Best strategy: ${bestStrategyName}, placed: ${bestResult.length} pieces, area: ${bestArea.toFixed(0)}mm²`);
 
     const usedTypeIds = new Set(bestResult.map(r => r.typeId));
     const placedIds = new Set(bestResult.map(r => r.id));
@@ -321,8 +318,6 @@ export const PackingProvider = ({ children }) => {
   const startOptimization = async () => {
     dispatch({ type: 'CLEAR_ERRORS' });
     if (!validateContainer() || !validateRectangles()) return false;
-    
-    console.log('\n🚀 ========== BẮT ĐẦU TỐI ƯU (V4.0 - SPLIT-PACK-MERGE) ==========\n');
 
     try {
       dispatch({ type: 'START_OPTIMIZATION' });
@@ -336,7 +331,6 @@ export const PackingProvider = ({ children }) => {
       let plateIndexCounter = 0;
 
       // ========== GIAI ĐOẠN 1: SPLIT - Tạo Pool (Chia đôi CHIỀU RỘNG) ==========
-      console.log('📋 GIAI ĐOẠN 1: SPLIT - Tạo Pool (Chia đôi theo CHIỀU RỘNG)\n');
 
       let pool = [];
       let poolCounter = 0;
@@ -347,8 +341,6 @@ export const PackingProvider = ({ children }) => {
 
         const halfWidth = rectType.width / 2;
         const canSplit = halfWidth >= MIN_SPLIT_WIDTH;
-
-        console.log(`   📦 Processing ${quantity}× ${rectType.name} (${rectType.width}×${rectType.length}mm)`);
 
         for (let i = 0; i < quantity; i++) {
           const pairId = `pair_${rectType.id}_${i}`;
@@ -388,7 +380,6 @@ export const PackingProvider = ({ children }) => {
             };
             
             pool.push(piece1, piece2);
-            console.log(`      → Split: ${halfWidth}×${rectType.length}mm (×2 pieces)`);
           } else {
             // KHÔNG CHIA: Giữ nguyên 1 piece
             const fullPiece = { 
@@ -406,7 +397,6 @@ export const PackingProvider = ({ children }) => {
             };
             
             pool.push(fullPiece);
-            console.log(`      → Keep full (too narrow to split)`);
 
             dispatch({
               type: 'SET_WARNING',
@@ -419,10 +409,7 @@ export const PackingProvider = ({ children }) => {
         }
       }
 
-      console.log(`\n✓ Pool created: ${pool.length} pieces from ${selectedTypes.reduce((s, t) => s + (state.quantities[t.id] || 0), 0)} rectangles\n`);
-
       // ========== GIAI ĐOẠN 2: PACK - Sắp xếp các pieces ==========
-      console.log('📋 GIAI ĐOẠN 2: PACK - Sắp xếp các pieces vào tấm\n');
 
       const mixedPatterns = new Map();
       let mixedPlateCounter = 1;
@@ -431,12 +418,10 @@ export const PackingProvider = ({ children }) => {
 
       while (pool.length > 0 && iterationCount < MAX_ITERATIONS) {
         iterationCount++;
-        console.log(`🔄 Iteration ${iterationCount}: pool size = ${pool.length}, current layer = ${currentLayerInPlate}`);
 
         const mixedResult = await createMixedPlateMultiStrategy(pool, layersPerPlate);
 
         if (!mixedResult || mixedResult.placed.length === 0) {
-          console.log(`   ✗ Cannot pack remaining ${pool.length} pieces`);
           break;
         }
 
@@ -455,7 +440,6 @@ export const PackingProvider = ({ children }) => {
         if (mixedPatterns.has(signature)) {
           // Pattern đã tồn tại → Thêm lớp vào plate hiện có
           const existingData = mixedPatterns.get(signature);
-          console.log(`   🔁 Pattern match! Adding to plate #${existingData.plate.plateIndex}`);
           
           existingData.layers.push({
             layerIndexInPlate: currentLayerInPlate,
@@ -469,14 +453,12 @@ export const PackingProvider = ({ children }) => {
           currentLayerInPlate++;
 
           // Kiểm tra đã đủ số lớp cho plate này chưa
-          if (currentLayerInPlate >= layersPerPlate) {
-            console.log(`   ✓ Plate #${existingData.plate.plateIndex} completed with ${layersPerPlate} layers`);
-            currentLayerInPlate = 0; // Reset để tạo plate mới
+          if (currentLayerInPlate === layersPerPlate) {
+            currentLayerInPlate = 0; // Reset để bắt đầu tấm mới
           }
 
         } else {
           // Pattern mới → Tạo plate mới
-          console.log(`   ✨ New pattern, creating plate #${mixedPlateCounter}`);
           
           const typeDesc = Object.entries(typeCount)
             .map(([id, cnt]) => {
@@ -512,7 +494,6 @@ export const PackingProvider = ({ children }) => {
 
           // Kiểm tra đã đủ số lớp chưa
           if (currentLayerInPlate >= layersPerPlate) {
-            console.log(`   ✓ Plate #${plate.plateIndex} completed with ${layersPerPlate} layers`);
             currentLayerInPlate = 0;
           }
 
@@ -520,7 +501,6 @@ export const PackingProvider = ({ children }) => {
         }
         
         pool = pool.filter(r => !placedIds.has(r.id));
-        console.log(`   ✓ Removed ${placedIds.size} pieces from pool\n`);
       }
 
       // Đưa plates vào finalPlates
@@ -537,7 +517,6 @@ export const PackingProvider = ({ children }) => {
       }
 
       if (pool.length > 0 && iterationCount >= MAX_ITERATIONS) {
-        console.error(`\n✗ Reached max iterations! ${pool.length} pieces still in pool`);
         dispatch({
           type: 'SET_ERROR',
           payload: {
@@ -547,10 +526,7 @@ export const PackingProvider = ({ children }) => {
         });
       }
 
-      console.log(`✓ Packed into ${finalPlates.length} raw plates\n`);
-
       // ========== GIAI ĐOẠN 3: MERGE - Ghép các pieces liền kề ==========
-      console.log('📋 GIAI ĐOẠN 3: MERGE - Ghép các pieces liền kề thành rectangles\n');
 
       const allPlacedPieces = finalPlates.flatMap(p => p.layers.flatMap(l => l.rectangles));
       const mergedRects = [];
@@ -568,15 +544,10 @@ export const PackingProvider = ({ children }) => {
         groupedByPair.get(piece.pairId).push(piece);
       }
       
-      console.log(`   🔍 Found ${fullPieces.length} full pieces and ${groupedByPair.size} pairs to check`);
-
-      let mergedCount = 0;
-      let unmergedCount = 0;
 
       for (const [pairId, pieces] of groupedByPair.entries()) {
         if (pieces.length === 1) {
           mergedRects.push(pieces[0]);
-          unmergedCount++;
         } else if (pieces.length === 2) {
           const p1 = pieces[0];
           const p2 = pieces[1];
@@ -586,122 +557,68 @@ export const PackingProvider = ({ children }) => {
           
           if (p1.plateIndex === p2.plateIndex && p1.layer === p2.layer) {
             const tolerance = 1.0;
-            
-            // =====================================================
-            // KIỂM TRA MERGE CHO CẢ 2 TRƯỜNG HỢP: XOAY VÀ KHÔNG XOAY
-            // =====================================================
-            
+
+            // Nếu chia theo chiều rộng → ghép theo trục X
             if (p1.splitDirection === 'width') {
-              // TH1: CẢ 2 KHÔNG XOAY (180×245 + 180×245 → 360×245)
-              if (!p1.rotated && !p2.rotated) {
-                // Case 1a: p1 bên trái p2
-                if (Math.abs((p1.x + p1.width) - p2.x) <= tolerance && 
-                    Math.abs(p1.y - p2.y) <= tolerance && 
-                    Math.abs(p1.length - p2.length) <= tolerance) {
-                  isAdjacent = true;
-                  mergedRect = { 
-                    ...p1,
-                    x: p1.x,
-                    width: p1.originalWidth,
-                    length: p1.originalLength,
-                    name: p1.name.replace('1/2 ', ''),
-                    id: `merged_${pairId}`,
-                    pieceIndex: null,
-                    pairId: null,
-                    splitDirection: 'none',
-                    rotated: false
-                  };
-                }
-                // Case 1b: p2 bên trái p1
-                else if (Math.abs((p2.x + p2.width) - p1.x) <= tolerance && 
-                         Math.abs(p1.y - p2.y) <= tolerance && 
-                         Math.abs(p1.length - p2.length) <= tolerance) {
-                  isAdjacent = true;
-                  mergedRect = { 
-                    ...p2,
-                    x: p2.x,
-                    width: p2.originalWidth,
-                    length: p2.originalLength,
-                    name: p2.name.replace('1/2 ', ''),
-                    id: `merged_${pairId}`,
-                    pieceIndex: null,
-                    pairId: null,
-                    splitDirection: 'none',
-                    rotated: false
-                  };
-                }
+              const sameRow = Math.abs(p1.y - p2.y) <= tolerance;
+              const touching = Math.abs((p1.x + p1.width) - p2.x) <= tolerance ||
+                              Math.abs((p2.x + p2.width) - p1.x) <= tolerance;
+
+              if (sameRow && touching) {
+                isAdjacent = true;
+                mergedRect = {
+                  id: `merged_${pairId}`,
+                  plateIndex: p1.plateIndex,
+                  layer: p1.layer,
+                  x: Math.min(p1.x, p2.x),
+                  y: Math.min(p1.y, p2.y),
+                  width: p1.width + p2.width,
+                  length: p1.length,
+                  color: p1.color,
+                  rotated: false,
+                  typeId: p1.originalTypeId,
+                  mergedFrom: [p1.id, p2.id]
+                };
               }
-              
-              // TH2: CẢ 2 BỊ XOAY (245×180 + 245×180 → 245×360 SAU ĐÓ XOAY LẠI → 360×245)
-              else if (p1.rotated && p2.rotated) {
-                // Khi đã xoay: width <-> length
-                // 180×245 xoay → 245×180
-                // Kiểm tra ghép theo chiều DÀI (vì đã xoay)
-                
-                // Case 2a: p1 phía dưới p2 (ghép theo chiều dài)
-                if (Math.abs((p1.y + p1.length) - p2.y) <= tolerance && 
-                    Math.abs(p1.x - p2.x) <= tolerance && 
-                    Math.abs(p1.width - p2.width) <= tolerance) {
-                  isAdjacent = true;
-                  mergedRect = { 
-                    ...p1,
-                    x: p1.x,
-                    y: p1.y,
-                    width: p1.originalLength, // Sau khi merge và xoay lại
-                    length: p1.originalWidth,
-                    name: p1.name.replace('1/2 ', ''),
-                    id: `merged_${pairId}`,
-                    pieceIndex: null,
-                    pairId: null,
-                    splitDirection: 'none',
-                    rotated: true // Giữ trạng thái xoay
-                  };
-                }
-                // Case 2b: p2 phía dưới p1
-                else if (Math.abs((p2.y + p2.length) - p1.y) <= tolerance && 
-                         Math.abs(p1.x - p2.x) <= tolerance && 
-                         Math.abs(p1.width - p2.width) <= tolerance) {
-                  isAdjacent = true;
-                  mergedRect = { 
-                    ...p2,
-                    x: p2.x,
-                    y: p2.y,
-                    width: p2.originalLength,
-                    length: p2.originalWidth,
-                    name: p2.name.replace('1/2 ', ''),
-                    id: `merged_${pairId}`,
-                    pieceIndex: null,
-                    pairId: null,
-                    splitDirection: 'none',
-                    rotated: true
-                  };
-                }
+            }
+
+            // Nếu chia theo chiều dài → ghép theo trục Y
+            if (p1.splitDirection === 'length') {
+              const sameColumn = Math.abs(p1.x - p2.x) <= tolerance;
+              const touching = Math.abs((p1.y + p1.length) - p2.y) <= tolerance ||
+                              Math.abs((p2.y + p2.length) - p1.y) <= tolerance;
+
+              if (sameColumn && touching) {
+                isAdjacent = true;
+                mergedRect = {
+                  id: `merged_${pairId}`,
+                  plateIndex: p1.plateIndex,
+                  layer: p1.layer,
+                  x: Math.min(p1.x, p2.x),
+                  y: Math.min(p1.y, p2.y),
+                  width: p1.width,
+                  length: p1.length + p2.length,
+                  color: p1.color,
+                  rotated: false,
+                  typeId: p1.originalTypeId,
+                  mergedFrom: [p1.id, p2.id]
+                };
               }
             }
           }
-          
+
           if (isAdjacent && mergedRect) {
             mergedRects.push(mergedRect);
-            mergedCount++;
-            console.log(`   ✓ Merged pair ${pairId}: ${mergedRect.width}×${mergedRect.length} ${mergedRect.rotated ? '(rotated)' : ''}`);
           } else {
             mergedRects.push(p1, p2);
-            unmergedCount += 2;
-            console.log(`   ⚠️  Pair ${pairId} NOT merged: p1(${p1.width}×${p1.length},rot=${p1.rotated},x=${p1.x},y=${p1.y}) p2(${p2.width}×${p2.length},rot=${p2.rotated},x=${p2.x},y=${p2.y})`);
           }
           
         } else {
           mergedRects.push(...pieces);
-          unmergedCount += pieces.length;
         }
       }
-      
-      console.log(`   ✓ Merged ${mergedCount} pairs successfully`);
-      console.log(`   ⚠️  ${unmergedCount} pieces remain unmerged`);
-      console.log(`   ✓ Total display rectangles: ${mergedRects.length}\n`);
 
       // ========== GIAI ĐOẠN 4: REBUILD - Xây dựng lại plates ==========
-      console.log('📋 GIAI ĐOẠN 4: REBUILD - Xây dựng lại plates với merged rectangles\n');
 
       const newFinalPlates = [];
       const plateMap = new Map();
@@ -748,10 +665,7 @@ export const PackingProvider = ({ children }) => {
       
       finalPlates = newFinalPlates.sort((a, b) => a.plateIndex - b.plateIndex);
 
-      console.log(`   ✓ Rebuilt ${finalPlates.length} final plates\n`);
-
       // ========== GIAI ĐOẠN 5: SUMMARY - Tổng kết ==========
-      console.log('📋 GIAI ĐOẠN 5: SUMMARY - Tổng kết kết quả\n');
 
       const totalRequested = selectedTypes.reduce((s, t) => s + (state.quantities[t.id] || 0), 0);
       
@@ -777,9 +691,6 @@ export const PackingProvider = ({ children }) => {
       
       const placedCount = Math.round(placedOriginalsCount);
 
-      console.log(`✓ Total plates: ${finalPlates.length}`);
-      console.log(`✓ Rectangles placed: ${placedCount}/${totalRequested} (${((placedCount/totalRequested)*100).toFixed(1)}%)`);
-      console.log(`✓ Pieces in pool: ${pool.length}`);
 
       // Tính efficiency
       const containerArea = state.container.width * state.container.length;
@@ -787,12 +698,8 @@ export const PackingProvider = ({ children }) => {
       const placedArea = mergedRects.reduce((sum, r) => sum + r.width * r.length, 0);
       const efficiency = totalPlateArea > 0 ? (placedArea / totalPlateArea) * 100 : 0;
 
-      console.log(`✓ Total area: ${totalPlateArea.toFixed(0)}mm²`);
-      console.log(`✓ Used area: ${placedArea.toFixed(0)}mm²`);
-      console.log(`✓ Efficiency: ${efficiency.toFixed(2)}%`);
 
       // Breakdown theo loại
-      console.log(`\n📋 Per-type breakdown:`);
       
       const placedByType = {};
       for (const rect of mergedRects) {
@@ -813,10 +720,7 @@ export const PackingProvider = ({ children }) => {
       });
 
       // Cảnh báo nếu còn pieces trong pool
-      if (pool.length > 0 || placedCount < totalRequested) {
-        const actualMissing = totalRequested - placedCount;
-        console.log(`\n⚠️  Warning: ${actualMissing} rectangles could not be fully placed`);
-        
+      if (pool.length > 0 || placedCount < totalRequested) {    
         const poolByType = {};
         for (const item of pool) {
           const typeId = item.originalTypeId || item.typeId;
@@ -856,13 +760,11 @@ export const PackingProvider = ({ children }) => {
         mixedCount: finalPlates.length
       };
 
-      console.log('\n🎉 ========== TỐI ƯU HOÀN THÀNH (V4.0) ==========\n');
 
       dispatch({ type: 'SET_PACKING_RESULT', payload: result });
       return true;
 
     } catch (error) {
-      console.error('\n✗ ========== LỖI TỐI ƯU ==========');
       console.error('Error:', error);
       dispatch({
         type: 'SET_ERROR',
@@ -880,8 +782,6 @@ export const PackingProvider = ({ children }) => {
     const newId = getNewRectId();
     const defaultColor = '#3498db';
     
-    console.log(`➕ Adding new rectangle with ID: ${newId}`, rectangle);
-    
     dispatch({
       type: 'ADD_RECTANGLE',
       payload: { 
@@ -896,7 +796,6 @@ export const PackingProvider = ({ children }) => {
   const updateRectangle = useCallback((_id, _updates) => {}, []);
   
   const removeRectangle = useCallback((id) => {
-    console.log(`🗑️ Removing rectangle with ID: ${id}`);
     dispatch({ type: 'REMOVE_RECTANGLE', payload: id });
   }, []);
   

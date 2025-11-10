@@ -80,14 +80,14 @@ router.post('/optimize', async (req, res) => {
 // GET /api/packing/rectangles - Lấy danh sách hình chữ nhật mặc định
 router.get('/rectangles', (req, res) => {
   const defaultRectangles = [
-    { id: 1, width: 360.0, length: 245.0, name: '14#-15#' },
-    { id: 2, width: 345.0, length: 240.0, name: '12.5#- 13.5#' },
-    { id: 3, width: 335.0, length: 230.0, name: '11#-12#' },
-    { id: 4, width: 320.0, length: 225.0, name: '9.5#-10.5#' },
-    { id: 5, width: 305.0, length: 220.0, name:  '8#-9#' },
-    { id: 6, width: 295.0, length: 215.0, name: '6.5#-7.5#' },
-    { id: 7, width: 280.0, length: 205.0, name: '5#- 6#' },
-    { id: 8, width: 270.0, length: 200.0, name: '3.5#- 4.5#' },
+    { id: 1, width: 245.0, length: 360.0, name: '14#-15#' },
+    { id: 2, width: 240.0, length: 345.0, name: '12.5#- 13.5#' },
+    { id: 3, width: 230.0, length: 335.0, name: '11#-12#' },
+    { id: 4, width: 225.0, length: 320.0, name: '9.5#-10.5#' },
+    { id: 5, width: 220.0, length: 305.0, name:  '8#-9#' },
+    { id: 6, width: 215.0, length: 295.0, name: '6.5#-7.5#' },
+    { id: 7, width: 205.0, length: 280.0, name: '5#- 6#' },
+    { id: 8, width: 200.0, length: 270.0, name: '3.5#- 4.5#' },
   ].map(rect => ({
     ...rect,
     color: getColorForRectangle(rect) 

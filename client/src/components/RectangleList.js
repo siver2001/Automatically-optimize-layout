@@ -66,10 +66,10 @@ const RectangleList = () => {
   const getRectangleStyle = (rect) => {
     const maxWidth = 100; // Reduced for more compact cards
     const maxLength = 70; // Reduced for more compact cards
-    const aspectRatio = rect.width / rect.length;
+    const aspectRatio = rect.length / rect.width;
     
     let displayWidth, displayLength;
-    const scaleFactor = 3; 
+    const scaleFactor = 2; 
 
     if (aspectRatio > 1) {
       displayWidth = Math.min(maxWidth, rect.width / scaleFactor);
@@ -203,7 +203,7 @@ const RectangleList = () => {
               
               {/* Rectangle Info - Đã thêm DIV bọc ngoài để cố định chiều cao */}
               <div className="text-center">
-                <div className="h-10 flex flex-col justify-center"> {/* FIX: Thêm h-10 để cố định chiều cao */}
+                <div className="h-10 flex flex-col justify-center">
                     <div className="font-semibold text-gray-800 mb-1 text-sm truncate" title={rect.name}>
                         {rect.name}
                     </div>
