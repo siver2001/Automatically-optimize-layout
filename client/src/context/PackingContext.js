@@ -233,7 +233,7 @@ export const PackingProvider = ({ children }) => {
   const createMixedPlateMultiStrategy = async (pool, layersPerPlate) => {
     if (pool.length === 0) return null;
 
-          const strategies = [
+    const strategies = [
       {
         name: 'Area Descending',
         sort: (a, b) => (b.width * b.length) - (a.width * a.length)
@@ -360,7 +360,8 @@ export const PackingProvider = ({ children }) => {
               originalWidth: rectType.width,
               originalLength: rectType.length,
               name: `1/2 ${rectType.name}`,
-              color: rectType.color
+              color: rectType.color,
+              noRotate: true // Ngăn rotate riêng lẻ cho half
             };
             
             const piece2 = { 
@@ -376,7 +377,8 @@ export const PackingProvider = ({ children }) => {
               originalWidth: rectType.width,
               originalLength: rectType.length,
               name: `1/2 ${rectType.name}`,
-              color: rectType.color
+              color: rectType.color,
+              noRotate: true // Ngăn rotate riêng lẻ cho half
             };
             
             pool.push(piece1, piece2);
@@ -414,7 +416,6 @@ export const PackingProvider = ({ children }) => {
       const mixedPatterns = new Map();
       let mixedPlateCounter = 1;
       let iterationCount = 0;
-      let currentLayerInPlate = 0;
 
       while (pool.length > 0 && iterationCount < MAX_ITERATIONS) {
         iterationCount++;
@@ -427,39 +428,45 @@ export const PackingProvider = ({ children }) => {
 
         const { placed, placedIds, typeCount } = mixedResult;
 
-        // Gán layer index cho các pieces
-        const placedWithLayer = placed.map(r => ({
-          ...r,
-          layer: currentLayerInPlate
-        }));
-
         // Chuẩn hóa về layer 0 để tạo signature
         const normalizedPlaced = placed.map(r => ({ ...r, layer: 0 }));
         const signature = createPatternSignature(normalizedPlaced);
 
         if (mixedPatterns.has(signature)) {
-          // Pattern đã tồn tại → Thêm lớp vào plate hiện có
           const existingData = mixedPatterns.get(signature);
-          
+
+          // Nếu plate hiện tại đã đủ lớp, "đóng" plate và mở plate mới
+          if (existingData.layers.length >= layersPerPlate) {
+            finalPlates.push({
+              ...existingData.plate,
+              layers: existingData.layers
+            });
+
+            existingData.plate = {
+              plateIndex: plateIndexCounter++,
+              type: 'mixed',
+              description: `Tấm Hỗn Hợp #${existingData.plate.plateIndex + 1}`,
+              patternDescription: existingData.plate.patternDescription,
+              layers: []
+            };
+            existingData.layers = [];
+          }
+
+          // LAYER INDEX THEO PLATE/PATTERN (không dùng biến toàn cục)
+          const layerIndexInPlate = existingData.layers.length;
+
           existingData.layers.push({
-            layerIndexInPlate: currentLayerInPlate,
-            rectangles: placedWithLayer.map(r => ({
+            layerIndexInPlate,
+            rectangles: placed.map(r => ({
               ...r,
+              layer: layerIndexInPlate,
               plateIndex: existingData.plate.plateIndex
             }))
           });
 
           existingData.repetitions++;
-          currentLayerInPlate++;
-
-          // Kiểm tra đã đủ số lớp cho plate này chưa
-          if (currentLayerInPlate === layersPerPlate) {
-            currentLayerInPlate = 0; // Reset để bắt đầu tấm mới
-          }
-
         } else {
-          // Pattern mới → Tạo plate mới
-          
+          // Pattern mới → tạo plate mới và thêm lớp đầu tiên (layerIndex=0)
           const typeDesc = Object.entries(typeCount)
             .map(([id, cnt]) => {
               const t = selectedTypes.find(x => x.id === Number(id));
@@ -474,44 +481,34 @@ export const PackingProvider = ({ children }) => {
             layers: []
           };
 
-          const initialLayer = {
-            layerIndexInPlate: currentLayerInPlate,
-            rectangles: placedWithLayer.map(r => ({
+          const firstLayer = {
+            layerIndexInPlate: 0,
+            rectangles: placed.map(r => ({
               ...r,
+              layer: 0,
               plateIndex: plate.plateIndex
             }))
           };
 
-          plate.layers = [initialLayer];
+          plate.layers = [firstLayer];
 
           mixedPatterns.set(signature, {
-            plate: plate,
-            layers: [initialLayer],
+            plate,
+            layers: [firstLayer],
             repetitions: 1
           });
 
-          currentLayerInPlate++;
-
-          // Kiểm tra đã đủ số lớp chưa
-          if (currentLayerInPlate >= layersPerPlate) {
-            currentLayerInPlate = 0;
-          }
-
           mixedPlateCounter++;
         }
+
         
         pool = pool.filter(r => !placedIds.has(r.id));
       }
-
       // Đưa plates vào finalPlates
       for (const [, data] of mixedPatterns.entries()) {
-        const { plate, layers, repetitions } = data;
+        const { plate, layers } = data;
         
         plate.description = `Tấm Hỗn Hợp #${plate.plateIndex + 1} (${layers.length} lớp | ${plate.patternDescription})`;
-        if (repetitions > 1) {
-          plate.description += ` [×${repetitions}]`;
-        }
-        
         plate.layers = layers;
         finalPlates.push(plate);
       }
@@ -526,98 +523,230 @@ export const PackingProvider = ({ children }) => {
         });
       }
 
-      // ========== GIAI ĐOẠN 3: MERGE - Ghép các pieces liền kề ==========
-
+      // ========== GIAI ĐOẠN 3: MERGE - Hợp nhất các mảnh đôi với bounding box ==========
       const allPlacedPieces = finalPlates.flatMap(p => p.layers.flatMap(l => l.rectangles));
       const mergedRects = [];
-      
+
       const halfPieces = allPlacedPieces.filter(r => r.pairId != null);
       const fullPieces = allPlacedPieces.filter(r => r.pairId == null);
-      
       mergedRects.push(...fullPieces);
-      
+
       const groupedByPair = new Map();
       for (const piece of halfPieces) {
-        if (!groupedByPair.has(piece.pairId)) {
-          groupedByPair.set(piece.pairId, []);
-        }
+        if (!groupedByPair.has(piece.pairId)) groupedByPair.set(piece.pairId, []);
         groupedByPair.get(piece.pairId).push(piece);
       }
-      
 
-      for (const [pairId, pieces] of groupedByPair.entries()) {
-        if (pieces.length === 1) {
-          mergedRects.push(pieces[0]);
-        } else if (pieces.length === 2) {
+      for (const [pieces] of groupedByPair.entries()) {
+          if (pieces.length !== 2) {
+              mergedRects.push(...pieces);
+              continue;
+          }
+
           const p1 = pieces[0];
           const p2 = pieces[1];
+          const pairId = p1.pairId; // Lấy pairId từ mảnh ghép
+
+          // Khác tấm/layer thì không ghép
+          if (p1.plateIndex !== p2.plateIndex || p1.layer !== p2.layer) {
+              mergedRects.push(p1, p2);
+              continue;
+          }
+
+          // Kích thước gốc (Original Width, Original Length)
+          const targetW = p1.originalWidth;
+          const targetL = p1.originalLength;
+          const originalArea = targetW * targetL;
           
-          let isAdjacent = false;
+          // Tolerance cho floating-point và gap nhỏ
+          const tolerance = 1.0; 
+
           let mergedRect = null;
-          
-          if (p1.plateIndex === p2.plateIndex && p1.layer === p2.layer) {
-            const tolerance = 1.0;
 
-            // Nếu chia theo chiều rộng → ghép theo trục X
-            if (p1.splitDirection === 'width') {
-              const sameRow = Math.abs(p1.y - p2.y) <= tolerance;
-              const touching = Math.abs((p1.x + p1.width) - p2.x) <= tolerance ||
-                              Math.abs((p2.x + p2.width) - p1.x) <= tolerance;
+          // --- CASE 1: GHÉP THEO CHIỀU NGANG (Side-by-side along X-axis) ---
+          // Kiểm tra: 1. Chạm nhau theo X, 2. Cùng tọa độ Y, 3. Cùng chiều dài (Length)
+          const isAdjacentX = (
+              (Math.abs((p1.x + p1.width) - p2.x) < tolerance || Math.abs((p2.x + p2.width) - p1.x) < tolerance) && // Chạm nhau theo X
+              Math.abs(p1.y - p2.y) < tolerance && // Cùng tọa độ Y
+              Math.abs(p1.length - p2.length) < tolerance // Cùng chiều dài (length)
+          );
 
-              if (sameRow && touching) {
-                isAdjacent = true;
-                mergedRect = {
-                  id: `merged_${pairId}`,
-                  plateIndex: p1.plateIndex,
-                  layer: p1.layer,
-                  x: Math.min(p1.x, p2.x),
-                  y: Math.min(p1.y, p2.y),
-                  width: p1.width + p2.width,
-                  length: p1.length,
-                  color: p1.color,
-                  rotated: false,
-                  typeId: p1.originalTypeId,
-                  mergedFrom: [p1.id, p2.id]
-                };
+          if (isAdjacentX) {
+              const minX = Math.min(p1.x, p2.x);
+              const minY = p1.y; 
+              const boundingW = Math.max(p1.x + p1.width, p2.x + p2.width) - minX;
+              const boundingL = p1.length; 
+
+              // SO SÁNH CẠNH 1: Khớp với KÍCH THƯỚC GỐC KHÔNG XOAY (W=targetW, L=targetL)
+              if (Math.abs(boundingW - targetW) < tolerance && Math.abs(boundingL - targetL) < tolerance) {
+                  mergedRect = {
+                      id: `merged_${pairId}`,
+                      plateIndex: p1.plateIndex,
+                      layer: p1.layer,
+                      x: minX,
+                      y: minY,
+                      width: targetW, // Snap về W gốc
+                      length: targetL, // Snap về L gốc
+                      color: p1.color,
+                      rotated: false, 
+                      typeId: p1.originalTypeId,
+                      originalTypeId: p1.originalTypeId,
+                      pairId: null,
+                      mergedFrom: [p1.id, p2.id]
+                  };
               }
-            }
-
-            // Nếu chia theo chiều dài → ghép theo trục Y
-            if (p1.splitDirection === 'length') {
-              const sameColumn = Math.abs(p1.x - p2.x) <= tolerance;
-              const touching = Math.abs((p1.y + p1.length) - p2.y) <= tolerance ||
-                              Math.abs((p2.y + p2.length) - p1.y) <= tolerance;
-
-              if (sameColumn && touching) {
-                isAdjacent = true;
-                mergedRect = {
-                  id: `merged_${pairId}`,
-                  plateIndex: p1.plateIndex,
-                  layer: p1.layer,
-                  x: Math.min(p1.x, p2.x),
-                  y: Math.min(p1.y, p2.y),
-                  width: p1.width,
-                  length: p1.length + p2.length,
-                  color: p1.color,
-                  rotated: false,
-                  typeId: p1.originalTypeId,
-                  mergedFrom: [p1.id, p2.id]
-                };
+              
+              // SO SÁNH CẠNH 2: Khớp với KÍCH THƯỚC GỐC XOAY (W=targetL, L=targetW)
+              else if (Math.abs(boundingW - targetL) < tolerance && Math.abs(boundingL - targetW) < tolerance) {
+                  mergedRect = {
+                      id: `merged_${pairId}`,
+                      plateIndex: p1.plateIndex,
+                      layer: p1.layer,
+                      x: minX,
+                      y: minY,
+                      width: targetL, // Snap về L gốc
+                      length: targetW, // Snap về W gốc
+                      color: p1.color,
+                      rotated: true, 
+                      typeId: p1.originalTypeId,
+                      originalTypeId: p1.originalTypeId,
+                      pairId: null,
+                      mergedFrom: [p1.id, p2.id]
+                  };
               }
-            }
           }
 
-          if (isAdjacent && mergedRect) {
-            mergedRects.push(mergedRect);
+
+          // --- CASE 2: GHÉP THEO CHIỀU DỌC (Stacked along Y-axis) ---
+          // Chỉ kiểm tra nếu chưa hợp nhất được theo X
+          if (!mergedRect) {
+              // Kiểm tra: 1. Chạm nhau theo Y, 2. Cùng tọa độ X, 3. Cùng chiều rộng (Width)
+              const isAdjacentY = (
+                  (Math.abs((p1.y + p1.length) - p2.y) < tolerance || Math.abs((p2.y + p2.length) - p1.y) < tolerance) && // Chạm nhau theo Y
+                  Math.abs(p1.x - p2.x) < tolerance && // Cùng tọa độ X
+                  Math.abs(p1.width - p2.width) < tolerance // Cùng chiều rộng (width)
+              );
+
+              if (isAdjacentY) {
+                  const minX = p1.x; 
+                  const minY = Math.min(p1.y, p2.y);
+                  const boundingW = p1.width; 
+                  const boundingL = Math.max(p1.y + p1.length, p2.y + p2.length) - minY;
+
+                  // SO SÁNH CẠNH 1: Khớp với KÍCH THƯỚC GỐC KHÔNG XOAY (W=targetW, L=targetL)
+                  if (Math.abs(boundingW - targetW) < tolerance && Math.abs(boundingL - targetL) < tolerance) {
+                      mergedRect = {
+                          id: `merged_${pairId}`,
+                          plateIndex: p1.plateIndex,
+                          layer: p1.layer,
+                          x: minX,
+                          y: minY,
+                          width: targetW,
+                          length: targetL,
+                          color: p1.color,
+                          rotated: false,
+                          typeId: p1.originalTypeId,
+                          originalTypeId: p1.originalTypeId,
+                          pairId: null,
+                          mergedFrom: [p1.id, p2.id]
+                      };
+                  }
+                  
+                  // SO SÁNH CẠNH 2: Khớp với KÍCH THƯỚC GỐC XOAY (W=targetL, L=targetW)
+                  else if (Math.abs(boundingW - targetL) < tolerance && Math.abs(boundingL - targetW) < tolerance) {
+                      mergedRect = {
+                          id: `merged_${pairId}`,
+                          plateIndex: p1.plateIndex,
+                          layer: p1.layer,
+                          x: minX,
+                          y: minY,
+                          width: targetL,
+                          length: targetW,
+                          color: p1.color,
+                          rotated: true,
+                          typeId: p1.originalTypeId,
+                          originalTypeId: p1.originalTypeId,
+                          pairId: null,
+                          mergedFrom: [p1.id, p2.id]
+                      };
+                  }
+              }
+          }
+
+          // --- KẾT QUẢ MERGE ---
+          if (mergedRect) {
+              // Kiểm tra cuối: Đảm bảo tổng diện tích khớp (đề phòng lỗi tính toán nhỏ)
+              const mergedArea = mergedRect.width * mergedRect.length;
+              if (Math.abs(mergedArea - originalArea) <= tolerance * 10) { 
+                  mergedRects.push(mergedRect);
+              } else {
+                  console.warn(`[Merge] Lỗi kiểm tra diện tích cuối cho pair ${pairId}: Merged Area ${mergedArea.toFixed(1)} vs Original Area ${originalArea.toFixed(1)}. Không merge.`);
+                  mergedRects.push(p1, p2); 
+              }
           } else {
-            mergedRects.push(p1, p2);
+              // Không merge, giữ nguyên half (và warn)
+              console.warn(`[Merge] Không merge pair ${pairId}: Không tìm thấy hướng ghép hợp lệ khớp với kích thước gốc.`);
+              mergedRects.push(p1, p2);
           }
-          
-        } else {
-          mergedRects.push(...pieces);
-        }
       }
 
+      // ===== PASS 2: MERGE BỔ SUNG (phát hiện các mảnh nửa còn sót) =====
+      const secondPass = [];
+      const used = new Set();
+
+      for (let i = 0; i < mergedRects.length; i++) {
+        if (used.has(i)) continue;
+        const a = mergedRects[i];
+
+        // Lấy kích thước gốc/kích thước hiện tại của mảnh A
+        const aOrigW = a.originalWidth || a.width;
+        const aOrigL = a.originalLength || a.length;
+        const tolerance = 1.0; 
+
+        // chỉ xét các mảnh thuộc cùng plate/layer, cùng type, và không phải half
+        const matchIndex = mergedRects.findIndex((b, j) =>
+          j > i &&  // Chỉ search sau i để tránh duplicate
+          !used.has(j) &&
+          a.plateIndex === b.plateIndex &&
+          a.layer === b.layer &&
+          a.originalTypeId === b.originalTypeId &&
+          a.pairId == null && b.pairId == null &&
+          
+          // **THÊM ĐIỀU KIỆN QUAN TRỌNG:** Phải có cùng kích thước gốc/kích thước hiện tại (cả hai hướng)
+          // Điều này ngăn việc hợp nhất các hình chữ nhật khác nhau (e.g., 245x300 với 100x500)
+          (Math.abs((b.originalWidth || b.width) - aOrigW) < tolerance && Math.abs((b.originalLength || b.length) - aOrigL) < tolerance) &&
+          
+          Math.abs(a.y - b.y) < 5 &&
+          Math.abs((a.x + a.width) - b.x) < 5 &&
+          Math.abs(a.length - b.length) < 3
+        );
+
+        if (matchIndex >= 0) {
+          const b = mergedRects[matchIndex];
+          used.add(i);
+          used.add(matchIndex);
+
+          secondPass.push({
+            ...a,
+            id: `merged2_${a.id}_${b.id}`,
+            x: Math.min(a.x, b.x),
+            width: a.width + b.width,
+            length: a.length,
+            mergedFrom: [a.id, b.id],
+            typeId: a.originalTypeId || a.typeId,
+            originalTypeId: a.originalTypeId || a.typeId, // Đảm bảo giữ lại originalTypeId
+            pairId: null,
+            
+            // Đảm bảo kích thước gốc được giữ lại cho lần merge tiếp theo (nếu có)
+            originalWidth: a.originalWidth, 
+            originalLength: a.originalLength 
+          });
+        } else {
+          secondPass.push(a);
+        }
+      }
+      mergedRects.length = 0;
+      mergedRects.push(...secondPass);
       // ========== GIAI ĐOẠN 4: REBUILD - Xây dựng lại plates ==========
 
       const newFinalPlates = [];

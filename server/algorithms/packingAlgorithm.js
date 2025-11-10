@@ -140,7 +140,7 @@ class PackingAlgorithm {
       let bestShort = Infinity;
       let bestLong = Infinity;
       let chosenNode = null;
-      let bestWasRotated = false; // Theo dõi hướng xoay tốt nhất
+      let bestWasRotated = false;
 
       for (let i = 0; i < freeNodes.length; i++) {
         const node = freeNodes[i];
@@ -157,8 +157,8 @@ class PackingAlgorithm {
           }
         }
 
-        // 2. Thử xoay 90 độ
-        if (fitsIn(rect.length, rect.width, node)) {
+        // 2. Thử xoay 90 độ - CHỈ NẾU !rect.noRotate
+        if (!rect.noRotate && fitsIn(rect.length, rect.width, node)) {
           const s = scoreFor(rect.length, rect.width, node);
           if (s.shortFit < bestShort || (s.shortFit === bestShort && s.longFit < bestLong)) {
             bestShort = s.shortFit;
@@ -168,7 +168,7 @@ class PackingAlgorithm {
             bestWasRotated = true;
           }
         }
-      } // Kết thúc vòng lặp freeNodes
+      }
 
       if (bestIndex !== -1 && chosenNode) {
         // Lấy kích thước dựa trên hướng xoay tốt nhất
@@ -302,25 +302,24 @@ class PackingAlgorithm {
         let fit = checkFit(currentX, currentY, width, length);
 
         if (!fit) {
-            currentX = 0;
-            currentY += currentLength;
-            currentLength = 0;
-            
+          currentX = 0;
+          currentY += currentLength;
+          currentLength = 0;
+          
+          fit = checkFit(currentX, currentY, width, length);
+          
+          if (!fit && !rect.noRotate) {  // CHỈ THỬ XOAY NẾU !noRotate
+            [width, length] = [length, width];
             fit = checkFit(currentX, currentY, width, length);
-            
-            if (!fit) {
-                // [NÂNG CẤP] Thử xoay hình trước khi bỏ qua
-                [width, length] = [length, width];
-                fit = checkFit(currentX, currentY, width, length);
-
-                if (!fit) {
-                  remainingRectangles.push(rect); // Vẫn thêm hình gốc
-                  continue;
-                }
-                
-                // Nếu xoay mà vừa, cập nhật trạng thái xoay
-                rect.rotated = !rect.rotated; 
+            if (fit) {
+              rect.rotated = !rect.rotated; 
             }
+          }
+          
+          if (!fit) {
+            remainingRectangles.push(rect);
+            continue;
+          }
         }
         
         const placedRect = {
@@ -442,7 +441,6 @@ class PackingAlgorithm {
     let unpackedRectangles = initialRectangles.map(r => ({...r}));
     let allPlacedRectangles = [];
     let layersUsed = 0;
-    let placedInLayer; 
 
       const canFit = (r) => (r.width <= container.width && r.length <= container.length) || (r.length <= container.width && r.width <= container.length);
 
@@ -476,26 +474,37 @@ class PackingAlgorithm {
           return { accepted, stillRemaining };
       };
       
-      // vì logic gộp lớp (layering) đã được chuyển lên PackingContext
-      const layer = 0; 
-        
-      // Chạy thuật toán 2D (đã hỗ trợ xoay)
-      const { placed: placedRaw, remaining: remainingRaw } = this._runSingleLayerPacking(unpackedRectangles);
-      
-      // Chỉ sanitize những hình đã đặt
-      const sanitizeResult = sanitizeLayer(placedRaw, []); 
-      placedInLayer = sanitizeResult.accepted;
+      for (let layer = 0; layer < maxLayers; layer++) {
+    
+        // Nếu không còn hình nào để xếp, thoát sớm
+        if (unpackedRectangles.length === 0) {
+          break;
+        }
 
-      // Các hình không hợp lệ + các hình còn lại
-      unpackedRectangles = [...sanitizeResult.stillRemaining, ...remainingRaw]; 
-
-      placedInLayer.forEach(rect => {
-        rect.layer = layer;
-        allPlacedRectangles.push(rect);
-      });
+        // Chạy thuật toán 2D (đã hỗ trợ xoay) cho những hình còn lại
+        const { placed: placedRaw, remaining: remainingRaw } = this._runSingleLayerPacking(unpackedRectangles);
         
-      if (placedInLayer.length > 0) {
-        layersUsed++;
+        // Chỉ sanitize những hình đã đặt
+        const sanitizeResult = sanitizeLayer(placedRaw, []); 
+        let placedInLayer = sanitizeResult.accepted; // Hình được chấp nhận cho lớp HIỆN TẠI
+
+        // Các hình không hợp lệ + các hình còn lại
+        unpackedRectangles = [...sanitizeResult.stillRemaining, ...remainingRaw]; 
+
+        // Gán đúng số lớp (layer) cho các hình vừa được xếp
+        placedInLayer.forEach(rect => {
+          rect.layer = layer; // Sử dụng biến 'layer' từ vòng lặp
+          allPlacedRectangles.push(rect); // Thêm vào danh sách tổng
+        });
+          
+        // Chỉ tăng 'layersUsed' nếu lớp này thực sự có hình
+        if (placedInLayer.length > 0) {
+          layersUsed++;
+        } else {
+          // Nếu thuật toán không xếp thêm được gì (do hết chỗ), dừng lại
+          break;
+        }
+
       }
 
       const containerAreaPerLayer = container.width * container.length;
@@ -532,7 +541,7 @@ class PackingAlgorithm {
       const bestResult = this._runGreedyLayeringPass(
         container, 
         initialRectangles, // Truyền hình chữ nhật gốc
-        1 // Chỉ chạy 1 lớp
+        maxLayers
       );
 
       const elapsed = ((Date.now() - this.startTime) / 1000).toFixed(2);
