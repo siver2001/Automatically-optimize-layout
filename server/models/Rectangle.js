@@ -1,3 +1,4 @@
+// client/src/components/Rectangle.js - ĐÃ SỬA LỖI
 class Rectangle {
   constructor(id, width, length, color = '#000000', name = '') {
     this.id = id;
@@ -9,6 +10,16 @@ class Rectangle {
     this.y = 0;
     this.rotated = false;
     this.layer = 0;
+
+    // ✅ Thêm các thuộc tính metadata
+    this.typeId = id; // Mặc định
+    this.originalTypeId = id; // Mặc định
+    this.pairId = null;
+    this.pieceIndex = 0;
+    this.splitDirection = 'none';
+    this.originalWidth = width;
+    this.originalLength = length;
+    this.transform = null;
   }
 
   // Xoay hình chữ nhật 90 độ
@@ -48,6 +59,17 @@ class Rectangle {
     cloned.y = this.y;
     cloned.rotated = this.rotated;
     cloned.layer = this.layer;
+    
+    // ✅ Sao chép metadata
+    cloned.typeId = this.typeId;
+    cloned.originalTypeId = this.originalTypeId;
+    cloned.pairId = this.pairId;
+    cloned.pieceIndex = this.pieceIndex;
+    cloned.splitDirection = this.splitDirection;
+    cloned.originalWidth = this.originalWidth;
+    cloned.originalLength = this.originalLength;
+    cloned.transform = this.transform ? { ...this.transform } : null;
+
     return cloned;
   }
 
@@ -62,7 +84,17 @@ class Rectangle {
       x: this.x,
       y: this.y,
       rotated: this.rotated,
-      layer: this.layer
+      layer: this.layer,
+      
+      // ✅ Thêm metadata vào JSON
+      typeId: this.typeId,
+      originalTypeId: this.originalTypeId,
+      pairId: this.pairId,
+      pieceIndex: this.pieceIndex,
+      splitDirection: this.splitDirection,
+      originalWidth: this.originalWidth,
+      originalLength: this.originalLength,
+      transform: this.transform
     };
   }
 
@@ -73,6 +105,17 @@ class Rectangle {
     rect.y = data.y || 0;
     rect.rotated = data.rotated || false;
     rect.layer = data.layer || 0;
+
+    // ✅ Khôi phục metadata từ JSON
+    rect.typeId = data.typeId ?? data.id;
+    rect.originalTypeId = data.originalTypeId ?? data.id;
+    rect.pairId = data.pairId ?? null;
+    rect.pieceIndex = data.pieceIndex ?? 0;
+    rect.splitDirection = data.splitDirection ?? 'none';
+    rect.originalWidth = data.originalWidth ?? data.width;
+    rect.originalLength = data.originalLength ?? data.length;
+    rect.transform = data.transform ?? null;
+
     return rect;
   }
 }

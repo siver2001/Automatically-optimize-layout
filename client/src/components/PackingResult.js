@@ -459,9 +459,7 @@ const PackingResult = () => {
                   }}
                   title={`[Tấm ${rect.plateIndex + 1}, Lớp ${rect.layer + 1}] ${rectName} (${originalDims}) tại X:${rect.x} Y:${rect.y} ${rect.rotated ? '(Xoay 90°)' : ''}`}
                 >
-                  <div className="text-center leading-none p-0.5">
-                    <div className="text-[0.65em] md:text-xs">{rect.width}×{rect.length}</div>
-                  </div>
+                  <div className="text-[0.65em] md:text-xs">{rect.width}×{rect.length}</div>
                 </div>
               );
             })}

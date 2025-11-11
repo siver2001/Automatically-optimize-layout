@@ -139,12 +139,23 @@ const packingReducer = (state, action) => {
     case 'TOGGLE_MODBUS':
       return { ...state, showModbus: !state.showModbus };
 
+    case 'ADD_RECTANGLES_BATCH':
+      return {
+        ...state,
+        // Thêm các rectangles mới vào danh sách hiện tại
+        rectangles: [...state.rectangles, ...action.payload.newRectangles],
+        // Cập nhật toàn bộ quantities
+        quantities: action.payload.newQuantities,
+        // Tự động chọn các size vừa thêm
+        selectedRectangles: action.payload.newSelected
+      };
     default:
       return state;
   }
 };
 
 export const PackingProvider = ({ children }) => {
+
   const [state, dispatch] = useReducer(packingReducer, initialState);
 
   useEffect(() => {
@@ -171,9 +182,29 @@ export const PackingProvider = ({ children }) => {
     return newId;
   }, [state.rectangles]);
 
-  const setQuantity = useCallback((id, quantity) => {
-    dispatch({ type: 'SET_QUANTITY', payload: { id, quantity } });
-  }, []);
+  const addRectanglesFromExcel = useCallback((parsedData) => {
+    const newRectangles = [];
+    const newQuantities = { ...state.quantities };
+    const newSelected = [ ...state.selectedRectangles ];
+    for (const item of parsedData) {
+      const newId = getNewRectId();
+      const newRect = {
+        ...item.rect,// { name, length, width, color }
+        id: newId,
+        typeId: newId // Gán ID và typeId
+        };
+        newRectangles.push(newRect);
+        newQuantities[newId] = item.quantity; // Gán số lượng
+        newSelected.push(newId); // Tự động chọn
+         }
+         dispatch({
+          type: 'ADD_RECTANGLES_BATCH',
+          payload: { newRectangles, newQuantities, newSelected }
+          });
+          }, [getNewRectId, state.quantities, state.selectedRectangles]);
+      const setQuantity = useCallback((id, quantity) => {
+        dispatch({ type: 'SET_QUANTITY', payload: { id, quantity } });
+      }, []);
 
   const validateContainer = useCallback(() => {
     const { width, length, layers } = state.container;
@@ -346,6 +377,14 @@ export const PackingProvider = ({ children }) => {
           const pairId = `pair_${rectType.id}_${i}`;
           
           if (canSplit) {
+            const transformMetadata = {
+            originalWidth: rectType.width,   
+            originalLength: rectType.length,  
+            splitAxis: 'width',               // Chia theo chiều rộng
+            pieceWidth: halfWidth,            
+            pieceLength: rectType.length,     
+            expectedOrientation: 'horizontal' // Mảnh nằm ngang
+          };
             // CHIA ĐÔI theo chiều rộng: 1 rectangle → 2 pieces
             const piece1 = { 
               ...rectType,
@@ -359,10 +398,11 @@ export const PackingProvider = ({ children }) => {
               length: rectType.length,
               originalWidth: rectType.width,
               originalLength: rectType.length,
+              transform: { ...transformMetadata },
               name: `1/2 ${rectType.name}`,
               color: rectType.color,
             };
-            
+
             const piece2 = { 
               ...rectType,
               id: `half_${poolCounter++}`,
@@ -375,6 +415,7 @@ export const PackingProvider = ({ children }) => {
               length: rectType.length,
               originalWidth: rectType.width,
               originalLength: rectType.length,
+              transform: { ...transformMetadata },
               name: `1/2 ${rectType.name}`,
               color: rectType.color,
             };
@@ -392,6 +433,11 @@ export const PackingProvider = ({ children }) => {
               splitDirection: 'none',
               originalWidth: rectType.width,
               originalLength: rectType.length,
+              transform: { // ✅ THÊM cho full piece
+                originalWidth: rectType.width,
+                originalLength: rectType.length,
+                splitAxis: 'none'
+              },
               name: rectType.name,
               color: rectType.color
             };
@@ -523,130 +569,174 @@ export const PackingProvider = ({ children }) => {
 
       // ========== GIAI ĐOẠN 3: MERGE - Hợp nhất các mảnh đôi với bounding box ==========
       const allPlacedPieces = finalPlates.flatMap(p => p.layers.flatMap(l => l.rectangles));
-      const mergedRects = [];
+    const mergedRects = [];
+    const tolerance = 1.0;
 
-      const halfPieces = allPlacedPieces.filter(r => r.pairId != null);
-      const fullPieces = allPlacedPieces.filter(r => r.pairId == null);
-      mergedRects.push(...fullPieces);
+    // Tách các mảnh full (không cần merge)
+    const fullPieces = allPlacedPieces.filter(r => r.pairId == null || r.splitDirection === 'none');
+    mergedRects.push(...fullPieces);
 
-      const groupedByPair = new Map();
-      for (const piece of halfPieces) {
-        if (!groupedByPair.has(piece.pairId)) groupedByPair.set(piece.pairId, []);
-        groupedByPair.get(piece.pairId).push(piece);
+    // Lấy các mảnh 1/2 (cần merge)
+    let halfPieces = allPlacedPieces.filter(r => r.pairId != null && r.splitDirection !== 'none');
+    const processedPieces = new Set(); // Đánh dấu các mảnh đã được merge
+
+    console.log(`[DEBUG MERGE] Bắt đầu Giai đoạn 3. Tổng mảnh: ${allPlacedPieces.length}. Mảnh 1/2: ${halfPieces.length}`);
+
+    // Sắp xếp các mảnh theo Tấm -> Lớp -> Y -> X
+    halfPieces.sort((a, b) => 
+      a.plateIndex - b.plateIndex || 
+      a.layer - b.layer || 
+      a.y - b.y || 
+      a.x - b.x
+    );
+
+    for (let i = 0; i < halfPieces.length; i++) {
+      const p1 = halfPieces[i];
+
+      // Nếu mảnh này đã được xử lý (ghép) rồi, bỏ qua
+      if (processedPieces.has(p1.id)) continue;
+
+      let foundPair = false;
+
+      // Lấy kích thước gốc từ p1 (quan trọng)
+      const originalW = p1.originalWidth;
+      const originalL = p1.originalLength;
+      
+      // Chỉ tìm các mảnh "hàng xóm" tiềm năng (gần p1)
+      for (let j = i + 1; j < halfPieces.length; j++) {
+        const p2 = halfPieces[j];
+
+        // Bỏ qua nếu đã xử lý, hoặc khác tấm, khác lớp
+        if (processedPieces.has(p2.id)) continue;
+        if (p1.plateIndex !== p2.plateIndex || p1.layer !== p2.layer) continue;
+
+        // Bỏ qua nếu không "tương thích" (không cùng loại gốc)
+        if (p1.originalTypeId !== p2.originalTypeId) {
+          continue;
+        }
+
+        let adjacent = false;
+        let boundingW = 0;
+        let boundingL = 0;
+        let minX = 0;
+        let minY = 0;
+
+        // --- 🟨 LOGIC SỬA LỖI BẮT ĐẦU TỪ ĐÂY 🟨 ---
+        // (Đã loại bỏ 'splitDirection' khỏi 4 điều kiện 'if' bên dưới)
+
+        // 1. p2 nằm BÊN PHẢI p1 (ghép ngang)
+        if (Math.abs(p1.y - p2.y) < tolerance && 
+            Math.abs((p1.x + p1.width) - p2.x) < tolerance &&
+            Math.abs(p1.length - p2.length) < tolerance) { // Phải cùng chiều dài
+          
+          adjacent = true;
+          minX = p1.x;
+          minY = p1.y;
+          boundingW = p1.width + p2.width;
+          boundingL = p1.length;
+        }
+        // 2. p1 nằm BÊN PHẢI p2 (ghép ngang)
+        else if (Math.abs(p1.y - p2.y) < tolerance && 
+                 Math.abs((p2.x + p2.width) - p1.x) < tolerance &&
+                 Math.abs(p1.length - p2.length) < tolerance) { // Phải cùng chiều dài
+          
+          adjacent = true;
+          minX = p2.x;
+          minY = p1.y;
+          boundingW = p1.width + p2.width;
+          boundingL = p1.length;
+        }
+        // 3. p2 nằm BÊN DƯỚI p1 (ghép dọc)
+        else if (Math.abs(p1.x - p2.x) < tolerance &&
+                 Math.abs((p1.y + p1.length) - p2.y) < tolerance &&
+                 Math.abs(p1.width - p2.width) < tolerance) { // Phải cùng chiều rộng
+
+          adjacent = true;
+          minX = p1.x;
+          minY = p1.y;
+          boundingW = p1.width;
+          boundingL = p1.length + p2.length;
+        }
+        // 4. p1 nằm BÊN DƯỚI p2 (ghép dọc)
+        else if (Math.abs(p1.x - p2.x) < tolerance &&
+                 Math.abs((p2.y + p2.length) - p1.y) < tolerance &&
+                 Math.abs(p1.width - p2.width) < tolerance) { // Phải cùng chiều rộng
+
+          adjacent = true;
+          minX = p2.x;
+          minY = p2.y;
+          boundingW = p1.width;
+          boundingL = p1.length + p2.length;
+        }
+        // --- 🟨 LOGIC SỬA LỖI KẾT THÚC TẠI ĐÂY 🟨 ---
+
+        // Nếu không nằm cạnh nhau, bỏ qua
+        if (!adjacent) continue;
+
+        // --- Đã tìm thấy hàng xóm, kiểm tra kích thước merge ---
+        let mergedRect = null;
+        
+        // CASE 1: Bounding khớp kích thước gốc (KHÔNG xoay)
+        if (Math.abs(boundingW - originalW) < tolerance && 
+            Math.abs(boundingL - originalL) < tolerance) {
+          
+          mergedRect = {
+            id: `merged_${p1.id}_${p2.id}`,
+            plateIndex: p1.plateIndex,
+            layer: p1.layer,
+            x: minX,
+            y: minY,
+            width: originalW,
+            length: originalL,
+            color: p1.color,
+            rotated: false,
+            typeId: p1.originalTypeId,
+            originalTypeId: p1.originalTypeId,
+            pairId: null, // Đã merge
+            mergedFrom: [p1.id, p2.id]
+          };
+        }
+        // CASE 2: Bounding khớp kích thước gốc (ĐÃ xoay 90°)
+        else if (Math.abs(boundingW - originalL) < tolerance && 
+                 Math.abs(boundingL - originalW) < tolerance) {
+          
+          mergedRect = {
+            id: `merged_${p1.id}_${p2.id}`,
+            plateIndex: p1.plateIndex,
+            layer: p1.layer,
+            x: minX,
+            y: minY,
+            width: originalL, // Đảo
+            length: originalW, // Đảo
+            color: p1.color,
+            rotated: true,
+            typeId: p1.originalTypeId,
+            originalTypeId: p1.originalTypeId,
+            pairId: null, // Đã merge
+            mergedFrom: [p1.id, p2.id]
+          };
+        }
+
+        // Nếu merge thành công
+        if (mergedRect) {
+          console.log(`[DEBUG MERGE] GHÉP THÀNH CÔNG (lân cận): ${p1.id} (typeId ${p1.originalTypeId}) và ${p2.id} (typeId ${p2.originalTypeId})`);
+          mergedRects.push(mergedRect);
+          processedPieces.add(p1.id);
+          processedPieces.add(p2.id);
+          foundPair = true;
+          break; // Thoát vòng lặp 'j' (đã tìm được cặp cho p1)
+        }
+      } // Kết thúc vòng lặp 'j' (tìm hàng xóm)
+
+      // Nếu p1 không tìm thấy cặp nào (bị mồ côi)
+      if (!foundPair && !processedPieces.has(p1.id)) {
+        console.warn(`[DEBUG MERGE] Mảnh mồ côi: ${p1.id} (typeId: ${p1.originalTypeId})`);
+        mergedRects.push(p1); // Vẫn thêm mảnh mồ côi vào
+        processedPieces.add(p1.id);
       }
+    } // Kết thúc vòng lặp 'i' (duyệt các mảnh 1/2)
 
-      for (const [pairId, pieces] of groupedByPair.entries()) {
-          if (pieces.length !== 2) {
-              // Không đủ 2 mảnh để ghép, đẩy lại vào kết quả
-              mergedRects.push(...pieces);
-              continue;
-          }
-
-          const p1 = pieces[0];
-          const p2 = pieces[1];
-
-          // Khác tấm (plate) hoặc khác lớp (layer) thì không ghép
-          if (p1.plateIndex !== p2.plateIndex || 
-              p1.layer !== p2.layer
-          ) {
-              mergedRects.push(p1, p2);
-              continue;
-          }
-
-          // === LOGIC MERGE BẰNG BOUNDING BOX ===
-          
-          const tolerance = 1.0; // Dung sai cho so sánh
-          let mergedRect = null;
-
-          // 1. Lấy kích thước GỐC (từ mảnh p1)
-          const targetW = p1.originalWidth;  // e.g., 200
-          const targetL = p1.originalLength; // e.g., 100
-          const targetArea = targetW * targetL; // e.g., 20000
-
-          // 2. Kiểm tra tổng diện tích 2 mảnh
-          // (Thuật toán có thể đã xoay p1 hoặc p2, nên ta dùng width/length hiện tại của chúng)
-          const piecesArea = (p1.width * p1.length) + (p2.width * p2.length);
-          
-          if (Math.abs(piecesArea - targetArea) > tolerance * 2) {
-              // Diện tích 2 mảnh cộng lại không bằng diện tích gốc -> không merge
-              console.warn(`[Merge] Lỗi diện tích mảnh cho pair ${pairId}. Pieces Area: ${piecesArea}, Target Area: ${targetArea}`);
-              mergedRects.push(p1, p2);
-              continue;
-          }
-
-          // 3. Tính Bounding Box
-          const minX = Math.min(p1.x, p2.x);
-          const minY = Math.min(p1.y, p2.y);
-          const maxX = Math.max(p1.x + p1.width, p2.x + p2.width);
-          const maxY = Math.max(p1.y + p1.length, p2.y + p2.length);
-          
-          const boundingW = maxX - minX;
-          const boundingL = maxY - minY;
-          const boundingArea = boundingW * boundingL;
-
-          // 4. So sánh Bounding Box Area với Target Area
-          //    (Nếu 2 mảnh ở xa nhau, Bounding Box Area sẽ > Target Area)
-          if (Math.abs(boundingArea - targetArea) > tolerance * 2) {
-               console.warn(`[Merge] Lỗi Bounding Box Area cho pair ${pairId}. Bounding Area: ${boundingArea}, Target Area: ${targetArea}. Các mảnh ở quá xa.`);
-               mergedRects.push(p1, p2);
-               continue;
-          }
-
-          // 5. Xác định hướng
-          
-          // CASE 1: Bounding Box khớp Kích thước Gốc (Không xoay)
-          // e.g., Bounding (200x100) khớp Target (200x100)
-          if (Math.abs(boundingW - targetW) < tolerance && 
-              Math.abs(boundingL - targetL) < tolerance) {
-              
-              mergedRect = {
-                  id: `merged_${pairId}`,
-                  plateIndex: p1.plateIndex,
-                  layer: p1.layer,
-                  x: minX,
-                  y: minY,
-                  width: targetW,  // Snap về W gốc
-                  length: targetL, // Snap về L gốc
-                  color: p1.color,
-                  rotated: false, 
-                  typeId: p1.originalTypeId,
-                  originalTypeId: p1.originalTypeId,
-                  pairId: null, // Đã merge, xóa pairId
-                  mergedFrom: [p1.id, p2.id]
-              };
-          }
-          
-          // CASE 2: Bounding Box khớp Kích thước Gốc (Đã xoay 90 độ)
-          // e.g., Bounding (100x200) khớp Target (200x100)
-          else if (Math.abs(boundingW - targetL) < tolerance && 
-                   Math.abs(boundingL - targetW) < tolerance) {
-              
-              mergedRect = {
-                  id: `merged_${pairId}`,
-                  plateIndex: p1.plateIndex,
-                  layer: p1.layer,
-                  x: minX,
-                  y: minY,
-                  width: targetL,  // Snap về L gốc (đã xoay)
-                  length: targetW, // Snap về W gốc (đã xoay)
-                  color: p1.color,
-                  rotated: true, // Gốc đã bị xoay
-                  typeId: p1.originalTypeId,
-                  originalTypeId: p1.originalTypeId,
-                  pairId: null, // Đã merge, xóa pairId
-                  mergedFrom: [p1.id, p2.id]
-              };
-          }
-
-          // 6. Hoàn tất
-          if (mergedRect) {
-              mergedRects.push(mergedRect);
-          } else {
-              // Không khớp cả 2 trường hợp (lỗi hiếm gặp)
-              console.warn(`[Merge] Không khớp size cho pair ${pairId}. Bounding: ${boundingW.toFixed(1)}x${boundingL.toFixed(1)}, Target: ${targetW}x${targetL}`);
-              mergedRects.push(p1, p2);
-          }
-      }
+    console.log(`[DEBUG MERGE] Kết thúc Giai đoạn 3. Tổng mảnh sau merge: ${mergedRects.length}`);
       // ========== GIAI ĐOẠN 4: REBUILD - Xây dựng lại plates ==========
 
       const newFinalPlates = [];
@@ -739,14 +829,6 @@ export const PackingProvider = ({ children }) => {
           placedByType[typeId] = (placedByType[typeId] || 0) + 1;
         }
       }
-
-      selectedTypes.forEach(type => {
-        const requested = state.quantities[type.id] || 0;
-        const placed = Math.round(placedByType[type.id] || 0);
-        const percentage = requested > 0 ? (placed / requested) * 100 : 0;
-        const status = placed === requested ? '✓' : placed > 0 ? '⚠️' : '✗';
-        console.log(`   ${status} ${type.name}: ${placed}/${requested} (${percentage.toFixed(1)}%)`);
-      });
 
       // Cảnh báo nếu còn pieces trong pool
       if (pool.length > 0 || placedCount < totalRequested) {    
@@ -847,7 +929,8 @@ export const PackingProvider = ({ children }) => {
     clearErrors,
     toggleModbus,
     validateContainer,
-    validateRectangles
+    validateRectangles,
+    addRectanglesFromExcel
   };
 
   return <PackingContext.Provider value={value}>{children}</PackingContext.Provider>;
