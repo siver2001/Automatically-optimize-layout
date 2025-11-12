@@ -160,7 +160,7 @@ const ContainerInput = () => {
           {containerErrors.length > 0 && (
             <div className="bg-red-100 border-l-4 border-red-500 p-3 rounded text-sm text-red-800">
               <div className="flex items-center gap-2 mb-1 font-semibold">
-                ⚠️ Lỗi cấu hình:
+                ⚠️ Chưa thiết kế tấm liệu
               </div>
               {containerErrors.map((error, index) => (
                 <div key={index} className="ml-2">

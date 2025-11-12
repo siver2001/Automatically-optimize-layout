@@ -49,6 +49,12 @@ const NoSnapIcon = () => (
   </svg>
 );
 
+const PdfIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+  </svg>
+);
+
 // --- Component trợ giúp cho các nút bấm ---
 const ActionButton = ({ onClick, disabled, label, isDanger = false, children }) => (
   <button
@@ -82,7 +88,8 @@ const EditModeControls = ({
   onSnapThresholdChange,
   onSaveChanges,
   onCancelEdit,
-  hasUnsavedChanges
+  hasUnsavedChanges,
+  onExportPdf
 }) => {
 
   const hasSelection = selectedRectangles && selectedRectangles.length > 0;
@@ -103,6 +110,13 @@ const EditModeControls = ({
             }`}
           >
             {isEditMode ? '🔒 Thoát Chế độ Chỉnh sửa' : '✏️ Mở Chế độ Chỉnh sửa'}
+          </button>
+          <button
+            onClick={onExportPdf}
+            title="Xuất kết quả tấm hiện tại ra PDF"
+            className="p-2.5 rounded-lg shadow-md bg-white text-blue-600 hover:bg-blue-50 transition-all duration-300 hover:-translate-y-0.5 border border-blue-200"
+          >
+            <PdfIcon />
           </button>
         </div>
 

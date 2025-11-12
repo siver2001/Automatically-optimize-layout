@@ -1,8 +1,9 @@
-// client/src/components/PackingResult.js - UPDATED VERSION WITH DRAG & DROP
+// client/src/components/PackingResult.js - (Đã sửa lỗi)
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { usePacking } from '../context/PackingContext.js';
 import DraggableRectangle from './DraggableRectangle.js';
 import EditModeControls from './EditModeControls.js';
+import { packingService } from '../services/packingService.js';
 
 const PackingResult = () => {
   const { packingResult, isOptimizing, container, rectangles } = usePacking();
@@ -29,14 +30,12 @@ const PackingResult = () => {
       const bounds = containerRef.current.getBoundingClientRect();
       setContainerBounds(bounds);
     }
-
     const handleResize = () => {
       if (containerRef.current) {
         const bounds = containerRef.current.getBoundingClientRect();
         setContainerBounds(bounds);
       }
     };
-
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
@@ -70,12 +69,12 @@ const PackingResult = () => {
       const scale = Math.min(maxVisualWidth / vizWidth, maxVisualLength / vizLength);
       setVisualScale(scale);
     };
-
     updateScale();
     window.addEventListener('resize', updateScale);
     return () => window.removeEventListener('resize', updateScale);
   }, [container.width, container.length]);
   
+  // Tra cứu thông tin chi tiết (màu sắc, tên)
   useEffect(() => {
     const details = rectangles.reduce((acc, rect) => {
       acc[rect.id] = { name: rect.name, color: rect.color, width: rect.width, length: rect.length };
@@ -84,44 +83,53 @@ const PackingResult = () => {
     setPlacedRectDetails(details);
   }, [rectangles]);
 
+  // Reset selectedPlate nếu packingResult thay đổi
   useEffect(() => {
     if (packingResult?.plates?.length > 0 && selectedPlate >= packingResult.plates.length) {
       setSelectedPlate(0);
     }
   }, [packingResult, selectedPlate]);
 
-  // Initialize edited rectangles when plate changes or packing result changes
+  // Khởi tạo state chỉnh sửa
   useEffect(() => {
-    if (packingResult?.plates?.[selectedPlate]) {
-      const currentPlate = packingResult.plates[selectedPlate];
-      const rects = currentPlate.layers.flatMap(layer => layer.rectangles.filter(Boolean));
-      setEditedRectangles(rects.map(r => ({...r})));
-      setOriginalRectangles(rects.map(r => ({...r})));
+    if (packingResult?.plates && packingResult.plates.length > 0) {
+      const safeIndex = Math.max(0, Math.min(selectedPlate, packingResult.plates.length - 1));
+      const currentPlate = packingResult.plates[safeIndex];
+      
+      if (currentPlate && currentPlate.layers) {
+        const rects = currentPlate.layers.flatMap(layer => layer.rectangles.filter(Boolean));
+        setEditedRectangles(rects.map(r => ({...r})));
+        setOriginalRectangles(rects.map(r => ({...r})));
+      } else {
+        setEditedRectangles([]);
+        setOriginalRectangles([]);
+      }
       setHasUnsavedChanges(false);
       setIsEditMode(false);
       setSelectedRectIds([]);
+    } else {
+      setEditedRectangles([]);
+      setOriginalRectangles([]);
     }
   }, [packingResult, selectedPlate]);
   
+  // Ghi nhớ danh sách tấm liệu
   const categorizedPlates = useMemo(() => {
     if (!packingResult?.plates) return [];
-
     const pure = [];
     const mixed = [];
-
     packingResult.plates.forEach((plate, index) => {
       const type = plate.type || (plate.description && plate.description.startsWith('Tấm thuần') ? 'pure' : 'mixed');
-
       if (type === 'pure') {
         pure.push({ ...plate, originalIndex: index, displayIndex: pure.length + 1, type });
       } else {
         mixed.push({ ...plate, originalIndex: index, displayIndex: mixed.length + 1, type });
       }
     });
-    
     return [...pure, ...mixed];
   }, [packingResult]);
 
+  // Ghi nhớ tổng số lớp
   const totalLayersUsed = useMemo(() => {
     if (!packingResult?.plates) return 0;
     return packingResult.plates.reduce((sum, plate) => {
@@ -129,7 +137,7 @@ const PackingResult = () => {
     }, 0);
   }, [packingResult]);
 
-  // Edit Mode Handlers
+  // --- Các hàm xử lý (Handlers) ---
   const handleToggleEditMode = useCallback(() => {
     if (isEditMode && hasUnsavedChanges) {
       if (window.confirm('Bạn có thay đổi chưa lưu. Bạn có muốn thoát không?')) {
@@ -146,7 +154,6 @@ const PackingResult = () => {
 
   const handleSelectRectangle = useCallback((id, addToSelection = false) => {
     if (!isEditMode) return;
-
     setSelectedRectIds(prev => {
       if (addToSelection) {
         return prev.includes(id) ? prev.filter(rid => rid !== id) : [...prev, id];
@@ -164,7 +171,6 @@ const PackingResult = () => {
 
   const handleDeleteSelected = useCallback(() => {
     if (selectedRectIds.length === 0) return;
-    
     if (window.confirm(`Bạn có chắc muốn xóa ${selectedRectIds.length} hình đã chọn?`)) {
       setEditedRectangles(prev => 
         prev.filter(r => !selectedRectIds.includes(r.id))
@@ -176,16 +182,10 @@ const PackingResult = () => {
 
   const handleRotateSelected = useCallback(() => {
     if (selectedRectIds.length === 0) return;
-
     setEditedRectangles(prev => 
       prev.map(r => {
         if (selectedRectIds.includes(r.id)) {
-          return {
-            ...r,
-            width: r.length,
-            length: r.width,
-            rotated: !r.rotated
-          };
+          return { ...r, width: r.length, length: r.width, rotated: !r.rotated };
         }
         return r;
       })
@@ -195,12 +195,9 @@ const PackingResult = () => {
 
   const handleAlignSelected = useCallback((alignType) => {
     if (selectedRectIds.length < 2) return;
-
     const selectedRects = editedRectangles.filter(r => selectedRectIds.includes(r.id));
-    
     setEditedRectangles(prev => {
       const updated = [...prev];
-      
       if (alignType === 'left') {
         const minX = Math.min(...selectedRects.map(r => r.x));
         selectedRects.forEach(r => {
@@ -220,14 +217,12 @@ const PackingResult = () => {
           if (idx !== -1) updated[idx] = { ...updated[idx], x: avgX - r.width / 2 };
         });
       }
-      
       return updated;
     });
     setHasUnsavedChanges(true);
   }, [selectedRectIds, editedRectangles]);
 
   const handleSaveChanges = useCallback(() => {
-    // TODO: Implement save to backend or context
     setOriginalRectangles([...editedRectangles]);
     setHasUnsavedChanges(false);
     alert('Đã lưu thay đổi thành công!');
@@ -256,11 +251,78 @@ const PackingResult = () => {
         }
       }
     };
-
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isEditMode]);
 
+  // --- TÍNH TOÁN CÁC BIẾN LOGIC TRƯỚC KHI RENDER ---
+  const { layersPerPlate = 1, efficiency: totalEfficiency = 0 } = packingResult || {};
+  const platesNeeded = categorizedPlates.length;
+  
+  const safeIndex = selectedPlate >= platesNeeded ? 0 : selectedPlate;
+  const currentPlateMeta = categorizedPlates[safeIndex];
+  
+  // Sử dụng useMemo để tránh re-render không cần thiết
+  const currentPlateLayers = useMemo(() => {
+    if (!packingResult?.plates || !currentPlateMeta) return [];
+    const currentPlateData = packingResult.plates[currentPlateMeta.originalIndex];
+    return currentPlateData?.layers || [];
+  }, [packingResult, currentPlateMeta]);
+  
+  // Danh sách hình chữ nhật cuối cùng để render
+  const displayRectangles = useMemo(() => {
+    if (isEditMode) return editedRectangles;
+    return currentPlateLayers.flatMap(layer => layer.rectangles?.filter(Boolean) || []);
+  }, [isEditMode, editedRectangles, currentPlateLayers]);
+
+  // --- HÀM XUẤT PDF ---
+  const handleExportPdf = useCallback(async () => {
+    if (displayRectangles.length === 0) {
+      alert("Tấm liệu này không có hình nào để xuất PDF.");
+      return;
+    }
+
+    const rectanglesWithColor = displayRectangles.map(rect => ({
+      ...rect,
+      color: rect.color || (placedRectDetails[rect.typeId] || placedRectDetails[rect.id])?.color || '#3498db'
+    }));
+
+    const layoutData = {
+      container: container,
+      placedRectangles: rectanglesWithColor
+    };
+
+    try {
+      await packingService.exportLayoutToPdf(layoutData);
+    } catch (error) {
+      console.error("Lỗi UI khi xuất PDF:", error);
+      alert(error.message || 'Không thể xuất file PDF.');
+    }
+  }, [displayRectangles, placedRectDetails, container]);
+
+  // --- TÍNH TOÁN CÁC BIẾN ĐỂ RENDER ---
+  const plateType = currentPlateMeta?.type === 'pure' ? 'Thuần' : 'Hỗn Hợp';
+  const plateDescription = currentPlateMeta?.description || `${plateType} #${currentPlateMeta?.displayIndex || 1}`;
+
+  const singleLayerArea = container.width * container.length;
+  const actualLayersUsed = currentPlateLayers.length;
+  const totalPlateArea = singleLayerArea * actualLayersUsed;
+
+  const plateUsedArea = displayRectangles.reduce((sum, rect) => sum + (rect.width * rect.length), 0);
+  const plateEfficiency = totalPlateArea > 0 ? (plateUsedArea / totalPlateArea * 100).toFixed(1) : 0;
+
+  const containerWidth = container.width;
+  const containerLength = container.length;
+  const isLandscape = containerWidth > containerLength;
+  const vizWidth = isLandscape ? containerWidth : containerLength;
+  const vizLength = isLandscape ? containerLength : containerWidth;
+  const scale = visualScale;
+  const displayWidth = vizWidth * scale;
+  const displayLength = vizLength * scale;
+  const gridWidth = isLandscape ? container.width : container.length;
+  const gridLength = isLandscape ? container.length : container.width;
+
+  // --- Early Returns (PHẢI ĐẶT SAU TẤT CẢ HOOKS) ---
   if (isOptimizing) {
     return (
       <div className="mb-4 card p-6 md:p-8 min-h-[300px] md:min-h-[400px] flex flex-col justify-center items-center">
@@ -288,38 +350,15 @@ const PackingResult = () => {
     );
   }
 
-  const { layersPerPlate = 1, efficiency: totalEfficiency = 0 } = packingResult;
-  const platesNeeded = categorizedPlates.length;
-  
-  const safeIndex = selectedPlate >= platesNeeded ? 0 : selectedPlate;
-  const currentPlateMeta = categorizedPlates[safeIndex];
-  
-  const currentPlateData = packingResult.plates[currentPlateMeta.originalIndex];
-  const currentPlateLayers = currentPlateData.layers || [];
-  
-  const plateType = currentPlateMeta.type === 'pure' ? 'Thuần' : 'Hỗn Hợp';
-  const plateDescription = currentPlateMeta.description || `${plateType} #${currentPlateMeta.displayIndex}`;
+  if (!currentPlateMeta) {
+    return (
+      <div className="mb-4 card p-6 text-center text-red-600">
+        Lỗi: Không tìm thấy thông tin tấm liệu
+      </div>
+    );
+  }
 
-  const singleLayerArea = container.width * container.length;
-  const actualLayersUsed = currentPlateLayers.length;
-  const totalPlateArea = singleLayerArea * actualLayersUsed;
-
-  const displayRectangles = isEditMode ? editedRectangles : currentPlateLayers.flatMap(layer => layer.rectangles.filter(Boolean));
-
-  const plateUsedArea = displayRectangles.reduce((sum, rect) => sum + (rect.width * rect.length), 0);
-  const plateEfficiency = totalPlateArea > 0 ? (plateUsedArea / totalPlateArea * 100).toFixed(1) : 0;
-
-  const containerWidth = container.width;
-  const containerLength = container.length;
-  const isLandscape = containerWidth > containerLength;
-  const vizWidth = isLandscape ? containerWidth : containerLength;
-  const vizLength = isLandscape ? containerLength : containerWidth;
-  const scale = visualScale;
-  const displayWidth = vizWidth * scale;
-  const displayLength = vizLength * scale;
-  const gridWidth = isLandscape ? container.width : container.length;
-  const gridLength = isLandscape ? container.length : container.width;
-
+  // --- LỆNH RETURN JSX CUỐI CÙNG ---
   return (
     <div className="mb-4 card p-1 md:p-4">
       {/* Edit Mode Controls */}
@@ -337,6 +376,7 @@ const PackingResult = () => {
         onSaveChanges={handleSaveChanges}
         onCancelEdit={handleCancelEdit}
         hasUnsavedChanges={hasUnsavedChanges}
+        onExportPdf={handleExportPdf}
       />
 
       <div className="bg-white rounded-xl shadow-lg border border-gray-300 p-2 md:p-3 mb-3 md:mb-4">

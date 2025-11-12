@@ -49,6 +49,36 @@ class PackingService {
       throw new Error(`Lỗi kiểm tra dữ liệu: ${error.message}`);
     }
   }
+  async exportLayoutToPdf(layoutData) {
+    try {
+      const response = await this.api.post(
+        '/packing/export-pdf', // (this.api đã có baseURL)
+        layoutData,
+        {
+          responseType: 'blob', // Rất quan trọng
+        }
+      );
+
+      // Xử lý file blob
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'packing-layout.pdf');
+      document.body.appendChild(link);
+      link.click();
+      
+      // Dọn dẹp
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      
+      return { success: true }; // Trả về thành công
+
+    } catch (error) {
+      console.error('Lỗi khi tải PDF:', error);
+      // Ném lỗi để component UI (PackingResult) có thể bắt và hiển thị
+      throw new Error(error.response?.data?.error || 'Không thể tải file PDF.');
+    }
+  }
 }
 
 export const packingService = new PackingService();

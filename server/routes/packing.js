@@ -1,6 +1,7 @@
 import express from 'express';
 import PackingAlgorithm from '../algorithms/packingAlgorithm.js'; 
 import Rectangle from '../models/Rectangle.js'; 
+import { generatePackingPdf } from '../utils/pdfGenerator.js';
 
 const router = express.Router();
 
@@ -128,5 +129,25 @@ router.post('/validate', (req, res) => {
     });
   }
 });
+// === ROUTE ĐỂ XUẤT PDF ===
+router.post('/export-pdf', (req, res) => {
+  try {
+    const { container, placedRectangles } = req.body;
 
+    if (!container || !placedRectangles) {
+      return res.status(400).json({ error: 'Dữ liệu layout không hợp lệ.' });
+    }
+
+    // Thiết lập header để trình duyệt hiểu đây là 1 file PDF
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'attachment; filename=packing-layout.pdf');
+
+    // Gọi hàm generator và truyền 'res' (response stream) vào
+    generatePackingPdf({ container, placedRectangles }, res);
+
+  } catch (error) {
+    console.error('Lỗi khi tạo PDF:', error);
+    res.status(500).json({ error: 'Không thể tạo file PDF.' });
+  }
+});
 export default router;
