@@ -142,12 +142,19 @@ const packingReducer = (state, action) => {
     case 'ADD_RECTANGLES_BATCH':
       return {
         ...state,
-        // Thêm các rectangles mới vào danh sách hiện tại
-        rectangles: [...state.rectangles, ...action.payload.newRectangles],
-        // Cập nhật toàn bộ quantities
+        // Thay thế hoàn toàn bằng danh sách mới
+        rectangles: action.payload.newRectangles,
+
+        // Thay thế hoàn toàn số lượng
         quantities: action.payload.newQuantities,
-        // Tự động chọn các size vừa thêm
-        selectedRectangles: action.payload.newSelected
+
+        // Thay thế hoàn toàn danh sách chọn
+        selectedRectangles: action.payload.newSelected,
+
+        // Xóa kết quả và lỗi cũ
+        packingResult: null,
+        errors: [],
+        warnings: []
       };
     default:
       return state;
@@ -184,8 +191,8 @@ export const PackingProvider = ({ children }) => {
 
   const addRectanglesFromExcel = useCallback((parsedData) => {
     const newRectangles = [];
-    const newQuantities = { ...state.quantities };
-    const newSelected = [ ...state.selectedRectangles ];
+    const newQuantities = {};
+    const newSelected = [];
     for (const item of parsedData) {
       const newId = getNewRectId();
       const newRect = {
@@ -201,7 +208,7 @@ export const PackingProvider = ({ children }) => {
           type: 'ADD_RECTANGLES_BATCH',
           payload: { newRectangles, newQuantities, newSelected }
           });
-          }, [getNewRectId, state.quantities, state.selectedRectangles]);
+          }, [getNewRectId]);
       const setQuantity = useCallback((id, quantity) => {
         dispatch({ type: 'SET_QUANTITY', payload: { id, quantity } });
       }, []);
@@ -566,7 +573,7 @@ export const PackingProvider = ({ children }) => {
           }
         });
       }
-
+      
       // ========== GIAI ĐOẠN 3: MERGE - Hợp nhất các mảnh đôi với bounding box ==========
       const allPlacedPieces = finalPlates.flatMap(p => p.layers.flatMap(l => l.rectangles));
     const mergedRects = [];
@@ -579,8 +586,6 @@ export const PackingProvider = ({ children }) => {
     // Lấy các mảnh 1/2 (cần merge)
     let halfPieces = allPlacedPieces.filter(r => r.pairId != null && r.splitDirection !== 'none');
     const processedPieces = new Set(); // Đánh dấu các mảnh đã được merge
-
-    console.log(`[DEBUG MERGE] Bắt đầu Giai đoạn 3. Tổng mảnh: ${allPlacedPieces.length}. Mảnh 1/2: ${halfPieces.length}`);
 
     // Sắp xếp các mảnh theo Tấm -> Lớp -> Y -> X
     halfPieces.sort((a, b) => 
@@ -719,7 +724,6 @@ export const PackingProvider = ({ children }) => {
 
         // Nếu merge thành công
         if (mergedRect) {
-          console.log(`[DEBUG MERGE] GHÉP THÀNH CÔNG (lân cận): ${p1.id} (typeId ${p1.originalTypeId}) và ${p2.id} (typeId ${p2.originalTypeId})`);
           mergedRects.push(mergedRect);
           processedPieces.add(p1.id);
           processedPieces.add(p2.id);
@@ -730,13 +734,11 @@ export const PackingProvider = ({ children }) => {
 
       // Nếu p1 không tìm thấy cặp nào (bị mồ côi)
       if (!foundPair && !processedPieces.has(p1.id)) {
-        console.warn(`[DEBUG MERGE] Mảnh mồ côi: ${p1.id} (typeId: ${p1.originalTypeId})`);
         mergedRects.push(p1); // Vẫn thêm mảnh mồ côi vào
         processedPieces.add(p1.id);
       }
-    } // Kết thúc vòng lặp 'i' (duyệt các mảnh 1/2)
+    } 
 
-    console.log(`[DEBUG MERGE] Kết thúc Giai đoạn 3. Tổng mảnh sau merge: ${mergedRects.length}`);
       // ========== GIAI ĐOẠN 4: REBUILD - Xây dựng lại plates ==========
 
       const newFinalPlates = [];
@@ -783,9 +785,228 @@ export const PackingProvider = ({ children }) => {
       }
       
       finalPlates = newFinalPlates.sort((a, b) => a.plateIndex - b.plateIndex);
+      // ========== GIAI ĐOẠN 5: CONSOLIDATION - Gộp dùng FFD (NÂNG CẤP) ==========
+      console.log(`[DEBUG CONSOLIDATION] Bắt đầu giai đoạn gộp FFD...`);
 
-      // ========== GIAI ĐOẠN 5: SUMMARY - Tổng kết ==========
+      const singleLayerArea = state.container.width * state.container.length;
 
+      // 1. THU THẬP TẤM 1 LỚP
+      const singleLayerPlates = finalPlates.filter(p => p.layers.length === 1);
+      const platesToRemove = new Set(singleLayerPlates.map(p => p.plateIndex));
+
+      // Chỉ chạy nếu có nhiều hơn 1 tấm 1-lớp để gộp
+      if (singleLayerPlates.length > 1) {
+        console.log(`[DEBUG CONSOLIDATION] Tìm thấy ${singleLayerPlates.length} tấm 1-lớp để gộp`);
+
+        // ============================================================
+        // HELPER: Kiểm tra hình có chồng lấn với hình khác không
+        // (Cần cho findBestPosition)
+        // ============================================================
+        const checkOverlap = (rect, existingRects, tolerance = 0.1) => {
+          for (const existing of existingRects) {
+            const overlapX = !(rect.x + rect.width <= existing.x + tolerance || 
+                              rect.x >= existing.x + existing.width - tolerance);
+            const overlapY = !(rect.y + rect.length <= existing.y + tolerance || 
+                              rect.y >= existing.y + existing.length - tolerance);
+            
+            if (overlapX && overlapY) {
+              return true; // Có chồng lấn
+            }
+          }
+          return false; // Không chồng lấn
+        };
+        
+        // ============================================================
+        // HELPER: Tìm vị trí tốt nhất để đặt hình (Bottom-Left)
+        // (Cần cho FFD)
+        // ============================================================
+        const findBestPosition = (rect, existingRects, containerWidth, containerLength, canRotate = true) => {
+          let bestPos = null;
+          let bestWaste = Infinity;
+          
+          // Thử cả không xoay và xoay (nếu cho phép)
+          const orientations = [
+            { width: rect.width, length: rect.length, rotated: false }
+          ];
+          
+          // Chỉ xoay nếu cho phép VÀ không phải hình vuông
+          if (canRotate && rect.width !== rect.length) { 
+            orientations.push({ 
+              width: rect.length, 
+              length: rect.width, 
+              rotated: true 
+            });
+          }
+          
+          for (const orientation of orientations) {
+            const { width, length, rotated } = orientation;
+            
+            // Nếu hình vượt quá kích thước tấm, bỏ qua
+            if (width > containerWidth || length > containerLength) continue;
+            
+            // Tạo danh sách các điểm ứng viên (candidate points)
+            const candidatePoints = [{ x: 0, y: 0 }]; // Góc (0,0) luôn là ứng viên
+            
+            // Thêm các góc của hình đã xếp
+            for (const existing of existingRects) {
+              candidatePoints.push(
+                { x: existing.x + existing.width, y: existing.y },           // Bên phải
+                { x: existing.x, y: existing.y + existing.length },          // Bên dưới
+                { x: existing.x + existing.width, y: existing.y + existing.length } // Góc chéo
+              );
+            }
+            
+            // Duyệt qua từng điểm ứng viên
+            for (const point of candidatePoints) {
+              const { x, y } = point;
+              
+              // Kiểm tra hình có vừa trong tấm không
+              if (x + width > containerWidth || y + length > containerLength) continue;
+              
+              const testRect = { x, y, width, length, rotated };
+              
+              // Kiểm tra có chồng lấn không
+              if (checkOverlap(testRect, existingRects)) continue;
+              
+              // Tính "độ lãng phí" (waste) - ưu tiên vị trí thấp nhất, trái nhất
+              const waste = y * containerWidth + x;
+              
+              if (waste < bestWaste) {
+                bestWaste = waste;
+                bestPos = { ...testRect, originalRotated: rect.rotated };
+              }
+            }
+          }
+          
+          return bestPos;
+        };
+
+        // ============================================================
+        // BẮT ĐẦU LOGIC FFD
+        // ============================================================
+
+        // 2. THU THẬP ITEMS
+        // Lấy TẤT CẢ các item từ các tấm 1-lớp
+        let allItems = singleLayerPlates.flatMap(p => 
+          p.layers[0].rectangles.map(r => ({ ...r })) // Tạo bản sao
+        );
+
+        // 3. SẮP XẾP (Decreasing)
+        allItems.sort((a, b) => (b.width * b.length) - (a.width * a.length));
+        console.log(`[DEBUG CONSOLIDATION] Tổng cộng ${allItems.length} items, sắp xếp theo diện tích`);
+
+        // Lấy các tấm nhiều lớp (không gộp) ra
+        const multiLayerPlates = finalPlates.filter(p => !platesToRemove.has(p.plateIndex));
+        
+        // 4. ĐÓNG GÓI (First Fit)
+        const newConsolidatedPlates = []; // "Thùng" (tấm) mới
+        let newPlateCounter = multiLayerPlates.length; // Bắt đầu đếm index sau các tấm nhiều lớp
+
+        for (const item of allItems) {
+          let placed = false;
+
+          // Thử xếp vào các "thùng" (tấm) đã có
+          for (const bin of newConsolidatedPlates) {
+            const targetRects = bin.layers[0].rectangles;
+            const bestPos = findBestPosition(
+              item,
+              targetRects,
+              state.container.width,
+              state.container.length,
+              true // Cho phép xoay
+            );
+
+            if (bestPos) {
+              // ✅ Vừa! (First Fit)
+              const mergedRect = {
+                ...item,
+                x: bestPos.x,
+                y: bestPos.y,
+                width: bestPos.width,
+                length: bestPos.length,
+                rotated: bestPos.rotated, // Ghi lại trạng thái xoay MỚI
+                layer: 0,
+                plateIndex: bin.plateIndex
+              };
+              targetRects.push(mergedRect); // Thêm vào thùng
+              placed = true;
+              break; // Thoát vòng lặp 'bin', xử lý 'item' tiếp theo
+            }
+          }
+
+          // Nếu không vừa thùng nào, mở thùng mới
+          if (!placed) {
+            const newPlateIndex = newPlateCounter++;
+            
+            // Tìm vị trí cho item đầu tiên (luôn là 0,0)
+            const bestPos = findBestPosition(item, [], state.container.width, state.container.length, true);
+
+            const newRect = {
+              ...item,
+              x: bestPos.x,
+              y: bestPos.y,
+              width: bestPos.width,
+              length: bestPos.length,
+              rotated: bestPos.rotated,
+              layer: 0,
+              plateIndex: newPlateIndex
+            };
+            
+            const newBin = {
+              plateIndex: newPlateIndex,
+              type: 'mixed',
+              description: `Tấm Gộp #${newPlateIndex + 1}`, // Sẽ cập nhật sau
+              layers: [{
+                layerIndexInPlate: 0,
+                rectangles: [newRect]
+              }]
+            };
+            newConsolidatedPlates.push(newBin);
+          }
+        }
+
+        // 5. THAY THẾ
+        finalPlates = [...multiLayerPlates, ...newConsolidatedPlates];
+
+        // Cập nhật lại description và đánh số lại
+        finalPlates.forEach((plate, idx) => {
+          plate.plateIndex = idx; // Đánh số lại
+          
+          plate.layers.forEach(layer => {
+            layer.rectangles.forEach(rect => {
+              rect.plateIndex = idx; // Cập nhật plateIndex cho từng hình
+            });
+          });
+
+          // Cập nhật description cho các tấm gộp
+          if (newConsolidatedPlates.some(p => p.plateIndex === idx)) {
+              const plateArea = plate.layers[0].rectangles.reduce((sum, r) => sum + (r.width * r.length), 0);
+              const efficiency = ((plateArea / singleLayerArea) * 100).toFixed(1);
+              plate.description = `Tấm Gộp #${idx + 1} (${plate.layers[0].rectangles.length} hình, ${efficiency}%)`;
+          }
+        });
+        
+        // Cập nhật mergedRects với plateIndex mới
+        const oldToNewPlateIndex = new Map(finalPlates.map((p, idx) => [p.plateIndex, idx]));
+        mergedRects.forEach(rect => {
+          if (oldToNewPlateIndex.has(rect.plateIndex)) {
+            rect.plateIndex = oldToNewPlateIndex.get(rect.plateIndex);
+          }
+        });
+        
+        dispatch({
+            type: 'SET_WARNING',
+            payload: {
+              type: 'optimization',
+              message: `✅ Đã gộp ${singleLayerPlates.length} tấm 1-lớp thành ${newConsolidatedPlates.length} tấm mới (Tiết kiệm ${singleLayerPlates.length - newConsolidatedPlates.length} tấm).`
+            }
+          });
+
+      } else {
+        console.log(`[DEBUG CONSOLIDATION] Chỉ có ${singleLayerPlates.length} tấm 1-lớp, không cần gộp.`);
+      }
+
+      // ========== GIAI ĐOẠN 6 : SUMMARY - Tổng kết ==========
       const totalRequested = selectedTypes.reduce((s, t) => s + (state.quantities[t.id] || 0), 0);
       
       // Đếm số lượng rectangles GỐC đã được place

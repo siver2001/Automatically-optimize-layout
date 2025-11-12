@@ -33,25 +33,32 @@ class PackingAlgorithm {
   }
   
   // ---  Chạy thuật toán 2D đóng gói đơn lớp ---
+  
+  // ✅ NÂNG CẤP: Hàm _runSingleLayerPacking
   _runSingleLayerPacking(rectanglesToPack) {
     // Sắp xếp các hình chữ nhật NGAY TẠI ĐÂY
     const sortedRectangles = this.sortRectanglesByArea(rectanglesToPack); 
 
     const strategies = [
-      // Thuật toán MaxRectsBSSF (đã nâng cấp để tự xoay) là chiến lược chính
-      () => this._maxRectsBSSF(sortedRectangles.map(r => ({...r}))),
-      // Giữ lại NFD làm phương án dự phòng
-      () => this._nextFitDecreasing(sortedRectangles.map(r => ({...r})))
+      // Thử cả 4 chiến lược MaxRects (Guillotine)
+      () => this._maxRectsBSSF(sortedRectangles.map(r => ({...r}))), // Best Short Side Fit (Bạn đã có)
+      () => this._maxRectsBAF(sortedRectangles.map(r => ({...r}))),  // Best Area Fit (Mới)
+      () => this._maxRectsBLSF(sortedRectangles.map(r => ({...r}))), // Best Long Side Fit (Mới)
+      () => this._maxRectsBL(sortedRectangles.map(r => ({...r})))    // Bottom-Left (Mới)
+      
+      // Chúng ta bỏ _nextFitDecreasing vì hiệu suất thấp
     ];
 
     let bestResult = { placed: [], remaining: sortedRectangles };
     let bestUsedArea = 0;
 
+    // "Cuộc đua" bắt đầu
     for (const strategy of strategies) {
         // strategy() đã tự tạo bản sao
         const { placed: currentPlaced, remaining: currentRemaining } = strategy(); 
         const currentUsedArea = currentPlaced.reduce((sum, rect) => sum + (rect.width * rect.length), 0);
         
+        // Chọn người chiến thắng
         if (currentUsedArea > bestUsedArea) {
             bestUsedArea = currentUsedArea;
             bestResult = { 
@@ -61,7 +68,7 @@ class PackingAlgorithm {
         }
     }
 
-    return bestResult;
+    return bestResult; // Trả về kết quả tốt nhất
   }
   
 
@@ -72,126 +79,370 @@ class PackingAlgorithm {
 
   // --- Implementations of 2D Packing Algorithms ---
 
-  // Thuật toán này đã được nâng cấp để tự động thử xoay 90 độ
-  _maxRectsBSSF(rectanglesToPack) {
-  const placedRectangles = [];
-  const usedRectIds = new Set();
-  const freeNodes = [{ x: 0, y: 0, width: this.container.width, length: this.container.length }];
+  // === HELPER CHO CÁC HÀM MAXRECTS ===
+  _maxRectsCommonHelpers() {
+    const fitsIn = (w, h, node) => w <= node.width && h <= node.length;
+    
+    const splitFreeNode = (node, placed) => {
+      const remainingNodes = [];
+      if (node.length > placed.length) {
+        remainingNodes.push({
+          x: node.x,
+          y: node.y + placed.length,
+          width: node.width,
+          length: node.length - placed.length
+        });
+      }
+      if (node.width > placed.width) {
+        remainingNodes.push({
+          x: node.x + placed.width,
+          y: node.y,
+          width: node.width - placed.width,
+          length: placed.length
+        });
+      }
+      return remainingNodes;
+    };
 
-  const fitsIn = (w, h, node) => w <= node.width && h <= node.length;
-  const scoreFor = (w, h, node) => {
-    const dw = node.width - w;
-    const dh = node.length - h;
-    return { shortFit: Math.min(dw, dh), longFit: Math.max(dw, dh) };
-  };
+    const rectContains = (a, b) => a.x <= b.x && a.y <= b.y && (a.x + a.width) >= (b.x + b.width) && (a.y + a.length) >= (b.y + b.length);
+
+    const pruneFreeList = (nodes) => {
+      for (let i = nodes.length - 1; i >= 0; i--) {
+        if (!nodes[i]) continue;
+        for (let j = nodes.length - 1; j >= 0; j--) {
+          if (i === j || !nodes[j]) continue;
+          if (rectContains(nodes[j], nodes[i])) {
+            nodes.splice(i, 1);
+            break;
+          }
+        }
+      }
+    };
+    return { fitsIn, splitFreeNode, pruneFreeList };
+  }
   
-  const splitFreeNode = (node, placed) => {
-    const remainingNodes = [];
-    if (node.length > placed.length) {
-      remainingNodes.push({
-        x: node.x,
-        y: node.y + placed.length,
-        width: node.width,
-        length: node.length - placed.length
-      });
-    }
-    if (node.width > placed.width) {
-      remainingNodes.push({
-        x: node.x + placed.width,
-        y: node.y,
-        width: node.width - placed.width,
-        length: placed.length
-      });
-    }
-    return remainingNodes;
-  };
+  // === 1. CHIẾN LƯỢC: Best Short Side Fit (BSSF) ===
+  _maxRectsBSSF(rectanglesToPack) {
+    const { fitsIn, splitFreeNode, pruneFreeList } = this._maxRectsCommonHelpers();
+    const placedRectangles = [];
+    const usedRectIds = new Set();
+    const freeNodes = [{ x: 0, y: 0, width: this.container.width, length: this.container.length }];
 
-  const rectContains = (a, b) => a.x <= b.x && a.y <= b.y && (a.x + a.width) >= (b.x + b.width) && (a.y + a.length) >= (b.y + b.length);
+    for (const rect of rectanglesToPack) {
+      if (usedRectIds.has(rect.id)) continue;
 
-  const pruneFreeList = (nodes) => {
-    for (let i = nodes.length - 1; i >= 0; i--) {
-      if (!nodes[i]) continue;
-      for (let j = nodes.length - 1; j >= 0; j--) {
-        if (i === j || !nodes[j]) continue;
-        if (rectContains(nodes[j], nodes[i])) {
-          nodes.splice(i, 1);
-          break;
+      let bestIndex = -1;
+      let bestShort = Infinity;
+      let bestLong = Infinity;
+      let chosenNode = null;
+      let bestWasRotated = false;
+
+      for (let i = 0; i < freeNodes.length; i++) {
+        const node = freeNodes[i];
+
+        // Thử không xoay
+        if (fitsIn(rect.width, rect.length, node)) {
+          const dw = node.width - rect.width;
+          const dh = node.length - rect.length;
+          const shortFit = Math.min(dw, dh);
+          const longFit = Math.max(dw, dh);
+          
+          if (shortFit < bestShort || (shortFit === bestShort && longFit < bestLong)) {
+            bestShort = shortFit;
+            bestLong = longFit;
+            bestIndex = i;
+            chosenNode = node;
+            bestWasRotated = false;
+          }
         }
-      }
-    }
-  };
 
-  for (const rect of rectanglesToPack) {
-    if (usedRectIds.has(rect.id)) continue;
-
-    let bestIndex = -1;
-    let bestShort = Infinity;
-    let bestLong = Infinity;
-    let chosenNode = null;
-    let bestWasRotated = false;
-
-    for (let i = 0; i < freeNodes.length; i++) {
-      const node = freeNodes[i];
-
-      // Thử không xoay
-      if (fitsIn(rect.width, rect.length, node)) {
-        const s = scoreFor(rect.width, rect.length, node);
-        if (s.shortFit < bestShort || (s.shortFit === bestShort && s.longFit < bestLong)) {
-          bestShort = s.shortFit;
-          bestLong = s.longFit;
-          bestIndex = i;
-          chosenNode = node;
-          bestWasRotated = false;
+        // Thử xoay 90° - CHỈ NẾU !rect.noRotate
+        if (!rect.noRotate && fitsIn(rect.length, rect.width, node)) {
+          const dw = node.width - rect.length;
+          const dh = node.length - rect.width;
+          const shortFit = Math.min(dw, dh);
+          const longFit = Math.max(dw, dh);
+          
+          if (shortFit < bestShort || (shortFit === bestShort && longFit < bestLong)) {
+            bestShort = shortFit;
+            bestLong = longFit;
+            bestIndex = i;
+            chosenNode = node;
+            bestWasRotated = true;
+          }
         }
       }
 
-      // Thử xoay 90° - CHỈ NẾU !rect.noRotate
-      if (!rect.noRotate && fitsIn(rect.length, rect.width, node)) {
-        const s = scoreFor(rect.length, rect.width, node);
-        if (s.shortFit < bestShort || (s.shortFit === bestShort && s.longFit < bestLong)) {
-          bestShort = s.shortFit;
-          bestLong = s.longFit;
-          bestIndex = i;
-          chosenNode = node;
-          bestWasRotated = true;
-        }
+      if (bestIndex !== -1 && chosenNode) {
+        const placedWidth = bestWasRotated ? rect.length : rect.width;
+        const placedLength = bestWasRotated ? rect.width : rect.length;
+
+        const placed = {
+          ...rect,
+          x: chosenNode.x,
+          y: chosenNode.y,
+          width: placedWidth,
+          length: placedLength,
+          rotated: bestWasRotated,
+          originalWidth: rect.originalWidth,
+          originalLength: rect.originalLength,
+          transform: rect.transform, 
+          pairId: rect.pairId,
+          pieceIndex: rect.pieceIndex,
+          splitDirection: rect.splitDirection
+        };
+        
+        placedRectangles.push(placed);
+        usedRectIds.add(rect.id);
+
+        const usedNode = freeNodes.splice(bestIndex, 1)[0];
+        const splits = splitFreeNode(usedNode, placed);
+        freeNodes.push(...splits);
+        pruneFreeList(freeNodes);
       }
     }
 
-    if (bestIndex !== -1 && chosenNode) {
-      const placedWidth = bestWasRotated ? rect.length : rect.width;
-      const placedLength = bestWasRotated ? rect.width : rect.length;
-
-      const placed = {
-        ...rect,
-        x: chosenNode.x,
-        y: chosenNode.y,
-        width: placedWidth,
-        length: placedLength,
-        rotated: bestWasRotated,
-        // ✅ BẢO TỒN METADATA
-        originalWidth: rect.originalWidth,
-        originalLength: rect.originalLength,
-        transform: rect.transform, // ✅ QUAN TRỌNG
-        pairId: rect.pairId,
-        pieceIndex: rect.pieceIndex,
-        splitDirection: rect.splitDirection
-      };
-      
-      placedRectangles.push(placed);
-      usedRectIds.add(rect.id);
-
-      const usedNode = freeNodes.splice(bestIndex, 1)[0];
-      const splits = splitFreeNode(usedNode, placed);
-      freeNodes.push(...splits);
-      pruneFreeList(freeNodes);
-    }
+    const remainingRectangles = rectanglesToPack.filter(rect => !usedRectIds.has(rect.id));
+    return { placed: placedRectangles, remaining: remainingRectangles };
   }
 
-  const remainingRectangles = rectanglesToPack.filter(rect => !usedRectIds.has(rect.id));
-  return { placed: placedRectangles, remaining: remainingRectangles };
-}
+  // === 2. CHIẾN LƯỢC: Best Area Fit (BAF) ===
+  _maxRectsBAF(rectanglesToPack) {
+    const { fitsIn, splitFreeNode, pruneFreeList } = this._maxRectsCommonHelpers();
+    const placedRectangles = [];
+    const usedRectIds = new Set();
+    const freeNodes = [{ x: 0, y: 0, width: this.container.width, length: this.container.length }];
 
+    for (const rect of rectanglesToPack) {
+      if (usedRectIds.has(rect.id)) continue;
+
+      let bestIndex = -1;
+      let bestScore = Infinity; // Tìm score nhỏ nhất (ít lãng phí nhất)
+      let chosenNode = null;
+      let bestWasRotated = false;
+
+      for (let i = 0; i < freeNodes.length; i++) {
+        const node = freeNodes[i];
+        const nodeArea = node.width * node.length;
+
+        // Thử không xoay
+        if (fitsIn(rect.width, rect.length, node)) {
+          const waste = nodeArea - (rect.width * rect.length);
+          if (waste < bestScore) {
+            bestScore = waste;
+            bestIndex = i;
+            chosenNode = node;
+            bestWasRotated = false;
+          }
+        }
+
+        // Thử xoay 90° - CHỈ NẾU !rect.noRotate
+        if (!rect.noRotate && fitsIn(rect.length, rect.width, node)) {
+          const waste = nodeArea - (rect.length * rect.width);
+          if (waste < bestScore) {
+            bestScore = waste;
+            bestIndex = i;
+            chosenNode = node;
+            bestWasRotated = true;
+          }
+        }
+      }
+
+      if (bestIndex !== -1 && chosenNode) {
+        const placedWidth = bestWasRotated ? rect.length : rect.width;
+        const placedLength = bestWasRotated ? rect.width : rect.length;
+
+        const placed = {
+          ...rect,
+          x: chosenNode.x,
+          y: chosenNode.y,
+          width: placedWidth,
+          length: placedLength,
+          rotated: bestWasRotated,
+          originalWidth: rect.originalWidth,
+          originalLength: rect.originalLength,
+          transform: rect.transform,
+          pairId: rect.pairId,
+          pieceIndex: rect.pieceIndex,
+          splitDirection: rect.splitDirection
+        };
+        
+        placedRectangles.push(placed);
+        usedRectIds.add(rect.id);
+
+        const usedNode = freeNodes.splice(bestIndex, 1)[0];
+        const splits = splitFreeNode(usedNode, placed);
+        freeNodes.push(...splits);
+        pruneFreeList(freeNodes);
+      }
+    }
+
+    const remainingRectangles = rectanglesToPack.filter(rect => !usedRectIds.has(rect.id));
+    return { placed: placedRectangles, remaining: remainingRectangles };
+  }
+
+  // === 3. CHIẾN LƯỢC: Best Long Side Fit (BLSF) ===
+  _maxRectsBLSF(rectanglesToPack) {
+    const { fitsIn, splitFreeNode, pruneFreeList } = this._maxRectsCommonHelpers();
+    const placedRectangles = [];
+    const usedRectIds = new Set();
+    const freeNodes = [{ x: 0, y: 0, width: this.container.width, length: this.container.length }];
+
+    for (const rect of rectanglesToPack) {
+      if (usedRectIds.has(rect.id)) continue;
+
+      let bestIndex = -1;
+      let bestLong = Infinity;
+      let bestShort = Infinity;
+      let chosenNode = null;
+      let bestWasRotated = false;
+
+      for (let i = 0; i < freeNodes.length; i++) {
+        const node = freeNodes[i];
+
+        // Thử không xoay
+        if (fitsIn(rect.width, rect.length, node)) {
+          const dw = node.width - rect.width;
+          const dh = node.length - rect.length;
+          const shortFit = Math.min(dw, dh);
+          const longFit = Math.max(dw, dh);
+          
+          if (longFit < bestLong || (longFit === bestLong && shortFit < bestShort)) {
+            bestShort = shortFit;
+            bestLong = longFit;
+            bestIndex = i;
+            chosenNode = node;
+            bestWasRotated = false;
+          }
+        }
+
+        // Thử xoay 90° - CHỈ NẾU !rect.noRotate
+        if (!rect.noRotate && fitsIn(rect.length, rect.width, node)) {
+          const dw = node.width - rect.length;
+          const dh = node.length - rect.width;
+          const shortFit = Math.min(dw, dh);
+          const longFit = Math.max(dw, dh);
+          
+          if (longFit < bestLong || (longFit === bestLong && shortFit < bestShort)) {
+            bestShort = shortFit;
+            bestLong = longFit;
+            bestIndex = i;
+            chosenNode = node;
+            bestWasRotated = true;
+          }
+        }
+      }
+
+      if (bestIndex !== -1 && chosenNode) {
+        const placedWidth = bestWasRotated ? rect.length : rect.width;
+        const placedLength = bestWasRotated ? rect.width : rect.length;
+
+        const placed = {
+          ...rect,
+          x: chosenNode.x,
+          y: chosenNode.y,
+          width: placedWidth,
+          length: placedLength,
+          rotated: bestWasRotated,
+          originalWidth: rect.originalWidth,
+          originalLength: rect.originalLength,
+          transform: rect.transform,
+          pairId: rect.pairId,
+          pieceIndex: rect.pieceIndex,
+          splitDirection: rect.splitDirection
+        };
+        
+        placedRectangles.push(placed);
+        usedRectIds.add(rect.id);
+
+        const usedNode = freeNodes.splice(bestIndex, 1)[0];
+        const splits = splitFreeNode(usedNode, placed);
+        freeNodes.push(...splits);
+        pruneFreeList(freeNodes);
+      }
+    }
+
+    const remainingRectangles = rectanglesToPack.filter(rect => !usedRectIds.has(rect.id));
+    return { placed: placedRectangles, remaining: remainingRectangles };
+  }
+
+  // === 4. CHIẾN LƯỢC: Bottom Left (BL) ===
+  _maxRectsBL(rectanglesToPack) {
+    const { fitsIn, splitFreeNode, pruneFreeList } = this._maxRectsCommonHelpers();
+    const placedRectangles = [];
+    const usedRectIds = new Set();
+    const freeNodes = [{ x: 0, y: 0, width: this.container.width, length: this.container.length }];
+
+    for (const rect of rectanglesToPack) {
+      if (usedRectIds.has(rect.id)) continue;
+
+      let bestIndex = -1;
+      let bestScore = Infinity; // Y * Width + X
+      let chosenNode = null;
+      let bestWasRotated = false;
+
+      for (let i = 0; i < freeNodes.length; i++) {
+        const node = freeNodes[i];
+        
+        // Thử không xoay
+        if (fitsIn(rect.width, rect.length, node)) {
+          const score = node.y * this.container.width + node.x;
+          if (score < bestScore) {
+            bestScore = score;
+            bestIndex = i;
+            chosenNode = node;
+            bestWasRotated = false;
+          }
+        }
+
+        // Thử xoay 90° - CHỈ NẾU !rect.noRotate
+        if (!rect.noRotate && fitsIn(rect.length, rect.width, node)) {
+          const score = node.y * this.container.width + node.x;
+           if (score < bestScore) {
+            bestScore = score;
+            bestIndex = i;
+            chosenNode = node;
+            bestWasRotated = true;
+          }
+        }
+      }
+
+      if (bestIndex !== -1 && chosenNode) {
+        const placedWidth = bestWasRotated ? rect.length : rect.width;
+        const placedLength = bestWasRotated ? rect.width : rect.length;
+
+        const placed = {
+          ...rect,
+          x: chosenNode.x,
+          y: chosenNode.y,
+          width: placedWidth,
+          length: placedLength,
+          rotated: bestWasRotated,
+          originalWidth: rect.originalWidth,
+          originalLength: rect.originalLength,
+          transform: rect.transform,
+          pairId: rect.pairId,
+          pieceIndex: rect.pieceIndex,
+          splitDirection: rect.splitDirection
+        };
+        
+        placedRectangles.push(placed);
+        usedRectIds.add(rect.id);
+
+        const usedNode = freeNodes.splice(bestIndex, 1)[0];
+        const splits = splitFreeNode(usedNode, placed);
+        freeNodes.push(...splits);
+        pruneFreeList(freeNodes);
+      }
+    }
+
+    const remainingRectangles = rectanglesToPack.filter(rect => !usedRectIds.has(rect.id));
+    return { placed: placedRectangles, remaining: remainingRectangles };
+  }
+
+
+  // === CÁC HÀM CŨ (GIỮ NGUYÊN) ===
+  
   _bottomLeftFill(rectanglesToPack) {
     const placedRectangles = [];
     const usedRectIds = new Set();
@@ -475,6 +726,7 @@ class PackingAlgorithm {
         }
 
         // Chạy thuật toán 2D (đã hỗ trợ xoay) cho những hình còn lại
+        // ✅ ĐÂY LÀ HÀM ĐÃ ĐƯỢC NÂNG CẤP (TỰ ĐỘNG CHỌN STRATEGY TỐT NHẤT)
         const { placed: placedRaw, remaining: remainingRaw } = this._runSingleLayerPacking(unpackedRectangles);
         
         // Chỉ sanitize những hình đã đặt
@@ -536,13 +788,10 @@ class PackingAlgorithm {
         initialRectangles, // Truyền hình chữ nhật gốc
         maxLayers
       );
-
-      const elapsed = ((Date.now() - this.startTime) / 1000).toFixed(2);
-      
       return bestResult;
       
     } catch (error) {
-      const elapsed = ((Date.now() - this.startTime) / 1000).toFixed(2);
+      const elapsed = ((Date.now() - this.startTime) / 1000).toFixed(2); 
       console.error(`[Algorithm] ✗ Lỗi sau ${elapsed}s:`, error);
       throw error;
     }

@@ -93,7 +93,7 @@ const ContainerInput = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
               <div className="flex flex-col">
                 <label htmlFor="width" className="label text-sm md:text-base">
-                  📏 Chiều rộng (mm)
+                  Chiều rộng (mm)
                 </label>
                 <input
                   id="width"
@@ -111,7 +111,7 @@ const ContainerInput = () => {
               
               <div className="flex flex-col">
                 <label htmlFor="length" className="label text-sm md:text-base">
-                  📏 Chiều dài (mm)
+                  Chiều dài (mm)
                 </label>
                 <input
                   id="length"
