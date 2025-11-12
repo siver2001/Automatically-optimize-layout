@@ -34,19 +34,17 @@ class PackingAlgorithm {
   
   // ---  Chạy thuật toán 2D đóng gói đơn lớp ---
   
-  // ✅ NÂNG CẤP: Hàm _runSingleLayerPacking
   _runSingleLayerPacking(rectanglesToPack) {
     // Sắp xếp các hình chữ nhật NGAY TẠI ĐÂY
     const sortedRectangles = this.sortRectanglesByArea(rectanglesToPack); 
 
     const strategies = [
-      // Thử cả 4 chiến lược MaxRects (Guillotine)
+      // Thử cả 5 chiến lược MaxRects (Guillotine)
       () => this._maxRectsBSSF(sortedRectangles.map(r => ({...r}))), // Best Short Side Fit (Bạn đã có)
       () => this._maxRectsBAF(sortedRectangles.map(r => ({...r}))),  // Best Area Fit (Mới)
       () => this._maxRectsBLSF(sortedRectangles.map(r => ({...r}))), // Best Long Side Fit (Mới)
       () => this._maxRectsBL(sortedRectangles.map(r => ({...r})))    // Bottom-Left (Mới)
       
-      // Chúng ta bỏ _nextFitDecreasing vì hiệu suất thấp
     ];
 
     let bestResult = { placed: [], remaining: sortedRectangles };
