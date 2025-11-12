@@ -21,6 +21,9 @@ const PackingResult = () => {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [originalRectangles, setOriginalRectangles] = useState([]);
   
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState(null);
+
   const containerRef = useRef(null);
   const [containerBounds, setContainerBounds] = useState(null);
 
@@ -276,29 +279,36 @@ const PackingResult = () => {
   }, [isEditMode, editedRectangles, currentPlateLayers]);
 
   // --- HÀM XUẤT PDF ---
-  const handleExportPdf = useCallback(async () => {
-    if (displayRectangles.length === 0) {
-      alert("Tấm liệu này không có hình nào để xuất PDF.");
+  const handleExportPdf = async () => {
+    // 1. Kiểm tra xem có 'packingResult' không
+    // (packingResult này đến từ hook 'usePacking' của bạn)
+    if (!packingResult || !packingResult.plates || !container || packingResult.plates.length === 0) {
+      setExportError('Không có dữ liệu kết quả để xuất.');
       return;
     }
 
-    const rectanglesWithColor = displayRectangles.map(rect => ({
-      ...rect,
-      color: rect.color || (placedRectDetails[rect.typeId] || placedRectDetails[rect.id])?.color || '#3498db'
-    }));
-
-    const layoutData = {
-      container: container,
-      placedRectangles: rectanglesWithColor
-    };
+    setIsExporting(true);
+    setExportError(null);
 
     try {
-      await packingService.exportLayoutToPdf(layoutData);
+      // 2. Lấy 'container' và 'allLayouts' từ kết quả
+      const { plates } = packingResult;
+      
+      // 3. Truyền "container" (từ hook) và "plates" (từ packingResult)
+      const response = await packingService.exportMultiPagePdf(container, plates);
+
+      if (!response.success) {
+        setExportError(response.error || 'Lỗi không xác định khi xuất file.');
+      }
+      // Nếu success thì file đã tự động tải về
+
     } catch (error) {
-      console.error("Lỗi UI khi xuất PDF:", error);
-      alert(error.message || 'Không thể xuất file PDF.');
+      console.error('Lỗi handleExportPdf:', error);
+      setExportError('Lỗi nghiêm trọng: ' + error.message);
+    } finally {
+      setIsExporting(false);
     }
-  }, [displayRectangles, placedRectDetails, container]);
+  };
 
   // --- TÍNH TOÁN CÁC BIẾN ĐỂ RENDER ---
   const plateType = currentPlateMeta?.type === 'pure' ? 'Thuần' : 'Hỗn Hợp';
@@ -376,9 +386,15 @@ const PackingResult = () => {
         onSaveChanges={handleSaveChanges}
         onCancelEdit={handleCancelEdit}
         hasUnsavedChanges={hasUnsavedChanges}
-        onExportPdf={handleExportPdf}
+        onExportAllPdf={handleExportPdf}
+        isExporting={isExporting}
+        totalPlates={platesNeeded}
       />
-
+      {exportError && (
+        <div className="my-2 p-2 bg-red-100 text-red-700 text-sm border border-red-300 rounded">
+          <strong>Lỗi xuất PDF:</strong> {exportError}
+        </div>
+      )}
       <div className="bg-white rounded-xl shadow-lg border border-gray-300 p-2 md:p-3 mb-3 md:mb-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-3 border-b pb-2 gap-2">
           <h3 className="text-sm md:text-base lg:text-lg font-semibold text-gray-800" title={currentPlateMeta.description}>

@@ -1,7 +1,7 @@
 import express from 'express';
 import PackingAlgorithm from '../algorithms/packingAlgorithm.js'; 
 import Rectangle from '../models/Rectangle.js'; 
-import { generatePackingPdf } from '../utils/pdfGenerator.js';
+import { generateMultiPagePackingPdf } from '../utils/pdfGenerator.js';
 
 const router = express.Router();
 
@@ -132,20 +132,25 @@ router.post('/validate', (req, res) => {
 // === ROUTE ĐỂ XUẤT PDF ===
 router.post('/export-pdf', (req, res) => {
   try {
-    const { container, placedRectangles } = req.body;
+    // ✅  Mong đợi 'container' và một mảng 'allLayouts'
+    const { container, allLayouts } = req.body;
 
-    if (!container || !placedRectangles) {
-      return res.status(400).json({ error: 'Dữ liệu layout không hợp lệ.' });
+    if (!container || !allLayouts || !Array.isArray(allLayouts) || allLayouts.length === 0) {
+      return res.status(400).json({ 
+        error: 'Dữ liệu layout không hợp lệ. Cần "container" và mảng "allLayouts".' 
+      });
     }
 
-    // Thiết lập header để trình duyệt hiểu đây là 1 file PDF
+    // Thiết lập header
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', 'attachment; filename=packing-layout.pdf');
+    // Đổi tên file để thể hiện có nhiều layout
+    res.setHeader('Content-Disposition', 'attachment; filename=packing-layouts.pdf'); 
 
-    // Gọi hàm generator và truyền 'res' (response stream) vào
-    generatePackingPdf({ container, placedRectangles }, res);
+    // Truyền toàn bộ dữ liệu nhận được
+    generateMultiPagePackingPdf({ container, allLayouts }, res);
 
-  } catch (error) {
+  } catch (error)
+    {
     console.error('Lỗi khi tạo PDF:', error);
     res.status(500).json({ error: 'Không thể tạo file PDF.' });
   }

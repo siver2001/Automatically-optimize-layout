@@ -49,12 +49,6 @@ const NoSnapIcon = () => (
   </svg>
 );
 
-const PdfIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-  </svg>
-);
-
 // --- Component trợ giúp cho các nút bấm ---
 const ActionButton = ({ onClick, disabled, label, isDanger = false, children }) => (
   <button
@@ -89,7 +83,9 @@ const EditModeControls = ({
   onSaveChanges,
   onCancelEdit,
   hasUnsavedChanges,
-  onExportPdf
+  onExportAllPdf,
+  isExporting,
+  totalPlates
 }) => {
 
   const hasSelection = selectedRectangles && selectedRectangles.length > 0;
@@ -97,7 +93,7 @@ const EditModeControls = ({
 
   return (
     <div className="mb-3 card p-3 md:p-2 bg-gray-50 border-t-4 border-primary-500 rounded-b-xl shadow-lg">
-      <div className="flex flex-col md:flex-row justify-between items-center gap-3">
+      <div className="flex flex-row flex-wrap justify-between items-center gap-3">
         
         {/* Nút Bật/Tắt Chế độ Chỉnh sửa */}
         <div className="flex-shrink-0">
@@ -111,13 +107,17 @@ const EditModeControls = ({
           >
             {isEditMode ? '🔒 Thoát Chế độ Chỉnh sửa' : '✏️ Mở Chế độ Chỉnh sửa'}
           </button>
-          <button
-            onClick={onExportPdf}
-            title="Xuất kết quả tấm hiện tại ra PDF"
-            className="p-2.5 rounded-lg shadow-md bg-white text-blue-600 hover:bg-blue-50 transition-all duration-300 hover:-translate-y-0.5 border border-blue-200"
-          >
-            <PdfIcon />
-          </button>
+            <div className="flex-shrink-0">
+            <button 
+              onClick={onExportAllPdf} // Dùng prop mới
+              disabled={isExporting || totalPlates === 0} // Dùng prop mới
+              className="px-4 py-2 bg-green-600 text-white font-semibold rounded-md shadow-sm hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+            >
+              {isExporting 
+                ? 'Đang xử lý...' 
+                : `Xuất PDF (${totalPlates} tấm)`}
+            </button>
+          </div>
         </div>
 
         {/* Bảng điều khiển (chỉ hiển thị khi isEditMode = true) */}

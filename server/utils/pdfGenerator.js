@@ -10,9 +10,7 @@ const __dirname = path.dirname(__filename);
  * Chuyển màu HEX/HSL sang RGB
  */
 function parseColor(colorStr) {
-  if (!colorStr) return [52, 152, 219]; // Default blue
-  
-  // HEX: #RRGGBB
+  if (!colorStr) return [52, 152, 219]; 
   if (colorStr.startsWith('#')) {
     const hex = colorStr.slice(1);
     return [
@@ -21,8 +19,6 @@ function parseColor(colorStr) {
       parseInt(hex.slice(4, 6), 16)
     ];
   }
-  
-  // HSL: hsl(h, s%, l%)
   if (colorStr.startsWith('hsl')) {
     const match = colorStr.match(/hsl\((\d+),\s*(\d+)%,\s*(\d+)%\)/);
     if (match) {
@@ -30,7 +26,6 @@ function parseColor(colorStr) {
       const hue = h / 360;
       const sat = s / 100;
       const light = l / 100;
-      
       let r, g, b;
       if (sat === 0) {
         r = g = b = light;
@@ -43,40 +38,32 @@ function parseColor(colorStr) {
           if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
           return p;
         };
-        
         const q = light < 0.5 ? light * (1 + sat) : light + sat - light * sat;
         const p = 2 * light - q;
         r = hue2rgb(p, q, hue + 1/3);
         g = hue2rgb(p, q, hue);
         b = hue2rgb(p, q, hue - 1/3);
       }
-      
       return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
     }
   }
-  
-  return [52, 152, 219]; // Default
+  return [52, 152, 219];
 }
 
 /**
  * Vẽ text xoay 90 độ (cho size nằm dọc)
  */
 function drawRotatedText(doc, text, x, y, width, height, color) {
+
   doc.save();
-  
-  // Di chuyển đến tâm hình chữ nhật
   const centerX = x + width / 2;
   const centerY = y + height / 2;
-  
   doc.translate(centerX, centerY);
-  doc.rotate(90); // Xoay 90 độ
-  
-  // Vẽ nền trắng
+  doc.rotate(90); 
   const fontSize = Math.max(8, Math.min(12, height / 12));
   doc.fontSize(fontSize).font('Helvetica-Bold');
   const textWidth = doc.widthOfString(text);
   const textHeight = fontSize * 1.2;
-  
   doc
     .fillOpacity(0.85)
     .fillColor('white')
@@ -87,65 +74,65 @@ function drawRotatedText(doc, text, x, y, width, height, color) {
       textHeight + 2
     )
     .fill();
-  
-  // Vẽ text
   doc
     .fillOpacity(1)
     .fillColor(color)
     .text(text, -textWidth / 2, -textHeight / 2);
-  
   doc.restore();
 }
 
 /**
- * Vẽ kết quả sắp xếp lên PDF - FIXED
+ * Vẽ 1 layout lên trang 'doc' hiện tại
  */
-function generatePackingPdf(data, stream) {
-  const { container, placedRectangles, plateInfo = {} } = data;
-
-  // ✅ FIX: Font hỗ trợ Unicode đầy đủ
-  const doc = new PDFDocument({ 
-    layout: 'landscape', 
-    size: 'A4',
-    margins: { top: 60, bottom: 60, left: 50, right: 50 }
-  });
-
-  doc.pipe(stream);
+function drawSinglePageLayout(doc, layoutData, pageInfo) {
+  const { container, placedRectangles, plateInfo = {} } = layoutData;
+  const { currentPage, totalPages } = pageInfo;
 
   // === Layout ===
+
   const pageHeight = doc.page.height;
   const pageWidth = doc.page.width;
   const margin = 50;
   const headerHeight = 80;
-  
   const drawWidth = pageWidth - (margin * 2);
   const drawHeight = pageHeight - (margin * 2) - headerHeight;
-
   const scale = Math.min(
     drawWidth / container.width,
     drawHeight / container.length
   );
-
   const containerWidth = container.width * scale;
   const containerHeight = container.length * scale;
   const originX = margin + (drawWidth - containerWidth) / 2;
   const originY = margin + headerHeight + (drawHeight - containerHeight) / 2;
 
   // === HEADER ===
+
+  // Lay title (co the co dau)
+  let title = (plateInfo.description && plateInfo.description.trim() !== '')
+                ? plateInfo.description.toUpperCase() 
+                : 'KET QUA SAP TAM LIEU';
+  
+  // Bo dau cua title truoc khi in
+  title = title.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/Đ/g, 'D');
+                
   doc
     .fontSize(18)
     .font('Helvetica-Bold')
     .fillColor('#2c3e50')
-    .text('KET QUA SAP XEP TAM LIEU', margin, 20, { align: 'center' });
+    .text(title, margin, 20, { align: 'center' }); // 'title' bay gio da khong co dau
 
+
+  const pageText = `Tam: ${currentPage} / ${totalPages}`; // 'Tam' thay vi 'Tấm'
+  
   doc
     .fontSize(12)
     .font('Helvetica')
     .fillColor('#34495e')
     .text(
-      `Tam: ${container.width}mm x ${container.length}mm | ` +
-      `Lop: ${plateInfo.layerCount || 1} | ` +
-      `So hinh: ${placedRectangles.length}`,
+
+      `Kich thuoc: ${container.width}mm x ${container.length}mm | ` + // 'Kich thuoc'
+      `${pageText} | ` +
+      `So hinh: ${placedRectangles.length}`, // 'So hinh'
       margin, 45, 
       { align: 'center' }
     );
@@ -155,13 +142,15 @@ function generatePackingPdf(data, stream) {
       .fontSize(11)
       .fillColor('#27ae60')
       .text(
-        `Hieu suat: ${plateInfo.efficiency.toFixed(1)}%`,
+
+        `Hieu suat: ${plateInfo.efficiency.toFixed(1)}%`, // 'Hieu suat'
         margin, 62,
         { align: 'center' }
       );
   }
 
   // === VIỀN CONTAINER ===
+
   doc
     .rect(originX, originY, containerWidth, containerHeight)
     .lineWidth(2)
@@ -169,75 +158,59 @@ function generatePackingPdf(data, stream) {
     .stroke();
 
   // === GRID ===
+
   const gridSize = 50;
   const gridSpacing = gridSize * scale;
-
   doc.lineWidth(0.3).strokeColor('#bdc3c7').opacity(0.5);
-  
   for (let x = gridSpacing; x < containerWidth; x += gridSpacing) {
     doc.moveTo(originX + x, originY)
        .lineTo(originX + x, originY + containerHeight)
        .stroke();
   }
-  
   for (let y = gridSpacing; y < containerHeight; y += gridSpacing) {
     doc.moveTo(originX, originY + y)
        .lineTo(originX + containerWidth, originY + y)
        .stroke();
   }
-
   doc.opacity(1);
 
-  // === ✅ FIX: NHÓM RECTANGLES THEO LỚP (đúng cách) ===
   const rectsByLayer = {};
   placedRectangles.forEach(rect => {
     const layer = rect.layer ?? 0;
     if (!rectsByLayer[layer]) rectsByLayer[layer] = [];
     rectsByLayer[layer].push(rect);
   });
-
   const layers = Object.keys(rectsByLayer).sort((a, b) => Number(a) - Number(b));
-
-  console.log(`[PDF] Tổng ${placedRectangles.length} hình, ${layers.length} lớp`);
 
   layers.forEach((layerKey, layerIndex) => {
     const layerRects = rectsByLayer[layerKey];
     const layerOpacity = 1 - (layerIndex * 0.15);
 
-    console.log(`[PDF] Lớp ${layerKey}: ${layerRects.length} hình`);
-
     layerRects.forEach(rect => {
+
       const pdfX = originX + (rect.x * scale);
       const pdfY = originY + (rect.y * scale);
       const pdfWidth = rect.width * scale;
       const pdfHeight = rect.length * scale;
-
       const [r, g, b] = parseColor(rect.color);
-
-      // Fill màu nhạt
       doc
         .rect(pdfX, pdfY, pdfWidth, pdfHeight)
         .fillOpacity(layerOpacity * 0.3)
         .fillColor([r, g, b])
         .fill();
-
-      // Viền màu đậm
       doc
         .rect(pdfX, pdfY, pdfWidth, pdfHeight)
         .lineWidth(1.5)
         .strokeOpacity(layerOpacity)
         .strokeColor([r, g, b])
         .stroke();
-
-      // === ✅ FIX: TEXT VỚI LOGIC XOAY ===
-      const sizeText = `${rect.width}x${rect.length}`;
-      const isVertical = pdfHeight > pdfWidth * 1.5; // Nếu cao gấp 1.5 lần rộng
+      
+      const sizeText = `${rect.width}x${rect.length}`; // Khong co dau
+      const isVertical = pdfHeight > pdfWidth * 1.5;
 
       if (isVertical) {
-        // ✅ Size nằm dọc → Xoay text 90°
         drawRotatedText(doc, sizeText, pdfX, pdfY, pdfWidth, pdfHeight, [r, g, b]);
       } else {
-        // Size nằm ngang → Text bình thường
         const fontSize = Math.max(8, Math.min(12, pdfWidth / 12));
         doc.fontSize(fontSize).font('Helvetica-Bold');
         const textWidth = doc.widthOfString(sizeText);
@@ -254,7 +227,6 @@ function generatePackingPdf(data, stream) {
               textHeight + 2
             )
             .fill();
-
           doc
             .fillOpacity(1)
             .fillColor([r, g, b])
@@ -276,7 +248,8 @@ function generatePackingPdf(data, stream) {
       .fontSize(9)
       .font('Helvetica')
       .fillColor('#7f8c8d')
-      .text('Chu thich lop:', originX, legendY);
+
+      .text('Chu thich lop:', originX, legendY); // 'Chu thich lop'
 
     layers.forEach((layerKey, idx) => {
       const x = originX + 100 + (idx * 80);
@@ -289,31 +262,88 @@ function generatePackingPdf(data, stream) {
       doc
         .fillOpacity(1)
         .fillColor('#34495e')
-        .text(`Lop ${Number(layerKey) + 1}`, x + 16, legendY);
+
+        .text(`Lop ${Number(layerKey) + 1}`, x + 16, legendY); // 'Lop'
     });
   }
 
   // === FOOTER ===
-  const now = new Date();
-  const dateStr = now.toLocaleString('en-GB', { 
-    day: '2-digit', 
-    month: '2-digit', 
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
+  if (currentPage === totalPages) {
+    const now = new Date();
+    const dateStr = now.toLocaleString('en-GB', { 
+      day: '2-digit', 
+      month: '2-digit', 
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+    
+    doc
+      .fontSize(8)
+      .font('Helvetica') // Giu nguyen font
+      .fillColor('#95a5a6')
+      .text(
+
+        `Xuat luc: ${dateStr} | Optimize Size Layout`, // 'Xuat luc'
+        margin,
+        pageHeight - 40,
+        { align: 'center' }
+      );
+  }
+}
+
+/**
+ * ✅ Tạo file PDF có nhiều trang (slides)
+ */
+function generateMultiPagePackingPdf(data, stream) {
+  const { container, allLayouts } = data;
+  const totalPages = allLayouts.length;
+
+  if (totalPages === 0) {
+
+    throw new Error("Khong co layout nao de xuat PDF."); // 'Khong', 'de xuat'
+  }
+
+  const doc = new PDFDocument({ 
+    layout: 'landscape', 
+    size: 'A4',
+    autoFirstPage: false 
   });
-  
-  doc
-    .fontSize(8)
-    .fillColor('#95a5a6')
-    .text(
-      `Xuat luc: ${dateStr} | Optimize Size Layout`,
-      margin,
-      pageHeight - 40,
-      { align: 'center' }
-    );
+
+  doc.pipe(stream);
+
+  allLayouts.forEach((layout, index) => {
+    const currentPage = index + 1;
+    
+    doc.addPage({
+      layout: 'landscape', 
+      size: 'A4',
+      margins: { top: 60, bottom: 60, left: 50, right: 50 }
+    });
+    
+    const placedRectangles = layout.layers
+      ? layout.layers.flatMap(layer => layer.rectangles.filter(Boolean))
+      : [];
+      
+    const singleLayoutData = {
+      container: container,
+      placedRectangles: placedRectangles, 
+      plateInfo: { 
+        efficiency: layout.efficiency,
+        description: layout.description // Giu nguyen description o day
+      }
+    };
+    
+    const pageInfo = {
+      currentPage: currentPage,
+      totalPages: totalPages
+    };
+
+    // Ham 'drawSinglePageLayout' se tu dong bo dau khi ve
+    drawSinglePageLayout(doc, singleLayoutData, pageInfo);
+  });
 
   doc.end();
 }
 
-export { generatePackingPdf };
+export { generateMultiPagePackingPdf };
