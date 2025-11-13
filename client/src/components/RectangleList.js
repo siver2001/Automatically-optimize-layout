@@ -259,7 +259,7 @@ const RectangleList = () => {
           >
             {isOptimizing ? '🔄 Đang tối ưu...' : 
              isParsing ? '⏳ Vui lòng chờ...' : 
-             `Sắp xếp (${totalRectanglesCount} hình)`
+             `Netting (${totalRectanglesCount} hình)`
             }
           </button>
         </div>

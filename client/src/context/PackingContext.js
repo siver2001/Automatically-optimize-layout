@@ -559,7 +559,7 @@ export const PackingProvider = ({ children }) => {
       for (const [, data] of mixedPatterns.entries()) {
         const { plate, layers } = data;
         
-        plate.description = `Tấm Hỗn Hợp #${plate.plateIndex + 1} (${layers.length} lớp | ${plate.patternDescription})`;
+        plate.description = `Tấm Hỗn Hợp #${plate.plateIndex + 1} (${layers.length} lớp)`;
         plate.layers = layers;
         finalPlates.push(plate);
       }
@@ -786,9 +786,6 @@ export const PackingProvider = ({ children }) => {
       
       finalPlates = newFinalPlates.sort((a, b) => a.plateIndex - b.plateIndex);
       // ========== GIAI ĐOẠN 5: CONSOLIDATION - Gộp dùng FFD (NÂNG CẤP) ==========
-      console.log(`[DEBUG CONSOLIDATION] Bắt đầu giai đoạn gộp FFD...`);
-
-      const singleLayerArea = state.container.width * state.container.length;
 
       // 1. THU THẬP TẤM 1 LỚP
       const singleLayerPlates = finalPlates.filter(p => p.layers.length === 1);
@@ -980,9 +977,7 @@ export const PackingProvider = ({ children }) => {
 
           // Cập nhật description cho các tấm gộp
           if (newConsolidatedPlates.some(p => p.plateIndex === idx)) {
-              const plateArea = plate.layers[0].rectangles.reduce((sum, r) => sum + (r.width * r.length), 0);
-              const efficiency = ((plateArea / singleLayerArea) * 100).toFixed(1);
-              plate.description = `Tấm Gộp #${idx + 1} (${plate.layers[0].rectangles.length} hình, ${efficiency}%)`;
+              plate.description = `Tấm Gộp #${idx + 1} `;
           }
         });
         

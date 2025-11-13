@@ -107,7 +107,11 @@ const EditModeControls = ({
           >
             {isEditMode ? '🔒 Thoát Chế độ Chỉnh sửa' : '✏️ Mở Chế độ Chỉnh sửa'}
           </button>
-            <div className="flex-shrink-0">
+        </div>
+        
+        {/* Nút Xuất PDF (CHỈ HIỂN THỊ KHI KHÔNG CHỈNH SỬA) */}
+        {!isEditMode && (
+          <div className="flex-shrink-0">
             <button 
               onClick={onExportAllPdf} // Dùng prop mới
               disabled={isExporting || totalPlates === 0} // Dùng prop mới
@@ -118,7 +122,7 @@ const EditModeControls = ({
                 : `Xuất PDF (${totalPlates} tấm)`}
             </button>
           </div>
-        </div>
+        )}
 
         {/* Bảng điều khiển (chỉ hiển thị khi isEditMode = true) */}
         {isEditMode && (

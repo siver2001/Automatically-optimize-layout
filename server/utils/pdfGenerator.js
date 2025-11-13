@@ -97,11 +97,11 @@ function drawSinglePageLayout(doc, layoutData, pageInfo) {
   const drawWidth = pageWidth - (margin * 2);
   const drawHeight = pageHeight - (margin * 2) - headerHeight;
   const scale = Math.min(
-    drawWidth / container.width,
-    drawHeight / container.length
+    drawWidth / container.length,
+    drawHeight / container.width
   );
-  const containerWidth = container.width * scale;
-  const containerHeight = container.length * scale;
+  const containerWidth = container.length * scale;
+  const containerHeight = container.width * scale;
   const originX = margin + (drawWidth - containerWidth) / 2;
   const originY = margin + headerHeight + (drawHeight - containerHeight) / 2;
 
@@ -111,7 +111,6 @@ function drawSinglePageLayout(doc, layoutData, pageInfo) {
   let title = (plateInfo.description && plateInfo.description.trim() !== '')
                 ? plateInfo.description.toUpperCase() 
                 : 'KET QUA SAP TAM LIEU';
-  
   // Bo dau cua title truoc khi in
   title = title.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/Đ/g, 'D');
                 
@@ -188,10 +187,11 @@ function drawSinglePageLayout(doc, layoutData, pageInfo) {
 
     layerRects.forEach(rect => {
 
-      const pdfX = originX + (rect.x * scale);
-      const pdfY = originY + (rect.y * scale);
-      const pdfWidth = rect.width * scale;
-      const pdfHeight = rect.length * scale;
+      const pdfX = originX + (rect.y * scale);     
+      const pdfY = originY + (rect.x * scale);     
+      const pdfWidth = rect.length * scale;  
+      const pdfHeight = rect.width * scale; 
+      
       const [r, g, b] = parseColor(rect.color);
       doc
         .rect(pdfX, pdfY, pdfWidth, pdfHeight)
@@ -241,31 +241,6 @@ function drawSinglePageLayout(doc, layoutData, pageInfo) {
     });
   });
 
-  // === LEGEND ===
-  if (layers.length > 1) {
-    const legendY = originY + containerHeight + 15;
-    doc
-      .fontSize(9)
-      .font('Helvetica')
-      .fillColor('#7f8c8d')
-
-      .text('Chu thich lop:', originX, legendY); // 'Chu thich lop'
-
-    layers.forEach((layerKey, idx) => {
-      const x = originX + 100 + (idx * 80);
-      doc
-        .rect(x, legendY - 2, 12, 12)
-        .fillOpacity(0.7 - idx * 0.15)
-        .fillColor('#3498db')
-        .fill();
-      
-      doc
-        .fillOpacity(1)
-        .fillColor('#34495e')
-
-        .text(`Lop ${Number(layerKey) + 1}`, x + 16, legendY); // 'Lop'
-    });
-  }
 
   // === FOOTER ===
   if (currentPage === totalPages) {
