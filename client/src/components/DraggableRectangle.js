@@ -6,16 +6,12 @@ const DraggableRectangle = ({
   scale,
   isLandscape,
   isSelected,
-  onPickUp, // <-- Prop mới: chỉ để nhấc lên
-  onContextMenu, // <-- Prop mới: cho chuột phải
+  onPickUp,
+  onContextMenu,
 }) => {
-  // Logic render tĩnh, không còn 'react-draggable'
   const rectWidth = rect.width * scale;
   const rectLength = rect.length * scale;
   
-  // Logic hoán đổi nếu isLandscape
-  // LƯU Ý: Giả định của bạn là isLandscape = false (container dọc)
-  // Nếu container ngang (isLandscape = true) thì logic (rectX, rectY, finalWidth, finalLength) phải đổi lại
   const rectX = isLandscape ? rect.x * scale : rect.y * scale;
   const rectY = isLandscape ? rect.y * scale : rect.x * scale;
   const finalWidth = isLandscape ? rectWidth : rectLength;
@@ -25,19 +21,20 @@ const DraggableRectangle = ({
   const fontSize = Math.max(8, Math.min(16, minDim * 0.15));
 
   const handleClick = (e) => {
-    e.stopPropagation(); // Rất quan trọng: Ngăn click lan ra container
+    e.stopPropagation(); // Ngăn click lan ra container
     onPickUp(rect);
   };
 
   const handleRightClick = (e) => {
-    e.stopPropagation(); // Ngăn click lan ra container
+    e.preventDefault(); // Ngăn context menu mặc định
+    e.stopPropagation();
     onContextMenu(e, rect);
   };
 
   return (
     <div
-      className={`absolute border border-white shadow-xl flex items-center justify-center text-white font-bold cursor-pointer transition-all ${
-        isSelected ? 'ring-2 ring-offset-2 ring-blue-500' : ''
+      className={`rectangle-item absolute border-2 shadow-xl flex items-center justify-center text-white font-bold cursor-grab hover:shadow-2xl transition-all duration-200 ${
+        isSelected ? 'ring-4 ring-blue-400 ring-offset-2 border-blue-500' : 'border-white hover:border-yellow-300'
       }`}
       style={{
         left: `${rectX}px`,
@@ -49,13 +46,19 @@ const DraggableRectangle = ({
         minWidth: '20px',
         minHeight: '15px',
         overflow: 'hidden',
-        zIndex: 20 // Nổi lên trên grid
+        zIndex: isSelected ? 30 : 20,
+        transform: isSelected ? 'scale(1.02)' : 'scale(1)'
       }}
       onClick={handleClick}
       onContextMenu={handleRightClick}
-      title={`${rect.width}×${rect.length} (Click để di chuyển)`}
+      title={`${rect.width}×${rect.length}mm - Click để nhấc | Chuột phải để menu`}
     >
-      <div className="text-[0.65em] md:text-xs">{rect.width}×{rect.length}</div>
+      <div className="text-[0.65em] md:text-xs pointer-events-none">
+        {rect.width}×{rect.length}
+      </div>
+      {isSelected && (
+        <div className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 rounded-full animate-ping"></div>
+      )}
     </div>
   );
 };

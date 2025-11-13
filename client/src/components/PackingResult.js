@@ -1,9 +1,10 @@
-// client/src/components/PackingResult.js - (ĐÃ SỬA LỖI LOGIC)
+// client/src/components/PackingResult.js
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { usePacking } from '../context/PackingContext.js';
-import DraggableRectangle from './DraggableRectangle.js'; // <-- Dùng component đã sửa
+import DraggableRectangle from './DraggableRectangle.js';
 import EditModeControls from './EditModeControls.js';
-import RectangleContextMenu from './RectangleContextMenu.js'; // <-- Import component mới
+import RectangleContextMenu from './RectangleContextMenu.js';
+import EditModeHelp from './EditModeHelp.js';
 import { packingService } from '../services/packingService.js';
 
 const PackingResult = () => {
@@ -27,9 +28,10 @@ const PackingResult = () => {
 
   const containerRef = useRef(null);
 
-  // === CÁC STATE MỚI CHO LOGIC MỚI (ĐÃ GIỮ NGUYÊN) ===
+  // States cho logic mới
   const [pickedUpRect, setPickedUpRect] = useState(null);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+  const [snapGuides, setSnapGuides] = useState({ x: [], y: [] }); // ← THÊM MỚI
   const [contextMenu, setContextMenu] = useState({
     visible: false,
     x: 0,
@@ -72,7 +74,7 @@ const PackingResult = () => {
     return () => window.removeEventListener('resize', updateScale);
   }, [container.width, container.length]);
   
-  // Tra cứu thông tin chi tiết (màu sắc, tên)
+  // Tra cứu thông tin chi tiết
   useEffect(() => {
     const details = rectangles.reduce((acc, rect) => {
       acc[rect.id] = { name: rect.name, color: rect.color, width: rect.width, length: rect.length };
@@ -81,7 +83,7 @@ const PackingResult = () => {
     setPlacedRectDetails(details);
   }, [rectangles]);
 
-  // Reset selectedPlate nếu packingResult thay đổi
+  // Reset selectedPlate
   useEffect(() => {
     if (packingResult?.plates?.length > 0 && selectedPlate >= packingResult.plates.length) {
       setSelectedPlate(0);
@@ -105,15 +107,15 @@ const PackingResult = () => {
       setHasUnsavedChanges(false);
       setIsEditMode(false);
       setSelectedRectIds([]);
-      setPickedUpRect(null); // <-- Thêm reset
-      setContextMenu({ visible: false }); // <-- Thêm reset
+      setPickedUpRect(null);
+      setContextMenu({ visible: false });
     } else {
       setEditedRectangles([]);
       setOriginalRectangles([]);
     }
   }, [packingResult, selectedPlate]);
 
-  // === USE EFFECT THEO DÕI CHUỘT (ĐÃ GIỮ NGUYÊN) ===
+  // === USE EFFECT THEO DÕI CHUỘT ===
   useEffect(() => {
     const handleMouseMove = (e) => {
       if (!pickedUpRect || !containerRef.current) return;
@@ -131,10 +133,21 @@ const PackingResult = () => {
     };
   }, [pickedUpRect]);
   
-  // === USE EFFECT XOAY CTRL+R (ĐÃ GIỮ NGUYÊN) ===
+  // === USE EFFECT KEYBOARD - ĐÃ SỬA ===
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (isEditMode && pickedUpRect && e.ctrlKey && e.key.toLowerCase() === 'r') {
+      if (!isEditMode) return;
+
+      // ESC để hủy bỏ
+      if (e.key === 'Escape' && pickedUpRect) {
+        e.preventDefault();
+        setEditedRectangles(prev => [...prev, pickedUpRect]);
+        setPickedUpRect(null);
+        return;
+      }
+
+      // R để xoay
+      if (pickedUpRect && (e.key.toLowerCase() === 'r')) {
         e.preventDefault(); 
         setPickedUpRect(prev => ({
           ...prev,
@@ -143,12 +156,25 @@ const PackingResult = () => {
           rotated: !prev.rotated
         }));
       }
+
+      // Delete để xóa - XỬ LÝ TRỰC TIẾP KHÔNG GỌI HÀM
+      if (e.key === 'Delete' && selectedRectIds.length > 0 && !pickedUpRect) {
+        e.preventDefault();
+        if (window.confirm(`Bạn có chắc muốn xóa ${selectedRectIds.length} hình đã chọn?`)) {
+          setEditedRectangles(prev => 
+            prev.filter(r => !selectedRectIds.includes(r.id))
+          );
+          setSelectedRectIds([]);
+          setHasUnsavedChanges(true);
+        }
+      }
     };
+
     window.addEventListener('keydown', handleKeyDown);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isEditMode, pickedUpRect]);
+  }, [isEditMode, pickedUpRect, selectedRectIds]); // ✅ Đã loại bỏ handleDeleteSelected
 
   // Ghi nhớ danh sách tấm liệu
   const categorizedPlates = useMemo(() => {
@@ -174,7 +200,7 @@ const PackingResult = () => {
     }, 0);
   }, [packingResult]);
 
-  // --- Các hàm xử lý (Handlers) ---
+  // --- HÀM XỬ LÝ ---
   const handleToggleEditMode = useCallback(() => {
     if (isEditMode && hasUnsavedChanges) {
       if (window.confirm('Bạn có thay đổi chưa lưu. Bạn có muốn thoát không?')) {
@@ -182,94 +208,217 @@ const PackingResult = () => {
         setHasUnsavedChanges(false);
         setIsEditMode(false);
         setSelectedRectIds([]);
-        setPickedUpRect(null); // <-- Thêm reset
+        setPickedUpRect(null);
       }
     } else {
       setIsEditMode(!isEditMode);
       setSelectedRectIds([]);
-      setPickedUpRect(null); // <-- Thêm reset
-      setContextMenu({ visible: false }); // <-- Thêm reset
+      setPickedUpRect(null);
+      setContextMenu({ visible: false });
     }
   }, [isEditMode, hasUnsavedChanges, originalRectangles]);
 
-  // === SỬA LỖI 1: TÁCH LOGIC CLICK ===
-  
-  // Hàm này CHỈ DÙNG ĐỂ NHẤC LÊN
+  // Hàm nhấc lên
   const handlePickUpRect = useCallback((clickedRect) => {
-    if (!isEditMode || pickedUpRect) return; // Nếu đang cầm gì rồi thì không nhấc nữa
+    if (!isEditMode || pickedUpRect) return;
 
-    // Tìm hình gốc trong mảng và "nhấc" nó lên
     const rectToPickUp = editedRectangles.find(r => r.id === clickedRect.id);
     if (rectToPickUp) {
       setPickedUpRect(rectToPickUp);
-      
-      // Xóa nó khỏi mảng "đã đặt"
       setEditedRectangles(prev => prev.filter(r => r.id !== clickedRect.id));
-      setSelectedRectIds([]); // Bỏ chọn
-      setContextMenu({ visible: false }); // Đóng menu nếu có
+      setSelectedRectIds([]);
+      setContextMenu({ visible: false });
     }
   }, [isEditMode, pickedUpRect, editedRectangles]);
 
-  // === SỬA LỖI 2: DÙNG CLICK NGOÀI ĐỂ ĐẶT XUỐNG ===
-  useEffect(() => {
-    const handleClickGlobal = (e) => {
-      // Đóng context menu nếu click bất cứ đâu
-      if (contextMenu.visible) {
-        setContextMenu({ visible: false });
-          return; 
-      }
+  // === LOGIC ĐẶT XUỐNG VỚI SNAP THÔNG MINH ===
+  const handleContainerClick = useCallback((e) => {
+    if (!isEditMode || !containerRef.current) return;
 
-      // Logic "Đặt" hoặc "Bỏ chọn"
-      if (isEditMode && containerRef.current) {
-        // Kiểm tra xem có click trúng khung hay không
-        const isClickOnContainer = containerRef.current.contains(e.target);
-        // Kiểm tra xem có click trúng 1 size hay không
-        const isClickOnRect = e.target.closest('.rectangle-item'); 
+    if (contextMenu.visible) {
+      setContextMenu({ visible: false });
+      return;
+    }
 
-        if (pickedUpRect && isClickOnContainer && !isClickOnRect) {
-          // === 1. ĐANG CẦM HÌNH + CLICK VÀO KHUNG -> ĐẶT XUỐNG ===
-          e.preventDefault();
-          
-          const containerBounds = containerRef.current.getBoundingClientRect();
-          const relativeX = e.clientX - containerBounds.left;
-          const relativeY = e.clientY - containerBounds.top;
+    const isClickOnRect = e.target.closest('.rectangle-item');
+    if (isClickOnRect) return;
 
-          // (Lưu ý: mousePos đang là px, cần chia cho 'scale')
-          let newX = (relativeX / visualScale) - (pickedUpRect.width / 2); 
-          let newY = (relativeY / visualScale) - (pickedUpRect.length / 2);
-          if (snapEnabled) {
-            // Làm tròn X, Y về bội số của snapThreshold (coi threshold là mm)
-            const snapGridSize = snapThreshold || 10;
-            newX = Math.round(newX / snapGridSize) * snapGridSize;
-            newY = Math.round(newY / snapGridSize) * snapGridSize;
+    // ĐANG CẦM HÌNH -> ĐẶT XUỐNG
+    if (pickedUpRect) {
+      e.stopPropagation();
+      
+      const containerBounds = containerRef.current.getBoundingClientRect();
+      const clickX = e.clientX - containerBounds.left;
+      const clickY = e.clientY - containerBounds.top;
+
+      let newX = (clickX / visualScale) - (pickedUpRect.width / 2);
+      let newY = (clickY / visualScale) - (pickedUpRect.length / 2);
+
+      newX = Math.max(0, Math.min(newX, container.width - pickedUpRect.width));
+      newY = Math.max(0, Math.min(newY, container.length - pickedUpRect.length));
+
+      // SNAP THÔNG MINH (ĐÃ SỬA)
+      if (snapEnabled && snapThreshold > 0) {
+        const threshold = snapThreshold; // Khoảng cách để "dính" (mm)
+        const GRID_SIZE = 50; // Grid cố định 50mm
+        
+        let bestSnapX = null;
+        let bestSnapY = null;
+        let bestDistX = threshold;
+        let bestDistY = threshold;
+        
+        const guidesX = [];
+        const guidesY = [];
+
+        // 1. Snap với CÁC HÌNH KHÁC (ưu tiên cao nhất)
+        editedRectangles.forEach(rect => {
+          // Snap cạnh trái với cạnh trái
+          const distLeftToLeft = Math.abs(newX - rect.x);
+          if (distLeftToLeft < bestDistX) {
+            bestSnapX = rect.x;
+            bestDistX = distLeftToLeft;
           }
-          setEditedRectangles(prev => [
-            ...prev, 
-            { ...pickedUpRect, x: newX, y: newY }
-          ]);
-          
-          setPickedUpRect(null); // "Thả" hình ra
-          setHasUnsavedChanges(true);
 
-        } else if (!pickedUpRect && !isClickOnRect && !e.ctrlKey && !e.metaKey) {
-          // === 2. KHÔNG CẦM GÌ + CLICK RA NGOÀI -> BỎ CHỌN ===
-          setSelectedRectIds([]);
+          // Snap cạnh trái với cạnh phải (kế bên)
+          const distLeftToRight = Math.abs(newX - (rect.x + rect.width));
+          if (distLeftToRight < bestDistX) {
+            bestSnapX = rect.x + rect.width;
+            bestDistX = distLeftToRight;
+          }
+
+          // Snap cạnh phải với cạnh phải
+          const distRightToRight = Math.abs((newX + pickedUpRect.width) - (rect.x + rect.width));
+          if (distRightToRight < bestDistX) {
+            bestSnapX = rect.x + rect.width - pickedUpRect.width;
+            bestDistX = distRightToRight;
+          }
+
+          // Snap cạnh phải với cạnh trái (kế bên)
+          const distRightToLeft = Math.abs((newX + pickedUpRect.width) - rect.x);
+          if (distRightToLeft < bestDistX) {
+            bestSnapX = rect.x - pickedUpRect.width;
+            bestDistX = distRightToLeft;
+          }
+
+          // Snap trung tâm X
+          const rectCenterX = rect.x + rect.width / 2;
+          const newCenterX = newX + pickedUpRect.width / 2;
+          const distCenterX = Math.abs(newCenterX - rectCenterX);
+          if (distCenterX < bestDistX) {
+            bestSnapX = rectCenterX - pickedUpRect.width / 2;
+            bestDistX = distCenterX;
+          }
+
+          // Tương tự cho Y
+          const distTopToTop = Math.abs(newY - rect.y);
+          if (distTopToTop < bestDistY) {
+            bestSnapY = rect.y;
+            bestDistY = distTopToTop;
+          }
+
+          const distTopToBottom = Math.abs(newY - (rect.y + rect.length));
+          if (distTopToBottom < bestDistY) {
+            bestSnapY = rect.y + rect.length;
+            bestDistY = distTopToBottom;
+          }
+
+          const distBottomToBottom = Math.abs((newY + pickedUpRect.length) - (rect.y + rect.length));
+          if (distBottomToBottom < bestDistY) {
+            bestSnapY = rect.y + rect.length - pickedUpRect.length;
+            bestDistY = distBottomToBottom;
+          }
+
+          const distBottomToTop = Math.abs((newY + pickedUpRect.length) - rect.y);
+          if (distBottomToTop < bestDistY) {
+            bestSnapY = rect.y - pickedUpRect.length;
+            bestDistY = distBottomToTop;
+          }
+
+          const rectCenterY = rect.y + rect.length / 2;
+          const newCenterY = newY + pickedUpRect.length / 2;
+          const distCenterY = Math.abs(newCenterY - rectCenterY);
+          if (distCenterY < bestDistY) {
+            bestSnapY = rectCenterY - pickedUpRect.length / 2;
+            bestDistY = distCenterY;
+          }
+        });
+
+        // 2. Snap với CẠNH CONTAINER (ưu tiên thứ 2)
+        const distToLeft = Math.abs(newX);
+        if (distToLeft < bestDistX) {
+          bestSnapX = 0;
+          bestDistX = distToLeft;
         }
+
+        const distToRight = Math.abs((newX + pickedUpRect.width) - container.width);
+        if (distToRight < bestDistX) {
+          bestSnapX = container.width - pickedUpRect.width;
+          bestDistX = distToRight;
+        }
+
+        const distToTop = Math.abs(newY);
+        if (distToTop < bestDistY) {
+          bestSnapY = 0;
+          bestDistY = distToTop;
+        }
+
+        const distToBottom = Math.abs((newY + pickedUpRect.length) - container.length);
+        if (distToBottom < bestDistY) {
+          bestSnapY = container.length - pickedUpRect.length;
+          bestDistY = distToBottom;
+        }
+
+        // 3. Snap với GRID (ưu tiên thấp nhất, chỉ khi không snap được gì khác)
+        if (bestSnapX === null) {
+          const gridSnapX = Math.round(newX / GRID_SIZE) * GRID_SIZE;
+          if (Math.abs(newX - gridSnapX) < threshold) {
+            bestSnapX = gridSnapX;
+          }
+        }
+
+        if (bestSnapY === null) {
+          const gridSnapY = Math.round(newY / GRID_SIZE) * GRID_SIZE;
+          if (Math.abs(newY - gridSnapY) < threshold) {
+            bestSnapY = gridSnapY;
+          }
+        }
+
+        // Áp dụng snap (nếu có)
+        if (bestSnapX !== null) {
+          newX = bestSnapX;
+          guidesX.push(bestSnapX);
+        }
+        if (bestSnapY !== null) {
+          newY = bestSnapY;
+          guidesY.push(bestSnapY);
+        }
+
+        // Lưu snap guides để hiển thị
+        setSnapGuides({ x: guidesX, y: guidesY });
+
+        // Đảm bảo không ra ngoài container sau khi snap
+        newX = Math.max(0, Math.min(newX, container.width - pickedUpRect.width));
+        newY = Math.max(0, Math.min(newY, container.length - pickedUpRect.length));
+      } else {
+        setSnapGuides({ x: [], y: [] });
       }
-    };
-    
-    // Dùng 'mousedown' để nó chạy trước 'click' của size
-    document.addEventListener('mousedown', handleClickGlobal); 
-    return () => {
-      document.removeEventListener('mousedown', handleClickGlobal);
-    };
-    // Phải phụ thuộc vào pickedUpRect để luôn có logic "Đặt" mới nhất
-  }, [isEditMode, pickedUpRect, contextMenu.visible, visualScale, snapEnabled, snapThreshold]);
 
+      setEditedRectangles(prev => [
+        ...prev,
+        { ...pickedUpRect, x: newX, y: newY }
+      ]);
+      setPickedUpRect(null);
+      setHasUnsavedChanges(true);
 
-  // === SỬA LỖI 4: SỬA HÀM XOAY/XÓA ĐỂ CHẤP NHẬN ID ===
+    } else {
+      // BỎ CHỌN
+      if (!e.ctrlKey && !e.metaKey) {
+        setSelectedRectIds([]);
+      }
+    }
+  }, [isEditMode, pickedUpRect, contextMenu.visible, visualScale, snapEnabled, snapThreshold, editedRectangles, container.width, container.length]);
+
   const handleDeleteSelected = useCallback((id = null) => {
-    // Ưu tiên ID từ context menu, nếu không thì dùng state
     const idsToDelete = id ? [id] : selectedRectIds;
     
     if (idsToDelete.length === 0) return;
@@ -299,7 +448,6 @@ const PackingResult = () => {
     setHasUnsavedChanges(true);
   }, [selectedRectIds]);
 
-  // Các hàm cũ vẫn giữ (dùng cho thanh controls)
   const handleAlignSelected = useCallback((alignType) => {
     if (selectedRectIds.length < 2) return;
     const selectedRects = editedRectangles.filter(r => selectedRectIds.includes(r.id));
@@ -342,19 +490,18 @@ const PackingResult = () => {
         setHasUnsavedChanges(false);
         setIsEditMode(false);
         setSelectedRectIds([]);
-        setPickedUpRect(null); // <-- Thêm reset
+        setPickedUpRect(null);
       }
     } else {
       setIsEditMode(false);
       setSelectedRectIds([]);
-      setPickedUpRect(null); // <-- Thêm reset
+      setPickedUpRect(null);
     }
   }, [hasUnsavedChanges, originalRectangles]);
 
-  // Hàm Context Menu (Đã giữ nguyên)
   const handleContextMenu = (e, rect) => {
     e.preventDefault(); 
-    if (!isEditMode || pickedUpRect) return; // Không mở menu nếu đang cầm hình
+    if (!isEditMode || pickedUpRect) return;
 
     setContextMenu({
       visible: true,
@@ -362,11 +509,10 @@ const PackingResult = () => {
       y: e.clientY,
       targetRect: rect
     });
-    // Chọn luôn hình đó
     setSelectedRectIds([rect.id]);
   };
   
-  // --- TÍNH TOÁN CÁC BIẾN LOGIC TRƯỚC KHI RENDER ---
+  // --- TÍNH TOÁN ---
   const { layersPerPlate = 1, efficiency: totalEfficiency = 0 } = packingResult || {};
   const platesNeeded = categorizedPlates.length;
   
@@ -379,13 +525,12 @@ const PackingResult = () => {
     return currentPlateData?.layers || [];
   }, [packingResult, currentPlateMeta]);
   
-  // Danh sách hình chữ nhật cuối cùng để render
   const displayRectangles = useMemo(() => {
     if (isEditMode) return editedRectangles;
     return currentPlateLayers.flatMap(layer => layer.rectangles?.filter(Boolean) || []);
   }, [isEditMode, editedRectangles, currentPlateLayers]);
 
-  // --- HÀM XUẤT PDF (Không đổi) ---
+  // --- HÀM XUẤT PDF ---
   const handleExportPdf = async () => {
     if (!packingResult || !packingResult.plates || !container || packingResult.plates.length === 0) {
       setExportError('Không có dữ liệu kết quả để xuất.');
@@ -407,9 +552,8 @@ const PackingResult = () => {
     }
   };
 
-  // --- TÍNH TOÁN CÁC BIẾN ĐỂ RENDER (Không đổi) ---
+  // --- TÍNH TOÁN RENDER ---
   let plateDescription = currentPlateMeta?.description || `Tấm #${currentPlateMeta?.displayIndex || 1}`;
-  // Xóa phần chi tiết (ví dụ: | 5x12)
   if (plateDescription) {
     plateDescription = plateDescription.replace(/\|.*?\)/, ')');
   }
@@ -431,7 +575,7 @@ const PackingResult = () => {
   const gridLength = isLandscape ? container.length : container.width;
 
   
-  // --- Early Returns (Không đổi) ---
+  // --- EARLY RETURNS ---
   if (isOptimizing) {
     return (
       <div className="mb-4 card p-6 md:p-8 min-h-[300px] md:min-h-[400px] flex flex-col justify-center items-center">
@@ -465,10 +609,9 @@ const PackingResult = () => {
     );
   }
 
-  // --- LỆNH RETURN JSX CUỐI CÙNG ---
+  // --- RETURN JSX ---
   return (
     <div className="mb-4 card p-1 md:p-2">
-      {/* Edit Mode Controls (Không đổi) */}
       <EditModeControls
         isEditMode={isEditMode}
         onToggleEditMode={handleToggleEditMode}
@@ -487,12 +630,15 @@ const PackingResult = () => {
         isExporting={isExporting}
         totalPlates={platesNeeded}
       />
+
+      {isEditMode && <EditModeHelp isVisible={isEditMode} />}
       
       {exportError && (
         <div className="my-2 p-2 bg-red-100 text-red-700 text-sm border border-red-300 rounded">
           <strong>Lỗi xuất PDF:</strong> {exportError}
         </div>
       )}
+
       <div className="bg-white rounded-xl shadow-lg border border-gray-300 p-2 md:p-1 mb-3 md:mb-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-3 border-b pb-2 gap-2">
           <h3 className="text-sm md:text-base lg:text-lg font-semibold text-gray-800" title={currentPlateMeta.description}>
@@ -533,10 +679,11 @@ const PackingResult = () => {
               height: `${displayLength}px`,
               minWidth: 'min(300px, 90vw)',
               minHeight: 'min(200px, 40vh)',
-              cursor: isEditMode ? (pickedUpRect ? 'grabbing' : 'pointer') : 'default' // <-- Thêm cursor
+              cursor: isEditMode ? (pickedUpRect ? 'crosshair' : 'default') : 'default'
             }}
+            onClick={handleContainerClick}
           >
-            {/* Grid (Không đổi) */}
+            {/* Grid */}
             <div className="absolute inset-0 opacity-20">
               {Array.from({length: Math.floor(gridWidth/100)}).map((_, i) => (
                 <div 
@@ -554,7 +701,7 @@ const PackingResult = () => {
               ))}
             </div>
             
-            {/* === SỬA LỖI 3: THAY ĐỔI CÁCH RENDER RECTANGLES === */}
+            {/* Rectangles */}
             {displayRectangles.map((rect) => {
               if (!rect || typeof rect.width !== 'number' || typeof rect.length !== 'number') {
                 return null;
@@ -568,15 +715,13 @@ const PackingResult = () => {
                     scale={scale}
                     isLandscape={isLandscape}
                     isSelected={selectedRectIds.includes(rect.id)}
-                    // === SỬA LỖI 3 (tiếp): XÓA PROPS CŨ, DÙNG PROPS MỚI ===
                     onPickUp={handlePickUpRect}
                     onContextMenu={handleContextMenu}
-                    // className="rectangle-item" (đã thêm trong component)
                   />
                 );
               }
 
-              // Static display (non-edit mode)
+              // Static display
               const rectWidth = rect.width * scale;
               const rectLength = rect.length * scale;
               const rectX = isLandscape ? rect.x * scale : rect.y * scale;
@@ -617,36 +762,74 @@ const PackingResult = () => {
               );
             })}
             
-            {/* === RENDER HÌNH ĐANG "CẦM" (ĐÃ GIỮ NGUYÊN) === */}
+            {/* RENDER HÌNH ĐANG CẦM */}
             {pickedUpRect && (
-              <div
-                className="absolute border-2 border-dashed border-red-500 opacity-75 z-50 flex items-center justify-center text-white font-bold"
-                style={{
-                  // Logic hoán đổi giống hệt DraggableRectangle
-                  left: `${isLandscape 
-                    ? mousePos.y - (pickedUpRect.length * scale / 2) 
-                    : mousePos.x - (pickedUpRect.width * scale / 2)}px`,
-                  top: `${isLandscape 
-                    ? mousePos.x - (pickedUpRect.width * scale / 2) 
-                    : mousePos.y - (pickedUpRect.length * scale / 2)}px`,
-                  width: `${isLandscape 
-                    ? pickedUpRect.length * scale 
-                    : pickedUpRect.width * scale}px`,
-                  height: `${isLandscape 
-                    ? pickedUpRect.width * scale 
-                    : pickedUpRect.length * scale}px`,
-
-                  backgroundColor: pickedUpRect.color,
-                  pointerEvents: 'none'
-                }}
-              >
-                <div className="text-[0.65em] md:text-xs">{pickedUpRect.width}×{pickedUpRect.length}</div>
-              </div>
+              <>
+                {/* Snap guides - CẢI TIẾN */}
+                {snapEnabled && (
+                  <div className="absolute inset-0 pointer-events-none z-40">
+                    {/* Đường snap dọc (X) - MÀU ĐỎ khi đang snap */}
+                    {snapGuides.x.map((x, i) => (
+                      <div 
+                        key={`snap-x-${i}`}
+                        className="absolute top-0 bottom-0 w-1 bg-red-500 opacity-70"
+                        style={{ left: `${x * scale}px` }}
+                      />
+                    ))}
+                    {/* Đường snap ngang (Y) - MÀU ĐỎ khi đang snap */}
+                    {snapGuides.y.map((y, i) => (
+                      <div 
+                        key={`snap-y-${i}`}
+                        className="absolute left-0 right-0 h-1 bg-red-500 opacity-70"
+                        style={{ top: `${y * scale}px` }}
+                      />
+                    ))}
+                    
+                    {/* Crosshair chuột - MÀU XANH */}
+                    <div 
+                      className="absolute top-0 bottom-0 w-0.5 bg-blue-400 opacity-30"
+                      style={{ 
+                        left: `${mousePos.x}px`,
+                        display: mousePos.x > 0 ? 'block' : 'none'
+                      }}
+                    />
+                    <div 
+                      className="absolute left-0 right-0 h-0.5 bg-blue-400 opacity-30"
+                      style={{ 
+                        top: `${mousePos.y}px`,
+                        display: mousePos.y > 0 ? 'block' : 'none'
+                      }}
+                    />
+                  </div>
+                )}
+                
+                {/* Hình đang được cầm */}
+                <div
+                  className="absolute border-4 border-dashed border-blue-500 bg-opacity-70 z-50 flex items-center justify-center text-white font-bold shadow-2xl animate-pulse"
+                  style={{
+                    left: `${mousePos.x - (isLandscape ? pickedUpRect.length * scale / 2 : pickedUpRect.width * scale / 2)}px`,
+                    top: `${mousePos.y - (isLandscape ? pickedUpRect.width * scale / 2 : pickedUpRect.length * scale / 2)}px`,
+                    width: `${isLandscape ? pickedUpRect.length * scale : pickedUpRect.width * scale}px`,
+                    height: `${isLandscape ? pickedUpRect.width * scale : pickedUpRect.length * scale}px`,
+                    backgroundColor: pickedUpRect.color,
+                    pointerEvents: 'none',
+                    transform: snapGuides.x.length > 0 || snapGuides.y.length > 0 ? 'scale(1.08)' : 'scale(1.05)'
+                  }}
+                >
+                  <div className="text-sm font-bold bg-black bg-opacity-50 px-2 py-1 rounded">
+                    {pickedUpRect.width}×{pickedUpRect.length}
+                    <div className="text-xs opacity-75">
+                      R để xoay | ESC hủy
+                      {(snapGuides.x.length > 0 || snapGuides.y.length > 0) && <span className="text-red-300"> | SNAPPED!</span>}
+                    </div>
+                  </div>
+                </div>
+              </>
             )}
           </div>
         </div>
         
-        {/* Footer (Không đổi) */}
+        {/* Footer */}
         <div className="mt-3 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
           <div className="text-xs md:text-sm text-gray-700 font-semibold">
             <span className="text-gray-500 font-medium">Tổng cộng {totalLayersUsed} lớp</span>
@@ -657,11 +840,11 @@ const PackingResult = () => {
         </div>
       </div>
 
-      {/* === RENDER CONTEXT MENU (ĐÃ GIỮ NGUYÊN) === */}
+      {/* CONTEXT MENU */}
       <RectangleContextMenu
         menu={{ ...contextMenu, onClose: () => setContextMenu({ visible: false }) }}
-        onRotate={handleRotateSelected} // <-- SỬA LỖI 4: Truyền thẳng
-        onDelete={handleDeleteSelected} // <-- SỬA LỖI 4: Truyền thẳng
+        onRotate={handleRotateSelected}
+        onDelete={handleDeleteSelected}
       />
     </div>
   );
