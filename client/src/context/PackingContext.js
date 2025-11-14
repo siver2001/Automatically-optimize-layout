@@ -2,6 +2,234 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react';
 import { packingService } from '../services/packingService.js';
 
+// ============================================================
+// ✅ HELPER 1: Tách Giai đoạn 3 - MERGE
+// (Hàm này nhận vào 1 danh sách pieces, trả về danh sách đã merge)
+// ============================================================
+const runMergePhase = (allPlacedPieces) => {
+  const mergedRects = [];
+  const tolerance = 1.0;
+
+  // Tách các mảnh full (không cần merge)
+  const fullPieces = allPlacedPieces.filter(r => r.pairId == null || r.splitDirection === 'none');
+  mergedRects.push(...fullPieces);
+
+  // Lấy các mảnh 1/2 (cần merge)
+  let halfPieces = allPlacedPieces.filter(r => r.pairId != null && r.splitDirection !== 'none');
+  const processedPieces = new Set(); // Đánh dấu các mảnh đã được merge
+
+  // Sắp xếp các mảnh theo Tấm -> Lớp -> Y -> X
+  halfPieces.sort((a, b) => 
+    a.plateIndex - b.plateIndex || 
+    a.layer - b.layer || 
+    a.y - b.y || 
+    a.x - b.x
+  );
+
+  for (let i = 0; i < halfPieces.length; i++) {
+    const p1 = halfPieces[i];
+
+    // Nếu mảnh này đã được xử lý (ghép) rồi, bỏ qua
+    if (processedPieces.has(p1.id)) continue;
+
+    let foundPair = false;
+
+    // Lấy kích thước gốc từ p1 (quan trọng)
+    const originalW = p1.originalWidth;
+    const originalL = p1.originalLength;
+    
+    // Chỉ tìm các mảnh "hàng xóm" tiềm năng (gần p1)
+    for (let j = i + 1; j < halfPieces.length; j++) {
+      const p2 = halfPieces[j];
+
+      // Bỏ qua nếu đã xử lý, hoặc khác tấm, khác lớp
+      if (processedPieces.has(p2.id)) continue;
+      if (p1.plateIndex !== p2.plateIndex || p1.layer !== p2.layer) continue;
+
+      // Bỏ qua nếu không "tương thích" (không cùng loại gốc)
+      if (p1.originalTypeId !== p2.originalTypeId) {
+        continue;
+      }
+
+      let adjacent = false;
+      let boundingW = 0;
+      let boundingL = 0;
+      let minX = 0;
+      let minY = 0;
+
+      // --- LOGIC KIỂM TRA KỀ NHAU (GIỮ NGUYÊN) ---
+      // 1. p2 nằm BÊN PHẢI p1 (ghép ngang)
+      if (Math.abs(p1.y - p2.y) < tolerance && 
+          Math.abs((p1.x + p1.width) - p2.x) < tolerance &&
+          Math.abs(p1.length - p2.length) < tolerance) { // Phải cùng chiều dài
+        
+        adjacent = true;
+        minX = p1.x;
+        minY = p1.y;
+        boundingW = p1.width + p2.width;
+        boundingL = p1.length;
+      }
+      // 2. p1 nằm BÊN PHẢI p2 (ghép ngang)
+      else if (Math.abs(p1.y - p2.y) < tolerance && 
+               Math.abs((p2.x + p2.width) - p1.x) < tolerance &&
+               Math.abs(p1.length - p2.length) < tolerance) { // Phải cùng chiều dài
+        
+        adjacent = true;
+        minX = p2.x;
+        minY = p1.y;
+        boundingW = p1.width + p2.width;
+        boundingL = p1.length;
+      }
+      // 3. p2 nằm BÊN DƯỚI p1 (ghép dọc)
+      else if (Math.abs(p1.x - p2.x) < tolerance &&
+               Math.abs((p1.y + p1.length) - p2.y) < tolerance &&
+               Math.abs(p1.width - p2.width) < tolerance) { // Phải cùng chiều rộng
+
+        adjacent = true;
+        minX = p1.x;
+        minY = p1.y;
+        boundingW = p1.width;
+        boundingL = p1.length + p2.length;
+      }
+      // 4. p1 nằm BÊN DƯỚI p2 (ghép dọc)
+      else if (Math.abs(p1.x - p2.x) < tolerance &&
+               Math.abs((p2.y + p2.length) - p1.y) < tolerance &&
+               Math.abs(p1.width - p2.width) < tolerance) { // Phải cùng chiều rộng
+
+        adjacent = true;
+        minX = p2.x;
+        minY = p2.y;
+        boundingW = p1.width;
+        boundingL = p1.length + p2.length;
+      }
+      // --- KẾT THÚC LOGIC KỀ NHAU ---
+
+      // Nếu không nằm cạnh nhau, bỏ qua
+      if (!adjacent) continue;
+
+      // --- Đã tìm thấy hàng xóm, kiểm tra kích thước merge ---
+      let mergedRect = null;
+      
+      // CASE 1: Bounding khớp kích thước gốc (KHÔNG xoay)
+      if (Math.abs(boundingW - originalW) < tolerance && 
+          Math.abs(boundingL - originalL) < tolerance) {
+        
+        mergedRect = {
+          width: originalW,
+          length: originalL,
+          rotated: false,
+        };
+      }
+      // CASE 2: Bounding khớp kích thước gốc (ĐÃ xoay 90°)
+      else if (Math.abs(boundingW - originalL) < tolerance && 
+               Math.abs(boundingL - originalW) < tolerance) {
+        
+        mergedRect = {
+          width: originalL, // Đảo
+          length: originalW, // Đảo
+          rotated: true,
+        };
+      }
+
+      // Nếu merge thành công
+      if (mergedRect) {
+        mergedRects.push({
+          ...mergedRect, // width, length, rotated
+          id: `merged_${p1.id}_${p2.id}`,
+          plateIndex: p1.plateIndex,
+          layer: p1.layer,
+          x: minX,
+          y: minY,
+          color: p1.color,
+          typeId: p1.originalTypeId,
+          originalTypeId: p1.originalTypeId,
+          pairId: null, // Đã merge
+          mergedFrom: [p1.id, p2.id]
+        });
+        processedPieces.add(p1.id);
+        processedPieces.add(p2.id);
+        foundPair = true;
+        break; // Thoát vòng lặp 'j' (đã tìm được cặp cho p1)
+      }
+    } // Kết thúc vòng lặp 'j' (tìm hàng xóm)
+
+    // Nếu p1 không tìm thấy cặp nào (bị mồ côi)
+    if (!foundPair && !processedPieces.has(p1.id)) {
+      mergedRects.push(p1); // Vẫn thêm mảnh mồ côi vào
+      processedPieces.add(p1.id);
+    }
+  } 
+  return mergedRects;
+};
+
+
+// ============================================================
+// ✅ HELPER 2: Tách Giai đoạn 4 - REBUILD
+// (Hàm này nhận mergedRects, trả về finalPlates mới)
+// ============================================================
+const runRebuildPhase = (mergedRects, originalPlates, displayIdStart) => {
+  const newFinalPlates = [];
+  const plateMap = new Map();
+  let displayIdCounter = displayIdStart;
+
+  // Lấy thông tin metadata của các tấm gốc (originalPlates)
+  // để giữ lại 'description' khi Rebuild
+  const originalPlateMeta = new Map();
+  originalPlates.forEach(p => {
+    originalPlateMeta.set(p.plateIndex, {
+      description: p.description,
+      type: p.type,
+      patternDescription: p.patternDescription
+    });
+  });
+
+  mergedRects.sort((a, b) => a.plateIndex - b.plateIndex || a.layer - b.layer);
+
+  for (const rect of mergedRects) {
+    // Gán ID hiển thị MỚI chỉ nếu nó là mảnh "thô" (chưa có ID dạng rect_...)
+    if (rect.id.startsWith('merged_') || rect.id.startsWith('full_')) {
+      rect.id = `rect_${displayIdCounter++}`;
+    } else if (rect.pairId && !rect.id.startsWith('rect_half_')) { // Mảnh 1/2 "thô"
+      rect.id = `rect_half_${displayIdCounter++}`;
+    }
+    // Nếu id là 'rect_...' hoặc 'rect_half_...' (từ lần chạy trước) thì giữ nguyên
+
+    if (!plateMap.has(rect.plateIndex)) {
+      const originalMeta = originalPlateMeta.get(rect.plateIndex) || {
+        description: `Tấm ${rect.plateIndex + 1}`,
+        layers: []
+      };
+      
+      plateMap.set(rect.plateIndex, { 
+        ...originalMeta, // Giữ lại metadata
+        plateIndex: rect.plateIndex, 
+        layers: new Map() 
+      });
+    }
+    
+    const plateData = plateMap.get(rect.plateIndex);
+    
+    if (!plateData.layers.has(rect.layer)) {
+      plateData.layers.set(rect.layer, {
+        layerIndexInPlate: rect.layer,
+        rectangles: []
+      });
+    }
+    
+    plateData.layers.get(rect.layer).rectangles.push(rect);
+  }
+
+  for (const [, plateData] of plateMap.entries()) {
+    const newPlate = { 
+      ...plateData,
+      layers: Array.from(plateData.layers.values()).sort((a, b) => a.layerIndexInPlate - b.layerIndexInPlate)
+    };
+    newFinalPlates.push(newPlate);
+  }
+  
+  return newFinalPlates.sort((a, b) => a.plateIndex - b.plateIndex);
+};
+
 const PackingContext = createContext();
 
 const initialState = {
@@ -576,215 +804,14 @@ export const PackingProvider = ({ children }) => {
       
       // ========== GIAI ĐOẠN 3: MERGE - Hợp nhất các mảnh đôi với bounding box ==========
       const allPlacedPieces = finalPlates.flatMap(p => p.layers.flatMap(l => l.rectangles));
-    const mergedRects = [];
-    const tolerance = 1.0;
-
-    // Tách các mảnh full (không cần merge)
-    const fullPieces = allPlacedPieces.filter(r => r.pairId == null || r.splitDirection === 'none');
-    mergedRects.push(...fullPieces);
-
-    // Lấy các mảnh 1/2 (cần merge)
-    let halfPieces = allPlacedPieces.filter(r => r.pairId != null && r.splitDirection !== 'none');
-    const processedPieces = new Set(); // Đánh dấu các mảnh đã được merge
-
-    // Sắp xếp các mảnh theo Tấm -> Lớp -> Y -> X
-    halfPieces.sort((a, b) => 
-      a.plateIndex - b.plateIndex || 
-      a.layer - b.layer || 
-      a.y - b.y || 
-      a.x - b.x
-    );
-
-    for (let i = 0; i < halfPieces.length; i++) {
-      const p1 = halfPieces[i];
-
-      // Nếu mảnh này đã được xử lý (ghép) rồi, bỏ qua
-      if (processedPieces.has(p1.id)) continue;
-
-      let foundPair = false;
-
-      // Lấy kích thước gốc từ p1 (quan trọng)
-      const originalW = p1.originalWidth;
-      const originalL = p1.originalLength;
       
-      // Chỉ tìm các mảnh "hàng xóm" tiềm năng (gần p1)
-      for (let j = i + 1; j < halfPieces.length; j++) {
-        const p2 = halfPieces[j];
-
-        // Bỏ qua nếu đã xử lý, hoặc khác tấm, khác lớp
-        if (processedPieces.has(p2.id)) continue;
-        if (p1.plateIndex !== p2.plateIndex || p1.layer !== p2.layer) continue;
-
-        // Bỏ qua nếu không "tương thích" (không cùng loại gốc)
-        if (p1.originalTypeId !== p2.originalTypeId) {
-          continue;
-        }
-
-        let adjacent = false;
-        let boundingW = 0;
-        let boundingL = 0;
-        let minX = 0;
-        let minY = 0;
-
-        // --- 🟨 LOGIC SỬA LỖI BẮT ĐẦU TỪ ĐÂY 🟨 ---
-        // (Đã loại bỏ 'splitDirection' khỏi 4 điều kiện 'if' bên dưới)
-
-        // 1. p2 nằm BÊN PHẢI p1 (ghép ngang)
-        if (Math.abs(p1.y - p2.y) < tolerance && 
-            Math.abs((p1.x + p1.width) - p2.x) < tolerance &&
-            Math.abs(p1.length - p2.length) < tolerance) { // Phải cùng chiều dài
-          
-          adjacent = true;
-          minX = p1.x;
-          minY = p1.y;
-          boundingW = p1.width + p2.width;
-          boundingL = p1.length;
-        }
-        // 2. p1 nằm BÊN PHẢI p2 (ghép ngang)
-        else if (Math.abs(p1.y - p2.y) < tolerance && 
-                 Math.abs((p2.x + p2.width) - p1.x) < tolerance &&
-                 Math.abs(p1.length - p2.length) < tolerance) { // Phải cùng chiều dài
-          
-          adjacent = true;
-          minX = p2.x;
-          minY = p1.y;
-          boundingW = p1.width + p2.width;
-          boundingL = p1.length;
-        }
-        // 3. p2 nằm BÊN DƯỚI p1 (ghép dọc)
-        else if (Math.abs(p1.x - p2.x) < tolerance &&
-                 Math.abs((p1.y + p1.length) - p2.y) < tolerance &&
-                 Math.abs(p1.width - p2.width) < tolerance) { // Phải cùng chiều rộng
-
-          adjacent = true;
-          minX = p1.x;
-          minY = p1.y;
-          boundingW = p1.width;
-          boundingL = p1.length + p2.length;
-        }
-        // 4. p1 nằm BÊN DƯỚI p2 (ghép dọc)
-        else if (Math.abs(p1.x - p2.x) < tolerance &&
-                 Math.abs((p2.y + p2.length) - p1.y) < tolerance &&
-                 Math.abs(p1.width - p2.width) < tolerance) { // Phải cùng chiều rộng
-
-          adjacent = true;
-          minX = p2.x;
-          minY = p2.y;
-          boundingW = p1.width;
-          boundingL = p1.length + p2.length;
-        }
-        // --- 🟨 LOGIC SỬA LỖI KẾT THÚC TẠI ĐÂY 🟨 ---
-
-        // Nếu không nằm cạnh nhau, bỏ qua
-        if (!adjacent) continue;
-
-        // --- Đã tìm thấy hàng xóm, kiểm tra kích thước merge ---
-        let mergedRect = null;
-        
-        // CASE 1: Bounding khớp kích thước gốc (KHÔNG xoay)
-        if (Math.abs(boundingW - originalW) < tolerance && 
-            Math.abs(boundingL - originalL) < tolerance) {
-          
-          mergedRect = {
-            id: `merged_${p1.id}_${p2.id}`,
-            plateIndex: p1.plateIndex,
-            layer: p1.layer,
-            x: minX,
-            y: minY,
-            width: originalW,
-            length: originalL,
-            color: p1.color,
-            rotated: false,
-            typeId: p1.originalTypeId,
-            originalTypeId: p1.originalTypeId,
-            pairId: null, // Đã merge
-            mergedFrom: [p1.id, p2.id]
-          };
-        }
-        // CASE 2: Bounding khớp kích thước gốc (ĐÃ xoay 90°)
-        else if (Math.abs(boundingW - originalL) < tolerance && 
-                 Math.abs(boundingL - originalW) < tolerance) {
-          
-          mergedRect = {
-            id: `merged_${p1.id}_${p2.id}`,
-            plateIndex: p1.plateIndex,
-            layer: p1.layer,
-            x: minX,
-            y: minY,
-            width: originalL, // Đảo
-            length: originalW, // Đảo
-            color: p1.color,
-            rotated: true,
-            typeId: p1.originalTypeId,
-            originalTypeId: p1.originalTypeId,
-            pairId: null, // Đã merge
-            mergedFrom: [p1.id, p2.id]
-          };
-        }
-
-        // Nếu merge thành công
-        if (mergedRect) {
-          mergedRects.push(mergedRect);
-          processedPieces.add(p1.id);
-          processedPieces.add(p2.id);
-          foundPair = true;
-          break; // Thoát vòng lặp 'j' (đã tìm được cặp cho p1)
-        }
-      } // Kết thúc vòng lặp 'j' (tìm hàng xóm)
-
-      // Nếu p1 không tìm thấy cặp nào (bị mồ côi)
-      if (!foundPair && !processedPieces.has(p1.id)) {
-        mergedRects.push(p1); // Vẫn thêm mảnh mồ côi vào
-        processedPieces.add(p1.id);
-      }
-    } 
+    // ✅ Gọi helper
+    let mergedRects = runMergePhase(allPlacedPieces);
 
       // ========== GIAI ĐOẠN 4: REBUILD - Xây dựng lại plates ==========
+      finalPlates = runRebuildPhase(mergedRects, finalPlates, 1);
 
-      const newFinalPlates = [];
-      const plateMap = new Map();
-      let displayIdCounter = 1;
-
-      mergedRects.sort((a, b) => a.plateIndex - b.plateIndex || a.layer - b.layer);
-
-      for (const rect of mergedRects) {
-        // Gán ID hiển thị
-        if (rect.id.startsWith('merged_') || rect.id.startsWith('full_')) {
-          rect.id = `rect_${displayIdCounter++}`;
-        } else if (rect.pairId) {
-          rect.id = `rect_half_${displayIdCounter++}`;
-        }
-
-        if (!plateMap.has(rect.plateIndex)) {
-          const originalPlate = finalPlates.find(p => p.plateIndex === rect.plateIndex) || {
-            plateIndex: rect.plateIndex,
-            description: `Tấm ${rect.plateIndex + 1}`,
-            layers: []
-          };
-          plateMap.set(rect.plateIndex, { ...originalPlate, layers: new Map() });
-        }
-        
-        const plateData = plateMap.get(rect.plateIndex);
-        
-        if (!plateData.layers.has(rect.layer)) {
-          plateData.layers.set(rect.layer, {
-            layerIndexInPlate: rect.layer,
-            rectangles: []
-          });
-        }
-        
-        plateData.layers.get(rect.layer).rectangles.push(rect);
-      }
-
-      for (const [, plateData] of plateMap.entries()) {
-        const newPlate = { 
-          ...plateData,
-          layers: Array.from(plateData.layers.values()).sort((a, b) => a.layerIndexInPlate - b.layerIndexInPlate)
-        };
-        newFinalPlates.push(newPlate);
-      }
       
-      finalPlates = newFinalPlates.sort((a, b) => a.plateIndex - b.plateIndex);
       // ========== GIAI ĐOẠN 5: CONSOLIDATION - Gộp dùng FFD (NÂNG CẤP) ==========
 
       // 1. THU THẬP TẤM 1 LỚP
@@ -976,18 +1003,13 @@ export const PackingProvider = ({ children }) => {
           });
 
           // Cập nhật description cho các tấm gộp
-          if (newConsolidatedPlates.some(p => p.plateIndex === idx)) {
+          // (Logic này đã được sửa, dùng find)
+          if (newConsolidatedPlates.find(p => p.plateIndex === idx)) {
               plate.description = `Tấm Gộp #${idx + 1} `;
           }
         });
         
-        // Cập nhật mergedRects với plateIndex mới
-        const oldToNewPlateIndex = new Map(finalPlates.map((p, idx) => [p.plateIndex, idx]));
-        mergedRects.forEach(rect => {
-          if (oldToNewPlateIndex.has(rect.plateIndex)) {
-            rect.plateIndex = oldToNewPlateIndex.get(rect.plateIndex);
-          }
-        });
+        // Cập nhật mergedRects với plateIndex mới (không cần thiết vì sẽ chạy lại merge)
         
         dispatch({
             type: 'SET_WARNING',
@@ -1001,6 +1023,26 @@ export const PackingProvider = ({ children }) => {
         console.log(`[DEBUG CONSOLIDATION] Chỉ có ${singleLayerPlates.length} tấm 1-lớp, không cần gộp.`);
       }
 
+      // ============================================================
+      // ✅ GIAI ĐOẠN 5.5: RE-MERGE (Chạy lại MERGE cho các tấm đã GỘP)
+      // ============================================================
+      console.log("[DEBUG] Chạy RE-MERGE sau khi gộp...");
+      // Lấy TẤT CẢ các piece từ các tấm MỚI (bao gồm cả tấm gộp)
+      const piecesToReMerge = finalPlates.flatMap(p => p.layers.flatMap(l => l.rectangles));
+      
+      // Chạy lại Giai đoạn 3 (Merge)
+      // Biến 'mergedRects' (đang ở scope 'startOptimization') sẽ được cập nhật
+      mergedRects = runMergePhase(piecesToReMerge); 
+      
+      // ============================================================
+      // ✅ GIAI ĐOẠN 5.6: RE-REBUILD (Chạy lại REBUILD)
+      // ============================================================
+      // Chạy lại Giai đoạn 4 (Rebuild), 
+      // dùng 'finalPlates' làm metadata, bắt đầu ID lại từ 1 (an toàn)
+      finalPlates = runRebuildPhase(mergedRects, finalPlates, 1);
+      
+      console.log(`[DEBUG] RE-MERGE hoàn tất. Số tấm cuối cùng: ${finalPlates.length}`);
+
       // ========== GIAI ĐOẠN 6 : SUMMARY - Tổng kết ==========
       const totalRequested = selectedTypes.reduce((s, t) => s + (state.quantities[t.id] || 0), 0);
       
@@ -1008,7 +1050,7 @@ export const PackingProvider = ({ children }) => {
       let placedOriginalsCount = 0;
       const processedPairs = new Set();
       
-      for (const rect of mergedRects) {
+      for (const rect of mergedRects) { // ✅ Tự động dùng 'mergedRects' mới nhất
         if (rect.pairId != null) {
           if (!processedPairs.has(rect.pairId)) {
             processedPairs.add(rect.pairId);
@@ -1029,7 +1071,9 @@ export const PackingProvider = ({ children }) => {
 
       // Tính efficiency
       const containerArea = state.container.width * state.container.length;
+      // ✅ Tự động dùng 'finalPlates' mới nhất
       const totalPlateArea = finalPlates.reduce((sum, plate) => sum + plate.layers.length * containerArea, 0);
+      // ✅ Tự động dùng 'mergedRects' mới nhất
       const placedArea = mergedRects.reduce((sum, r) => sum + r.width * r.length, 0);
       const efficiency = totalPlateArea > 0 ? (placedArea / totalPlateArea) * 100 : 0;
 
@@ -1037,7 +1081,7 @@ export const PackingProvider = ({ children }) => {
       // Breakdown theo loại
       
       const placedByType = {};
-      for (const rect of mergedRects) {
+      for (const rect of mergedRects) { // ✅ Tự động dùng 'mergedRects' mới nhất
         const typeId = rect.originalTypeId || rect.typeId;
         if (rect.pairId != null) {
           placedByType[typeId] = (placedByType[typeId] || 0) + 0.5;
@@ -1075,16 +1119,16 @@ export const PackingProvider = ({ children }) => {
 
       const result = {
         layersUsed: finalPlates.reduce((sum, p) => sum + p.layers.length, 0),
-        platesNeeded: finalPlates.length,
+        platesNeeded: finalPlates.length, // ✅ Tự động dùng 'finalPlates' mới nhất
         layersPerPlate: layersPerPlate,
         totalRectanglesCount: totalRequested,
         placedRectanglesCount: placedCount,
-        rectangles: mergedRects,
-        plates: finalPlates,
+        rectangles: mergedRects, // ✅ Tự động dùng 'mergedRects' mới nhất
+        plates: finalPlates, // ✅ Tự động dùng 'finalPlates' mới nhất
         efficiency,
         pureCount: 0,
         hybridCount: 0,
-        mixedCount: finalPlates.length
+        mixedCount: finalPlates.length // ✅ Tự động dùng 'finalPlates' mới nhất
       };
 
 

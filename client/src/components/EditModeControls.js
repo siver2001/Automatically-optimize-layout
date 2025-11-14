@@ -4,30 +4,9 @@ import React from 'react';
 // --- Icon SVGs ---
 // (Các icon này được nhúng trực tiếp để đơn giản, bạn có thể tách ra file riêng nếu muốn)
 
-const RotateIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m-15.357-2a8.001 8.001 0 0015.357 2m0 0H15" />
-  </svg>
-);
-
-const AlignLeftIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
-    <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v16" />
-  </svg>
-);
-
-const AlignCenterIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16" />
-  </svg>
-);
-
-const AlignTopIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M19 13l-7-7-7 7m14-4l-7-7-7 7" />
-    <path strokeLinecap="round" strokeLinejoin="round" d="M4 20h16" />
+const HelpIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
   </svg>
 );
 
@@ -46,6 +25,17 @@ const SnapIcon = () => (
 const NoSnapIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" />
+  </svg>
+);
+
+const PanelCollapseIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+  </svg>
+);
+const PanelExpandIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
   </svg>
 );
 
@@ -74,8 +64,6 @@ const EditModeControls = ({
   onToggleEditMode,
   selectedRectangles,
   onDeleteSelected,
-  onRotateSelected,
-  onAlignSelected,
   snapEnabled,
   onToggleSnap,
   snapThreshold,
@@ -85,11 +73,15 @@ const EditModeControls = ({
   hasUnsavedChanges,
   onExportAllPdf,
   isExporting,
-  totalPlates
+  totalPlates,
+  isPaletteOpen,
+  onTogglePalette,
+  pickedUpRect,
+  onShowHelp,
 }) => {
 
   const hasSelection = selectedRectangles && selectedRectangles.length > 0;
-  const hasMultiSelection = selectedRectangles && selectedRectangles.length > 1;
+  const hasHeldItem = !!pickedUpRect;
 
   return (
     <div className="mb-3 card p-3 md:p-2 bg-gray-50 border-t-4 border-primary-500 rounded-b-xl shadow-lg">
@@ -105,7 +97,7 @@ const EditModeControls = ({
                 : 'btn-primary'
             }`}
           >
-            {isEditMode ? '🔒 Thoát Chế độ Chỉnh sửa' : '✏️ Mở Chế độ Chỉnh sửa'}
+            {isEditMode ? '🔒 Thoát Chỉnh sửa' : '✏️ Mở Chế độ Chỉnh sửa'}
           </button>
         </div>
         
@@ -119,7 +111,7 @@ const EditModeControls = ({
             >
               {isExporting 
                 ? 'Đang xử lý...' 
-                : `Xuất PDF (${totalPlates} tấm)`}
+                : `Xuất PDF `}
             </button>
           </div>
         )}
@@ -127,40 +119,29 @@ const EditModeControls = ({
         {/* Bảng điều khiển (chỉ hiển thị khi isEditMode = true) */}
         {isEditMode && (
           <div className="flex-1 w-full flex flex-col lg:flex-row justify-end items-center gap-3">
-            
+            {/*Nút thu/mở */}
+            <div className="flex items-center justify-center p-1 bg-white rounded-lg shadow-inner border">
+              <ActionButton
+                onClick={onTogglePalette}
+                disabled={false}
+                label={isPaletteOpen ? "Thu gọn Kho" : "Mở Kho"}
+              >
+                {isPaletteOpen ? <PanelCollapseIcon /> : <PanelExpandIcon />}
+              </ActionButton>
+            </div>
+            <div className="flex items-center justify-center p-1 bg-white rounded-lg shadow-inner border">
+              <ActionButton
+                onClick={onShowHelp}
+                label="Mở Hướng Dẫn (F1)"
+              >
+                <HelpIcon />
+              </ActionButton>
+            </div>
             {/* Các nút hành động */}
             <div className="flex items-center justify-center gap-1 p-1 bg-white rounded-lg shadow-inner border">
               <ActionButton
-                onClick={onRotateSelected}
-                disabled={!hasSelection}
-                label="Xoay 90° (R)"
-              >
-                <RotateIcon />
-              </ActionButton>
-              <ActionButton
-                onClick={() => onAlignSelected('left')}
-                disabled={!hasMultiSelection}
-                label="Căn Trái"
-              >
-                <AlignLeftIcon />
-              </ActionButton>
-              <ActionButton
-                onClick={() => onAlignSelected('center')}
-                disabled={!hasMultiSelection}
-                label="Căn Giữa (Ngang)"
-              >
-                <AlignCenterIcon />
-              </ActionButton>
-              <ActionButton
-                onClick={() => onAlignSelected('top')}
-                disabled={!hasMultiSelection}
-                label="Căn Trên"
-              >
-                <AlignTopIcon />
-              </ActionButton>
-              <ActionButton
-                onClick={onDeleteSelected}
-                disabled={!hasSelection}
+                onClick={() => onDeleteSelected()}
+                disabled={!hasSelection && !hasHeldItem}
                 label="Xóa (Delete)"
                 isDanger={true}
               >
