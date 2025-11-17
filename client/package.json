@@ -1,14 +1,14 @@
 {
   "name": "rectangle-packing-client",
   "version": "0.1.0",
+  "description": "Ứng dụng netting liệu",
+  "author": "Nguyễn Hoàng Long",
   "private": true,
   "dependencies": {
     "@testing-library/jest-dom": "^5.16.4",
     "@testing-library/react": "^13.3.0",
     "@testing-library/user-event": "^13.5.0",
     "axios": "^1.3.4",
-    "electron": "^25.0.0",
-    "electron-builder": "^24.6.4",
     "framer-motion": "^10.0.1",
     "lodash": "^4.17.21",
     "react": "^18.2.0",
@@ -30,7 +30,7 @@
     "electron-pack": "npm run build && electron-builder",
     "preelectron-pack": "npm run build"
   },
-  "main": "public/electron.cjs",
+  "main": "build/electron.cjs",
   "homepage": "./",
   "eslintConfig": {
     "extends": [
@@ -55,6 +55,8 @@
     "autoprefixer": "^10.4.14",
     "concurrently": "^8.2.0",
     "cross-env": "^7.0.3",
+    "electron": "^25.0.0",
+    "electron-builder": "^24.6.4",
     "postcss": "^8.4.24",
     "tailwindcss": "^3.3.0",
     "wait-on": "^7.0.1"
@@ -67,7 +69,7 @@
     },
     "files": [
       "build/**/*",
-      "public/electron.js",
+      "public/electron.cjs",
       "node_modules/**/*"
     ],
     
