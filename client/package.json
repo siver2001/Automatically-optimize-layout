@@ -26,9 +26,8 @@
     "test": "react-scripts test",
     "eject": "react-scripts eject",
     "electron": "electron .",
-    "electron-dev": "concurrently \"npm start\" \"wait-on http://localhost:3000 && electron .\"",
-    "electron-pack": "npm run build && electron-builder",
-    "preelectron-pack": "npm run build"
+    "electron-dev": "concurrently \"npm start\" \"wait-on http://localhost:3000 && electron public/electron.cjs\"",
+    "electron-pack": "npm run build && node -e \"require('fs').copyFileSync('public/electron.cjs', 'build/electron.cjs')\" && electron-builder"
   },
   "main": "build/electron.cjs",
   "homepage": "./",
@@ -69,7 +68,6 @@
     },
     "files": [
       "build/**/*",
-      "public/electron.cjs",
       "node_modules/**/*"
     ],
     
