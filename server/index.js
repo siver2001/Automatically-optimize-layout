@@ -23,8 +23,7 @@ const io = new SocketIOServer(server, {
 
 const PORT = process.env.PORT || 5000;
 
-// Kiểm tra môi trường để quyết định cách phục vụ ứng dụng React
-const isProduction = process.env.NODE_ENV === 'production'; 
+// const isProduction = process.env.NODE_ENV === 'production'; // KHÔNG CẦN DÒNG NÀY
 
 // Middleware
 app.use(cors());
@@ -34,17 +33,6 @@ app.use(express.urlencoded({ limit: '100mb', extended: true }));
 // Routes (API routes should always be available)
 app.use('/api/packing', packingRoutes);
 app.use('/api/modbus', modbusRoutes);
-
-// Phục vụ static files và React app CHỈ TRONG CHẾ ĐỘ SẢN XUẤT
-if (isProduction) {
-    // Phục vụ các file tĩnh từ client/build
-    app.use(express.static(path.join(__dirname, '..', 'client', 'build')));
-
-    // Phục vụ React app (fallback cho các route client-side)
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(__dirname, '..', 'client', 'build', 'index.html'));
-    });
-}
 
 
 // Socket.io connection handling

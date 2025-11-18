@@ -1,14 +1,10 @@
-// client/src/components/DraggableRectangle.js
-// Nâng cấp: Thêm prop isLandscape để đồng bộ cách hiển thị với chế độ static, đảm bảo tọa độ và kích thước được swap đúng khi container portrait.
-// Không swap kích thước hiển thị dựa trên rotated ở đây nữa, mà giữ nguyên data (width along x, length along y), và chỉ swap nếu !isLandscape.
-// Hiển thị dimensions gốc (không swap) với flag rotated.
 
 import React from 'react';
 
 const DraggableRectangle = ({
   rect,
   scale,
-  isLandscape,  // THÊM LẠI PROP NÀY
+  isLandscape, 
   isSelected,
   onPickUp,
   onContextMenu,

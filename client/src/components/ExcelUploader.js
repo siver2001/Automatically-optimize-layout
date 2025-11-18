@@ -1,37 +1,49 @@
 import React, { useState } from 'react';
-import * as XLSX from 'xlsx';
-import { usePacking } from '../context/PackingContext.js'; // Đường dẫn có thể cần sửa
+import ExcelJS from 'exceljs'; // <-- Đã thay đổi
+import { usePacking } from '../context/PackingContext.js';
 
-// Hàm tiện ích tạo màu ngẫu nhiên
+// Hàm tiện ích tạo màu ngẫu nhiên (Giữ nguyên)
 const generateRandomColor = () => {
   const randomHue = Math.floor(Math.random() * 360);
   return `hsl(${randomHue}, 70%, 60%)`;
 };
 
-// Hàm tìm tiêu đề
-// Nó sẽ tìm 4 cột BẤT KỲ nằm cạnh nhau có chứa các từ khóa
-const findHeaderLocation = (jsonSheet) => {
+// Hàm tìm tiêu đề (Phiên bản cho ExcelJS)
+const findHeaderLocation = (worksheet) => {
   const headerKeywords = ['size', 'chiều dài', 'chiều rộng', 'số lượng'];
   
-  for (let r = 0; r < jsonSheet.length; r++) {
-    const row = jsonSheet[r];
-    for (let c = 0; c < row.length - 3; c++) {
-      const cell1 = (row[c] || '').toString().toLowerCase().trim();
-      const cell2 = (row[c+1] || '').toString().toLowerCase().trim();
-      const cell3 = (row[c+2] || '').toString().toLowerCase().trim();
-      const cell4 = (row[c+3] || '').toString().toLowerCase().trim();
+  // ExcelJS row và cell được đánh số từ 1
+  for (let r = 1; r <= worksheet.rowCount; r++) {
+    const row = worksheet.getRow(r);
+    // Tối đa số cột có thể kiểm tra
+    const maxCol = row.cellCount > 3 ? row.cellCount - 3 : row.cellCount; 
+
+    for (let c = 1; c <= maxCol; c++) {
+      const cell1 = (row.getCell(c).value || '').toString().toLowerCase().trim();
+      const cell2 = (row.getCell(c + 1).value || '').toString().toLowerCase().trim();
+      const cell3 = (row.getCell(c + 2).value || '').toString().toLowerCase().trim();
+      const cell4 = (row.getCell(c + 3).value || '').toString().toLowerCase().trim();
       
       if (cell1.includes(headerKeywords[0]) &&
           cell2.includes(headerKeywords[1]) &&
           cell3.includes(headerKeywords[2]) &&
           cell4.includes(headerKeywords[3])) 
       {
-        // Đã tìm thấy!
+        // Đã tìm thấy! Trả về chỉ số (1-based)
         return { headerRowIndex: r, dataColStart: c };
       }
     }
   }
   return null; // Không tìm thấy
+};
+
+// Hàm tiện ích để lấy giá trị thực từ cell (ExcelJS có thể trả về object)
+const parseCell = (cellValue) => {
+  if (cellValue && typeof cellValue === 'object') {
+    if (cellValue.result) return cellValue.result; // Từ công thức
+    if (cellValue.text) return cellValue.text; // Từ rich text
+  }
+  return cellValue; // Giá trị nguyên thủy
 };
 
 
@@ -50,41 +62,47 @@ const ExcelUploader = () => {
     }
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+
+    // Sửa reader.onload để thành hàm async
+    reader.onload = async (event) => {
       try {
-        const data = new Uint8Array(event.target.result);
-        const workbook = XLSX.read(data, { type: 'array' });
+        const data = event.target.result; // Đây là một ArrayBuffer
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.load(data); // <-- Dùng API của ExcelJS
 
         let parsedData = [];
         let sheetFound = false;
 
         // Duyệt qua tất cả các sheet
-        for (const sheetName of workbook.SheetNames) {
-          const worksheet = workbook.Sheets[sheetName];
-          // Chuyển sheet thành mảng (để dễ tìm header)
-          const jsonSheet = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-
-          const location = findHeaderLocation(jsonSheet);
+        for (const worksheet of workbook.worksheets) {
+          const location = findHeaderLocation(worksheet);
           
           if (location) {
             sheetFound = true;
             const { headerRowIndex, dataColStart } = location;
 
-            // Lặp từ hàng ngay sau header
-            for (let r = headerRowIndex + 1; r < jsonSheet.length; r++) {
-              const row = jsonSheet[r];
+            // Lặp từ hàng ngay sau header (chỉ số 1-based)
+            for (let r = headerRowIndex + 1; r <= worksheet.rowCount; r++) {
+              const row = worksheet.getRow(r);
               
-              const name = row[dataColStart];
-              const length = row[dataColStart + 1];
-              const width = row[dataColStart + 2];
-              const quantity = row[dataColStart + 3];
+              // Lấy giá trị cell bằng API của ExcelJS
+              const name = row.getCell(dataColStart).value;
+              const length = row.getCell(dataColStart + 1).value;
+              const width = row.getCell(dataColStart + 2).value;
+              const quantity = row.getCell(dataColStart + 3).value;
+
+              // Parse giá trị (vì có thể là object)
+              const pName = parseCell(name);
+              const pLength = parseCell(length);
+              const pWidth = parseCell(width);
+              const pQuantity = parseCell(quantity);
 
               // Yêu cầu: "Hàng nào có cả 4 dữ liệu"
-              if (name != null && length != null && width != null && quantity != null) {
-                const rectName = String(name).trim();
-                const rectLength = parseFloat(length);
-                const rectWidth = parseFloat(width);
-                const rectQuantity = parseInt(quantity, 10);
+              if (pName != null && pLength != null && pWidth != null && pQuantity != null) {
+                const rectName = String(pName).trim();
+                const rectLength = parseFloat(pLength);
+                const rectWidth = parseFloat(pWidth);
+                const rectQuantity = parseInt(pQuantity, 10);
 
                 // Kiểm tra dữ liệu sau khi chuyển đổi
                 if (rectName && 
@@ -108,6 +126,7 @@ const ExcelUploader = () => {
           }
         }
 
+        // Phần logic hiển thị message giữ nguyên
         if (parsedData.length > 0) {
           addRectanglesFromExcel(parsedData);
           setMessage(`✅ Đã thêm thành công ${parsedData.length} size.`);
@@ -125,9 +144,12 @@ const ExcelUploader = () => {
       // Reset input để có thể tải lại cùng 1 file
       e.target.value = null; 
     };
+    
+    // Đọc file thành ArrayBuffer (ExcelJS cần cái này)
     reader.readAsArrayBuffer(file);
   };
 
+  // Phần JSX render giữ nguyên
   return (
     <div className="my-4 p-4 border rounded-lg bg-gray-50">
       <label 

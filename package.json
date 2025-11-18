@@ -2,31 +2,32 @@
   "name": "rectangle-packing-optimizer",
   "version": "1.0.0",
   "description": "Ứng dụng tối ưu sắp xếp hình chữ nhật với thuật toán 2D bin packing",
-  "main": "server/index.js",
+  "main": "electron.cjs",
   "type": "module",
   "scripts": {
-    "electron-dev": "cross-env NODE_ENV=development concurrently \"npm run server\" \"cd client && npm run electron-dev\"",
     "server": "nodemon server/index.js",
-    "build": "cd client && npm run build",
-    "start": "node server/index.js",
-    "install-all": "npm install && cd client && npm install",
-    "electron-pack": "cd client && npm run electron-pack",
-    "electron": "cd client && npm run electron"
+    "client": "npm start --prefix client",
+    "dev": "concurrently -k \"npm:server\" \"npm:client\" \"wait-on http://localhost:3000 && electron .\"",
+    "build:client": "npm run build --prefix client",
+    "package": "npm run build:client && electron-builder",
+    "install-all": "npm install && cd client && npm install"
   },
   "dependencies": {
     "cors": "^2.8.5",
-    "dxf-writer": "^1.18.4",
+    "exceljs": "^4.4.0",
     "express": "^4.18.2",
     "lodash": "^4.17.21",
     "modbus-serial": "^8.0.12",
     "pdfkit": "^0.17.2",
-    "socket.io": "^4.7.2",
-    "xlsx": "^0.18.6"
+    "socket.io": "^4.7.2"
   },
   "devDependencies": {
     "concurrently": "^8.2.0",
     "cross-env": "^7.0.3",
-    "nodemon": "^3.0.1"
+    "electron": "^25.0.0",
+    "electron-builder": "^24.6.4",
+    "nodemon": "^3.0.1",
+    "wait-on": "^7.0.1"
   },
   "keywords": [
     "rectangle-packing",
@@ -34,5 +35,24 @@
     "optimization",
     "modbus",
     "plc"
-  ]
+  ],
+  "build": {
+    "appId": "com.rectanglepacking.optimizer",
+    "productName": "Tự động sắp xếp liệu",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "client/build/**/*",
+      "server/**/*",
+      "electron.cjs",
+      "package.json",
+      "node_modules/**/*"
+    ],
+    "icon": "client/public/icon.png",
+    "win": {
+      "target": "nsis",
+      "icon": "client/public/icon.ico"
+    }
+  }
 }

@@ -4,18 +4,6 @@
   "description": "Ứng dụng netting liệu",
   "author": "Nguyễn Hoàng Long",
   "private": true,
-
-  "main": "electron.cjs",
-  "homepage": "./",
-
-  "scripts": {
-    "start": "cross-env BROWSER=none react-scripts start",
-    "build": "react-scripts build",
-    "electron": "electron .",
-    "electron-dev": "concurrently \"npm start\" \"wait-on http://localhost:3000 && electron electron.cjs\"",
-    "electron-pack": "npm run build && electron-builder"
-  },
-
   "dependencies": {
     "@testing-library/jest-dom": "^5.16.4",
     "@testing-library/react": "^13.3.0",
@@ -32,18 +20,41 @@
     "socket.io-client": "^4.7.2",
     "web-vitals": "^2.1.4"
   },
-
+  "scripts": {
+    "start": "cross-env BROWSER=none react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject",
+    "electron": "electron .",
+    "electron-dev": "concurrently \"npm start\" \"wait-on http://localhost:3000 && electron .\"",
+    "electron-pack": "npm run build && electron-builder"
+  },
+  "main": "public/electron.js",
+  "homepage": "./",
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "proxy": "http://localhost:5000",
   "devDependencies": {
     "autoprefixer": "^10.4.14",
-    "concurrently": "^8.2.0",
-    "cross-env": "^7.0.3",
-    "electron": "^25.0.0",
-    "electron-builder": "^24.6.4",
     "postcss": "^8.4.24",
-    "tailwindcss": "^3.3.0",
-    "wait-on": "^7.0.1"
+    "tailwindcss": "^3.3.0"
   },
-
   "build": {
     "appId": "com.rectanglepacking.optimizer",
     "productName": "Tự động sắp xếp liệu",
@@ -51,10 +62,10 @@
       "output": "dist"
     },
     "files": [
-      "build/**/*",
-      "electron.cjs"
+      "build/**/*"
     ],
-    "icon": "build/icon.png",
+    
+    "icon": "build/icon.png", 
     "win": {
       "target": "nsis",
       "icon": "build/icon.ico"
