@@ -5,13 +5,11 @@ import { Server as SocketIOServer } from 'socket.io';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-// Define __filename and __dirname equivalent for ES Modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 import packingRoutes from './routes/packing.js';
 import modbusRoutes from './routes/modbus.js';
-
 
 const app = express();
 const server = http.createServer(app);
@@ -29,10 +27,18 @@ app.use(cors());
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
-// Routes (API routes should always be available)
+// Routes API
 app.use('/api/packing', packingRoutes);
 app.use('/api/modbus', modbusRoutes);
 
+// ✅ THÊM: Serve React build folder
+const buildPath = path.join(__dirname, '../client/build');
+app.use(express.static(buildPath));
+
+// ✅ THÊM: Fallback để hỗ trợ React Router
+app.get('*', (req, res) => {
+  res.sendFile(path.join(buildPath, 'index.html'));
+});
 
 // Socket.io connection handling
 io.on('connection', (socket) => {
@@ -42,20 +48,16 @@ io.on('connection', (socket) => {
     console.log('Client disconnected:', socket.id);
   });
   
-  // Packing optimization events
   socket.on('start-packing', (data) => {
     console.log('Starting packing optimization:', data);
-    // Emit packing progress updates
     socket.emit('packing-progress', { progress: 0, message: 'Bắt đầu tối ưu...' });
   });
 });
 
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  // Dòng test của bạn (có thể giữ hoặc xóa)
-  console.log('--- SERVER PHIEN BAN MOI NHAT DA CHAY ---');
+  console.log('--- SERVER PHIÊN BAN MỚI NHẤT ĐÃ CHẠY ---');
   
-  // GỬI TIN NHẮN CHO ELECTRON KHI SERVER SẴN SÀNG
   if (process.send) {
     process.send('server-ready');
   }

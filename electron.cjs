@@ -15,12 +15,14 @@ function startServer() {
     console.log(`[Electron] Starting server at ${serverPath}...`);
 
 serverProcess = fork(serverPath, [], {
-      // BẮT BUỘC: Thêm 'ipc' để nhận message
-      // silent: false để log của server vẫn ra console
       stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
       silent: false 
     });
 
+    const timeout = setTimeout(() => {
+      reject(new Error('Server startup timeout after 10s'));
+    }, 10000);
+    
     serverProcess.on('error', err => {
       console.error('[Server Error]', err);
       reject(err); // Promise thất bại nếu server lỗi
@@ -31,6 +33,7 @@ serverProcess = fork(serverPath, [], {
     // LẮNG NGHE TIN NHẮN TỪ TIẾN TRÌNH CON
     serverProcess.on('message', (message) => {
       if (message === 'server-ready') {
+        clearTimeout(timeout);
         console.log('[Electron] Server is ready!');
         resolve(); // Promise thành công!
       }
@@ -49,17 +52,16 @@ function createWindow() {
     icon: path.join(__dirname, 'client', 'public', 'icon.png'), 
     webPreferences: {
       nodeIntegration: false,
-      contextIsolation: true
+      contextIsolation: true,
+      webSecurity: false
     }
   });
 
-if (isDev) {
-    // Chế độ Dev
-mainWindow.loadURL('http://localhost:3000');
-} else {
-    // Chế độ Production
-    const indexPath = path.join(__dirname, 'client', 'build', 'index.html');
-mainWindow.loadFile(indexPath);
+  if (isDev) {
+    mainWindow.loadURL('http://localhost:3000');
+  } else {
+    // ✅ LOAD từ Server Express thay vì file local
+    mainWindow.loadURL('http://localhost:5000');
   }
 }
 
