@@ -53,4 +53,8 @@ io.on('connection', (socket) => {
 
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+   // GỬI TIN NHẮN CHO ELECTRON KHI SERVER SẴN SÀNG
+  if (process.send) {
+    process.send('server-ready');
+  }
 });
