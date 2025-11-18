@@ -38,10 +38,11 @@
   ],
   "build": {
     "appId": "com.rectanglepacking.optimizer",
-    "productName": "Tự động sắp xếp liệu",
+    "productName": "Netting",
     "directories": {
       "output": "dist"
     },
+    "asar": false,
     "files": [
       "client/build/**/*",
       "server/**/*",

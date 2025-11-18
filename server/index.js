@@ -12,21 +12,20 @@ const __dirname = path.dirname(__filename);
 import packingRoutes from './routes/packing.js';
 import modbusRoutes from './routes/modbus.js';
 
+
 const app = express();
 const server = http.createServer(app);
 const io = new SocketIOServer(server, { 
   cors: {
-    origin: "http://localhost:3000",
+    origin: "*", 
     methods: ["GET", "POST"]
   }
 });
 
 const PORT = process.env.PORT || 5000;
 
-// const isProduction = process.env.NODE_ENV === 'production'; // KHÔNG CẦN DÒNG NÀY
-
 // Middleware
-app.use(cors());
+app.use(cors()); 
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
@@ -53,7 +52,10 @@ io.on('connection', (socket) => {
 
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-   // GỬI TIN NHẮN CHO ELECTRON KHI SERVER SẴN SÀNG
+  // Dòng test của bạn (có thể giữ hoặc xóa)
+  console.log('--- SERVER PHIEN BAN MOI NHAT DA CHAY ---');
+  
+  // GỬI TIN NHẮN CHO ELECTRON KHI SERVER SẴN SÀNG
   if (process.send) {
     process.send('server-ready');
   }

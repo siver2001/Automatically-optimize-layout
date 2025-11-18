@@ -45,7 +45,7 @@ function createWindow() {
     height: 1080,
     minWidth: 1024,
     minHeight: 768,
-    title: 'Tự động sắp xếp liệu',
+    title: 'Netting',
     icon: path.join(__dirname, 'client', 'public', 'icon.png'), 
     webPreferences: {
       nodeIntegration: false,
