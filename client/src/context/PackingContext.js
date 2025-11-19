@@ -474,7 +474,7 @@ export const PackingProvider = ({ children }) => {
   // CONSTANTS
   // ============================================================
   const MIN_SPLIT_WIDTH = 10; // Chiều rộng tối thiểu để chia đôi (mm)
-  const MAX_ITERATIONS = 100; // Số lần lặp tối đa cho mixed plates
+  const MAX_ITERATIONS = 10000; // Số lần lặp tối đa cho mixed plates
 
   // ============================================================
   // HELPER: Tạo chữ ký pattern để phát hiện tấm trùng lặp
@@ -812,7 +812,9 @@ export const PackingProvider = ({ children }) => {
       finalPlates = runRebuildPhase(mergedRects, finalPlates, 1);
 
       
-      // ========== GIAI ĐOẠN 5: CONSOLIDATION - Gộp dùng FFD (NÂNG CẤP) ==========
+      // ============================================================
+      // ✅ GIAI ĐOẠN 5: CONSOLIDATION - Gộp dùng Smart FFD (NÂNG CẤP CHO SHELF)
+      // ============================================================
 
       // 1. THU THẬP TẤM 1 LỚP
       const singleLayerPlates = finalPlates.filter(p => p.layers.length === 1);
@@ -822,10 +824,6 @@ export const PackingProvider = ({ children }) => {
       if (singleLayerPlates.length > 1) {
         console.log(`[DEBUG CONSOLIDATION] Tìm thấy ${singleLayerPlates.length} tấm 1-lớp để gộp`);
 
-        // ============================================================
-        // HELPER: Kiểm tra hình có chồng lấn với hình khác không
-        // (Cần cho findBestPosition)
-        // ============================================================
         const checkOverlap = (rect, existingRects, tolerance = 0.1) => {
           for (const existing of existingRects) {
             const overlapX = !(rect.x + rect.width <= existing.x + tolerance || 
@@ -833,98 +831,99 @@ export const PackingProvider = ({ children }) => {
             const overlapY = !(rect.y + rect.length <= existing.y + tolerance || 
                               rect.y >= existing.y + existing.length - tolerance);
             
-            if (overlapX && overlapY) {
-              return true; // Có chồng lấn
-            }
+            if (overlapX && overlapY) return true;
           }
-          return false; // Không chồng lấn
+          return false;
         };
         
-        // ============================================================
-        // HELPER: Tìm vị trí tốt nhất để đặt hình (Bottom-Left)
-        // (Cần cho FFD)
-        // ============================================================
-        const findBestPosition = (rect, existingRects, containerWidth, containerLength, canRotate = true) => {
+        // ✅ HELPER MỚI: Find Best Position ưu tiên GRID/SHELF
+        const findBestPositionSmart = (rect, existingRects, containerWidth, containerLength) => {
           let bestPos = null;
-          let bestWaste = Infinity;
-          
-          // Thử cả không xoay và xoay (nếu cho phép)
+          let bestScore = Infinity;
+
+          // Thử cả 2 hướng (Ưu tiên chiều ngang để tạo shelf)
           const orientations = [
-            { width: rect.width, length: rect.length, rotated: false }
+            { w: rect.width, l: rect.length, r: rect.rotated || false },
+            { w: rect.length, l: rect.width, r: !(rect.rotated || false) }
           ];
-          
-          // Chỉ xoay nếu cho phép VÀ không phải hình vuông
-          if (canRotate && rect.width !== rect.length) { 
-            orientations.push({ 
-              width: rect.length, 
-              length: rect.width, 
-              rotated: true 
-            });
-          }
-          
-          for (const orientation of orientations) {
-            const { width, length, rotated } = orientation;
-            
-            // Nếu hình vượt quá kích thước tấm, bỏ qua
-            if (width > containerWidth || length > containerLength) continue;
-            
-            // Tạo danh sách các điểm ứng viên (candidate points)
-            const candidatePoints = [{ x: 0, y: 0 }]; // Góc (0,0) luôn là ứng viên
-            
-            // Thêm các góc của hình đã xếp
-            for (const existing of existingRects) {
-              candidatePoints.push(
-                { x: existing.x + existing.width, y: existing.y },           // Bên phải
-                { x: existing.x, y: existing.y + existing.length },          // Bên dưới
-                { x: existing.x + existing.width, y: existing.y + existing.length } // Góc chéo
-              );
-            }
-            
-            // Duyệt qua từng điểm ứng viên
-            for (const point of candidatePoints) {
-              const { x, y } = point;
+
+          // Các điểm neo: Góc (0,0) và các góc của hình đã xếp
+          const candidates = [{x:0, y:0}];
+          existingRects.forEach(e => {
+            candidates.push({ x: e.x + e.width, y: e.y }); // Bên phải (Tạo hàng)
+            candidates.push({ x: e.x, y: e.y + e.length }); // Bên dưới (Tạo hàng mới)
+            // Không cần góc chéo cho shelf logic
+          });
+
+          for (const ori of orientations) {
+            const { w, l, r } = ori;
+            if (w > containerWidth || l > containerLength) continue;
+
+            for (const p of candidates) {
+              // 1. Check biên
+              if (p.x + w > containerWidth || p.y + l > containerLength) continue;
               
-              // Kiểm tra hình có vừa trong tấm không
-              if (x + width > containerWidth || y + length > containerLength) continue;
-              
-              const testRect = { x, y, width, length, rotated };
-              
-              // Kiểm tra có chồng lấn không
+              // 2. Check chồng lấn
+              const testRect = { x: p.x, y: p.y, width: w, length: l };
               if (checkOverlap(testRect, existingRects)) continue;
+
+              // 3. ✅ TÍNH ĐIỂM (SCORE) - Càng thấp càng tốt
+              // Tiêu chí 1: Vị trí Bottom-Left (quan trọng nhất)
+              let score = p.y * containerWidth + p.x;
+
+              // Tiêu chí 2: Alignment (Thưởng cực lớn nếu khớp cạnh)
+              let aligns = false;
+              for (const e of existingRects) {
+                // Khớp chiều cao với hình bên trái (Tạo hàng ngang đẹp)
+                if (Math.abs(e.x + e.width - p.x) < 0.1 && Math.abs(e.length - l) < 0.1 && Math.abs(e.y - p.y) < 0.1) {
+                    score -= 500000; // Thưởng siêu lớn
+                    aligns = true;
+                }
+                // Khớp chiều rộng với hình bên dưới (Tạo cột đẹp)
+                if (Math.abs(e.y + e.length - p.y) < 0.1 && Math.abs(e.width - w) < 0.1 && Math.abs(e.x - p.x) < 0.1) {
+                    score -= 500000;
+                    aligns = true;
+                }
+              }
               
-              // Tính "độ lãng phí" (waste) - ưu tiên vị trí thấp nhất, trái nhất
-              const waste = y * containerWidth + x;
-              
-              if (waste < bestWaste) {
-                bestWaste = waste;
-                bestPos = { ...testRect, originalRotated: rect.rotated };
+              // Tiêu chí 3: Phạt xoay (nếu không align)
+              if (!aligns && r !== (rect.rotated || false)) {
+                  score += 1000; 
+              }
+
+              if (score < bestScore) {
+                bestScore = score;
+                bestPos = { x: p.x, y: p.y, width: w, length: l, rotated: r };
               }
             }
           }
-          
           return bestPos;
         };
 
-        // ============================================================
-        // BẮT ĐẦU LOGIC FFD
-        // ============================================================
-
         // 2. THU THẬP ITEMS
-        // Lấy TẤT CẢ các item từ các tấm 1-lớp
         let allItems = singleLayerPlates.flatMap(p => 
-          p.layers[0].rectangles.map(r => ({ ...r })) // Tạo bản sao
+          p.layers[0].rectangles.map(r => ({ ...r })) 
         );
 
-        // 3. SẮP XẾP (Decreasing)
-        allItems.sort((a, b) => (b.width * b.length) - (a.width * a.length));
-        console.log(`[DEBUG CONSOLIDATION] Tổng cộng ${allItems.length} items, sắp xếp theo diện tích`);
+        // ✅ CẬP NHẬT SẮP XẾP: Ưu tiên Chiều Cao (Height) để tạo Shelf
+        allItems.sort((a, b) => {
+           const hA = Math.min(a.width, a.length); 
+           const hB = Math.min(b.width, b.length);
+           if (Math.abs(hB - hA) > 1) return hB - hA; // Ưu tiên hình cao trước
+           
+           const wA = Math.max(a.width, a.length);
+           const wB = Math.max(b.width, b.length);
+           return wB - wA; // Nếu cùng cao, ưu tiên hình rộng
+        });
+        
+        console.log(`[DEBUG CONSOLIDATION] Tổng cộng ${allItems.length} items, sắp xếp ưu tiên Shelf (Height)`);
 
         // Lấy các tấm nhiều lớp (không gộp) ra
         const multiLayerPlates = finalPlates.filter(p => !platesToRemove.has(p.plateIndex));
         
-        // 4. ĐÓNG GÓI (First Fit)
-        const newConsolidatedPlates = []; // "Thùng" (tấm) mới
-        let newPlateCounter = multiLayerPlates.length; // Bắt đầu đếm index sau các tấm nhiều lớp
+        // 4. ĐÓNG GÓI (Smart First Fit)
+        const newConsolidatedPlates = []; 
+        let newPlateCounter = multiLayerPlates.length;
 
         for (const item of allItems) {
           let placed = false;
@@ -932,54 +931,42 @@ export const PackingProvider = ({ children }) => {
           // Thử xếp vào các "thùng" (tấm) đã có
           for (const bin of newConsolidatedPlates) {
             const targetRects = bin.layers[0].rectangles;
-            const bestPos = findBestPosition(
+            
+            // Sử dụng hàm Smart mới
+            const bestPos = findBestPositionSmart(
               item,
               targetRects,
               state.container.width,
-              state.container.length,
-              true // Cho phép xoay
+              state.container.length
             );
 
             if (bestPos) {
-              // ✅ Vừa! (First Fit)
               const mergedRect = {
                 ...item,
-                x: bestPos.x,
-                y: bestPos.y,
-                width: bestPos.width,
-                length: bestPos.length,
-                rotated: bestPos.rotated, // Ghi lại trạng thái xoay MỚI
-                layer: 0,
-                plateIndex: bin.plateIndex
+                x: bestPos.x, y: bestPos.y, width: bestPos.width, length: bestPos.length, rotated: bestPos.rotated,
+                layer: 0, plateIndex: bin.plateIndex
               };
-              targetRects.push(mergedRect); // Thêm vào thùng
+              targetRects.push(mergedRect); 
               placed = true;
-              break; // Thoát vòng lặp 'bin', xử lý 'item' tiếp theo
+              break; 
             }
           }
 
           // Nếu không vừa thùng nào, mở thùng mới
           if (!placed) {
             const newPlateIndex = newPlateCounter++;
-            
-            // Tìm vị trí cho item đầu tiên (luôn là 0,0)
-            const bestPos = findBestPosition(item, [], state.container.width, state.container.length, true);
+            const bestPos = findBestPositionSmart(item, [], state.container.width, state.container.length);
 
             const newRect = {
               ...item,
-              x: bestPos.x,
-              y: bestPos.y,
-              width: bestPos.width,
-              length: bestPos.length,
-              rotated: bestPos.rotated,
-              layer: 0,
-              plateIndex: newPlateIndex
+              x: bestPos.x, y: bestPos.y, width: bestPos.width, length: bestPos.length, rotated: bestPos.rotated,
+              layer: 0, plateIndex: newPlateIndex
             };
             
             const newBin = {
               plateIndex: newPlateIndex,
               type: 'mixed',
-              description: `Tấm Gộp #${newPlateIndex + 1}`, // Sẽ cập nhật sau
+              description: `Tấm Gộp #${newPlateIndex + 1}`, 
               layers: [{
                 layerIndexInPlate: 0,
                 rectangles: [newRect]
@@ -994,22 +981,16 @@ export const PackingProvider = ({ children }) => {
 
         // Cập nhật lại description và đánh số lại
         finalPlates.forEach((plate, idx) => {
-          plate.plateIndex = idx; // Đánh số lại
-          
+          plate.plateIndex = idx; 
           plate.layers.forEach(layer => {
             layer.rectangles.forEach(rect => {
-              rect.plateIndex = idx; // Cập nhật plateIndex cho từng hình
+              rect.plateIndex = idx; 
             });
           });
-
-          // Cập nhật description cho các tấm gộp
-          // (Logic này đã được sửa, dùng find)
           if (newConsolidatedPlates.find(p => p.plateIndex === idx)) {
               plate.description = `Tấm Gộp #${idx + 1} `;
           }
         });
-        
-        // Cập nhật mergedRects với plateIndex mới (không cần thiết vì sẽ chạy lại merge)
         
         dispatch({
             type: 'SET_WARNING',

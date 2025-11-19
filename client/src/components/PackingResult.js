@@ -1305,7 +1305,7 @@ const PackingResult = () => {
         {/* Footer (Không đổi) */}
         <div className="mt-3 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
           <div className="text-xs md:text-sm text-gray-700 font-semibold">
-            <span className="text-gray-500 font-medium">Tổng cộng {totalLayersUsed} lớp</span>
+            <span className="text-gray-500 font-medium">Tổng cộng {totalLayersUsed} tấm</span>
           </div>
           <div className="text-xs md:text-sm text-gray-700 font-semibold">
             Hiệu suất tổng thể: <span className="text-base md:text-xl text-blue-600">{totalEfficiency.toFixed(1)}%</span>

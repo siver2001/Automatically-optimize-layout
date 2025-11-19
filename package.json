@@ -1,5 +1,5 @@
 {
-  "name": "rectangle-packing-optimizer",
+  "name": "Netting",
   "version": "1.0.0",
   "description": "Ứng dụng tối ưu sắp xếp hình chữ nhật với thuật toán 2D bin packing",
   "main": "electron.cjs",
