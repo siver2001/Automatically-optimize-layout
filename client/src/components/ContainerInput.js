@@ -73,7 +73,7 @@ const ContainerInput = () => {
   return (
     <div className="mb-3 card p-3 md:p-4">
       <div className="flex items-center justify-between mb-4 md:mb-6 border-b pb-2 md:pb-3">
-        <h2 className="text-gray-800 text-base md:text-lg lg:text-xl font-semibold flex items-center gap-2">
+        <h2 className="text-gray-800 text-base md:text-lg lg:text-l font-semibold flex items-center gap-2">
           📐 Thiết kế tấm liệu
         </h2>
         
@@ -99,8 +99,8 @@ const ContainerInput = () => {
                   id="width"
                   type="number"
                   min="1"
-                  max="10000"
-                  step="0.1"
+                  max="100000"
+                  step="1"
                   value={localContainer.width === 0 ? '' : localContainer.width}
                   onChange={(e) => handleInputChange('width', e.target.value)}
                   placeholder="e.g., 600.0"
@@ -117,8 +117,8 @@ const ContainerInput = () => {
                   id="length"
                   type="number"
                   min="1"
-                  max="10000"
-                  step="0.1"
+                  max="100000"
+                  step="1"
                   value={localContainer.length === 0 ? '' : localContainer.length}
                   onChange={(e) => handleInputChange('length', e.target.value)}
                   placeholder="e.g., 500.0"
@@ -137,7 +137,7 @@ const ContainerInput = () => {
                   id="layers"
                   type="number"
                   min="1"
-                  max="100"
+                  max="1000"
                   step="1"
                   value={localContainer.layers || 1}
                   onChange={(e) => handleInputChange('layers', e.target.value)}
