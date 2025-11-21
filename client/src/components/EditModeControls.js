@@ -200,6 +200,7 @@ const EditModeControls = ({
         )}
       </div>
     </div>
+    
   );
 };
 

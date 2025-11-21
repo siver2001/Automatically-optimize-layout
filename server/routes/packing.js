@@ -39,7 +39,7 @@ const getColorForRectangle = (rect) => {
 // POST /api/packing/optimize - Tối ưu sắp xếp hình chữ nhật (Giữ nguyên)
 router.post('/optimize', async (req, res) => {
   try {
-    const { container, rectangles, layers } = req.body;
+    const { container, rectangles, layers, strategy } = req.body; 
     
     if (!container || !rectangles || !layers) {
       return res.status(400).json({ 
@@ -63,7 +63,7 @@ router.post('/optimize', async (req, res) => {
     
     const rectangleInstances = rectangles.map(rect => Rectangle.fromJSON(rect));
     
-    const result = await algorithm.optimize(container, rectangleInstances, layers);
+    const result = await algorithm.optimize(container, rectangleInstances, layers, strategy || 'AREA_OPTIMIZED' );
     
     res.json({
       success: true,

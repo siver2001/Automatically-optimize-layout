@@ -242,7 +242,8 @@ const initialState = {
   optimizationProgress: 0,
   showModbus: false,
   errors: [],
-  warnings: []
+  warnings: [],
+  packingStrategy: 'AREA_OPTIMIZED',
 };
 
 const packingReducer = (state, action) => {
@@ -384,6 +385,8 @@ const packingReducer = (state, action) => {
         errors: [],
         warnings: []
       };
+    case 'SET_PACKING_STRATEGY':
+      return { ...state, packingStrategy: action.payload };
     default:
       return state;
   }
@@ -392,7 +395,7 @@ const packingReducer = (state, action) => {
 export const PackingProvider = ({ children }) => {
 
   const [state, dispatch] = useReducer(packingReducer, initialState);
-
+  
   useEffect(() => {
     const loadDefaultRectangles = async () => {
       try {
@@ -596,79 +599,33 @@ export const PackingProvider = ({ children }) => {
       let finalPlates = [];
       let plateIndexCounter = 0;
 
-      // ========== GIAI ĐOẠN 1: SPLIT - Tạo Pool (Chia đôi CHIỀU RỘNG) ==========
+      // ========== GIAI ĐOẠN 1: SPLIT - Tạo Pool (Xử lý dựa trên Strategy) ==========
 
       let pool = [];
       let poolCounter = 0;
 
-      for (const rectType of selectedTypes) {
-        const quantity = state.quantities[rectType.id] || 0;
-        if (quantity <= 0) continue;
+      // Kiểm tra chiến thuật sắp xếp
+      if (state.packingStrategy === 'FULL_SIZE') {
+        // 🔵 TRƯỜNG HỢP 1: CHIẾN THUẬT SIZE NGUYÊN (FULL_SIZE)
+        // Logic: Không bao giờ chia nhỏ, giữ nguyên kích thước gốc
+        for (const rectType of selectedTypes) {
+          const quantity = state.quantities[rectType.id] || 0;
+          if (quantity <= 0) continue;
 
-        const halfWidth = rectType.width / 2;
-        const canSplit = halfWidth >= MIN_SPLIT_WIDTH;
-
-        for (let i = 0; i < quantity; i++) {
-          const pairId = `pair_${rectType.id}_${i}`;
-          
-          if (canSplit) {
-            const transformMetadata = {
-            originalWidth: rectType.width,   
-            originalLength: rectType.length,  
-            splitAxis: 'width',               // Chia theo chiều rộng
-            pieceWidth: halfWidth,            
-            pieceLength: rectType.length,     
-            expectedOrientation: 'horizontal' // Mảnh nằm ngang
-          };
-            // CHIA ĐÔI theo chiều rộng: 1 rectangle → 2 pieces
-            const piece1 = { 
+          for (let i = 0; i < quantity; i++) {
+            const fullPiece = {
               ...rectType,
-              id: `half_${poolCounter++}`,
+              id: `full_size_${poolCounter++}`, // ID riêng cho chiến thuật này
               typeId: rectType.id,
               originalTypeId: rectType.id,
-              pairId: pairId,
-              pieceIndex: 1,
-              splitDirection: 'width',
-              width: halfWidth,
-              length: rectType.length,
-              originalWidth: rectType.width,
-              originalLength: rectType.length,
-              transform: { ...transformMetadata },
-              name: `1/2 ${rectType.name}`,
-              color: rectType.color,
-            };
-
-            const piece2 = { 
-              ...rectType,
-              id: `half_${poolCounter++}`,
-              typeId: rectType.id,
-              originalTypeId: rectType.id,
-              pairId: pairId,
-              pieceIndex: 2,
-              splitDirection: 'width',
-              width: halfWidth,
-              length: rectType.length,
-              originalWidth: rectType.width,
-              originalLength: rectType.length,
-              transform: { ...transformMetadata },
-              name: `1/2 ${rectType.name}`,
-              color: rectType.color,
-            };
-            
-            pool.push(piece1, piece2);
-          } else {
-            // KHÔNG CHIA: Giữ nguyên 1 piece
-            const fullPiece = { 
-              ...rectType,
-              id: `full_${poolCounter++}`,
-              typeId: rectType.id,
-              originalTypeId: rectType.id,
-              pairId: null,
+              pairId: null,           // Không có pairId vì không chia
               pieceIndex: 0,
-              splitDirection: 'none',
+              splitDirection: 'none', // Đánh dấu không chia
+              width: rectType.width,  // Giữ nguyên width
+              length: rectType.length,// Giữ nguyên length
               originalWidth: rectType.width,
               originalLength: rectType.length,
-              transform: { // ✅ THÊM cho full piece
+              transform: {
                 originalWidth: rectType.width,
                 originalLength: rectType.length,
                 splitAxis: 'none'
@@ -676,16 +633,98 @@ export const PackingProvider = ({ children }) => {
               name: rectType.name,
               color: rectType.color
             };
-            
             pool.push(fullPiece);
+          }
+        }
+      } else {
+        // 🔴 TRƯỜNG HỢP 2: CHIẾN THUẬT TỐI ƯU DIỆN TÍCH (CŨ)
+        // Logic: Chia đôi chiều rộng nếu đủ lớn (Code gốc của bạn)
+        for (const rectType of selectedTypes) {
+          const quantity = state.quantities[rectType.id] || 0;
+          if (quantity <= 0) continue;
 
-            dispatch({
-              type: 'SET_WARNING',
-              payload: {
-                type: 'optimization',
-                message: `Size ${rectType.name} quá hẹp để chia (cần ≥${MIN_SPLIT_WIDTH}mm), giữ nguyên.`
-              }
-            });
+          const halfWidth = rectType.width / 2;
+          const canSplit = halfWidth >= MIN_SPLIT_WIDTH;
+
+          for (let i = 0; i < quantity; i++) {
+            const pairId = `pair_${rectType.id}_${i}`;
+
+            if (canSplit) {
+              const transformMetadata = {
+                originalWidth: rectType.width,
+                originalLength: rectType.length,
+                splitAxis: 'width',               // Chia theo chiều rộng
+                pieceWidth: halfWidth,
+                pieceLength: rectType.length,
+                expectedOrientation: 'horizontal' // Mảnh nằm ngang
+              };
+              // CHIA ĐÔI theo chiều rộng: 1 rectangle → 2 pieces
+              const piece1 = {
+                ...rectType,
+                id: `half_${poolCounter++}`,
+                typeId: rectType.id,
+                originalTypeId: rectType.id,
+                pairId: pairId,
+                pieceIndex: 1,
+                splitDirection: 'width',
+                width: halfWidth,
+                length: rectType.length,
+                originalWidth: rectType.width,
+                originalLength: rectType.length,
+                transform: { ...transformMetadata },
+                name: `1/2 ${rectType.name}`,
+                color: rectType.color,
+              };
+
+              const piece2 = {
+                ...rectType,
+                id: `half_${poolCounter++}`,
+                typeId: rectType.id,
+                originalTypeId: rectType.id,
+                pairId: pairId,
+                pieceIndex: 2,
+                splitDirection: 'width',
+                width: halfWidth,
+                length: rectType.length,
+                originalWidth: rectType.width,
+                originalLength: rectType.length,
+                transform: { ...transformMetadata },
+                name: `1/2 ${rectType.name}`,
+                color: rectType.color,
+              };
+
+              pool.push(piece1, piece2);
+            } else {
+              // KHÔNG CHIA: Giữ nguyên 1 piece
+              const fullPiece = {
+                ...rectType,
+                id: `full_${poolCounter++}`,
+                typeId: rectType.id,
+                originalTypeId: rectType.id,
+                pairId: null,
+                pieceIndex: 0,
+                splitDirection: 'none',
+                originalWidth: rectType.width,
+                originalLength: rectType.length,
+                transform: { // ✅ THÊM cho full piece
+                  originalWidth: rectType.width,
+                  originalLength: rectType.length,
+                  splitAxis: 'none'
+                },
+                name: rectType.name,
+                color: rectType.color
+              };
+
+              pool.push(fullPiece);
+
+              dispatch({
+                type: 'SET_WARNING',
+                payload: {
+                  type: 'optimization',
+                  message: `Size ${rectType.name} quá hẹp để chia (cần ≥${MIN_SPLIT_WIDTH}mm), giữ nguyên.`
+                }
+              });
+            }
           }
         }
       }
@@ -805,8 +844,14 @@ export const PackingProvider = ({ children }) => {
       // ========== GIAI ĐOẠN 3: MERGE - Hợp nhất các mảnh đôi với bounding box ==========
       const allPlacedPieces = finalPlates.flatMap(p => p.layers.flatMap(l => l.rectangles));
       
-    // ✅ Gọi helper
-    let mergedRects = runMergePhase(allPlacedPieces);
+      let mergedRects;
+      // Nếu là FULL_SIZE thì KHÔNG CẦN MERGE (vì đâu có chia)
+      if (state.packingStrategy === 'FULL_SIZE') {
+          mergedRects = allPlacedPieces;
+      } else {
+          // Nếu là tối ưu diện tích thì chạy Merge như cũ
+          mergedRects = runMergePhase(allPlacedPieces);
+      }
 
       // ========== GIAI ĐOẠN 4: REBUILD - Xây dựng lại plates ==========
       finalPlates = runRebuildPhase(mergedRects, finalPlates, 1);
@@ -1031,7 +1076,7 @@ export const PackingProvider = ({ children }) => {
       let placedOriginalsCount = 0;
       const processedPairs = new Set();
       
-      for (const rect of mergedRects) { // ✅ Tự động dùng 'mergedRects' mới nhất
+      for (const rect of mergedRects) {
         if (rect.pairId != null) {
           if (!processedPairs.has(rect.pairId)) {
             processedPairs.add(rect.pairId);
@@ -1052,9 +1097,7 @@ export const PackingProvider = ({ children }) => {
 
       // Tính efficiency
       const containerArea = state.container.width * state.container.length;
-      // ✅ Tự động dùng 'finalPlates' mới nhất
       const totalPlateArea = finalPlates.reduce((sum, plate) => sum + plate.layers.length * containerArea, 0);
-      // ✅ Tự động dùng 'mergedRects' mới nhất
       const placedArea = mergedRects.reduce((sum, r) => sum + r.width * r.length, 0);
       const efficiency = totalPlateArea > 0 ? (placedArea / totalPlateArea) * 100 : 0;
 
@@ -1100,16 +1143,16 @@ export const PackingProvider = ({ children }) => {
 
       const result = {
         layersUsed: finalPlates.reduce((sum, p) => sum + p.layers.length, 0),
-        platesNeeded: finalPlates.length, // ✅ Tự động dùng 'finalPlates' mới nhất
+        platesNeeded: finalPlates.length,
         layersPerPlate: layersPerPlate,
         totalRectanglesCount: totalRequested,
         placedRectanglesCount: placedCount,
-        rectangles: mergedRects, // ✅ Tự động dùng 'mergedRects' mới nhất
-        plates: finalPlates, // ✅ Tự động dùng 'finalPlates' mới nhất
+        rectangles: mergedRects, 
+        plates: finalPlates, 
         efficiency,
         pureCount: 0,
         hybridCount: 0,
-        mixedCount: finalPlates.length // ✅ Tự động dùng 'finalPlates' mới nhất
+        mixedCount: finalPlates.length 
       };
 
 
@@ -1155,7 +1198,9 @@ export const PackingProvider = ({ children }) => {
   const selectAllRectangles = useCallback(() => dispatch({ type: 'SELECT_ALL_RECTANGLES' }), []);
   const clearSelection = useCallback(() => dispatch({ type: 'CLEAR_SELECTION' }), []);
   const setContainer = useCallback((data) => dispatch({ type: 'SET_CONTAINER', payload: data }), []);
-
+  const setPackingStrategy = useCallback((strategy) => {
+    dispatch({ type: 'SET_PACKING_STRATEGY', payload: strategy });
+  }, []);
   const value = {
     ...state,
     setContainer,
@@ -1171,7 +1216,8 @@ export const PackingProvider = ({ children }) => {
     toggleModbus,
     validateContainer,
     validateRectangles,
-    addRectanglesFromExcel
+    addRectanglesFromExcel,
+    setPackingStrategy,
   };
 
   return <PackingContext.Provider value={value}>{children}</PackingContext.Provider>;
