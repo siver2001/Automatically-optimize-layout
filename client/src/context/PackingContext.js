@@ -265,7 +265,7 @@ export const PackingProvider = ({ children }) => {
         rectangles: state.rectangles,         // Danh sách loại
         quantities: state.quantities,         // Số lượng
         selectedRectangles: state.selectedRectangles, // Những ID được chọn
-        packingStrategy: state.packingStrategy // 'AREA_OPTIMIZED' hoặc 'FULL_SIZE'
+        packingStrategy: state.packingStrategy // 'AREA_OPTIMIZED'
       };
 
       // 3. Gọi Service (Service sẽ khởi tạo Worker)

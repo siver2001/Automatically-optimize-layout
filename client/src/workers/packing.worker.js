@@ -2,7 +2,7 @@
 // client/src/workers/packing.worker.js
 
 // ==========================================
-// 1. CÁC HÀM HELPER (Copy từ Context sang)
+// 1. CÁC HÀM HELPER
 // ==========================================
 
 const runMergePhase = (allPlacedPieces) => {
@@ -44,7 +44,6 @@ const runMergePhase = (allPlacedPieces) => {
         let minX = 0;
         let minY = 0;
   
-        // Logic kiểm tra kề nhau
         if (Math.abs(p1.y - p2.y) < tolerance && 
             Math.abs((p1.x + p1.width) - p2.x) < tolerance &&
             Math.abs(p1.length - p2.length) < tolerance) { 
@@ -155,7 +154,6 @@ const runMergePhase = (allPlacedPieces) => {
     return sorted.map(r => `${r.typeId}:${r.x}:${r.y}:${r.width}:${r.length}:${r.rotated ? 1 : 0}`).join('|');
   };
   
-  // Hàm gọi API thủ công bằng fetch (vì Worker không dùng axios instance dễ dàng)
   const callPackingApi = async (url, data) => {
       const response = await fetch(url, {
           method: 'POST',
@@ -168,64 +166,41 @@ const runMergePhase = (allPlacedPieces) => {
       }
       return await response.json();
   };
-  
-  const createMixedPlateMultiStrategy = async (pool, layersPerPlate, container, apiBaseUrl) => {
+
+  const createMixedPlateMultiStrategy = async (pool, layersPerPlate, container, apiBaseUrl, packingStrategy) => {
     if (pool.length === 0) return null;
   
-    const strategies = [
-      { name: 'Area Descending', sort: (a, b) => (b.width * b.length) - (a.width * a.length) },
-      { name: 'Max Dimension', sort: (a, b) => Math.max(b.width, b.length) - Math.max(a.width, a.length) },
-      { name: 'Perimeter', sort: (a, b) => (2 * (b.width + b.length)) - (2 * (a.width + a.length)) },
-      { name: 'Aspect Ratio', sort: (a, b) => {
-          const ratioA = Math.max(a.width, a.length) / Math.min(a.width, a.length);
-          const ratioB = Math.max(b.width, b.length) / Math.min(b.width, b.length);
-          return ratioA - ratioB;
-        }
-      }
-    ];
+    try {
+        //Truyền strategyName lên Server để Server biết mà dùng FullSizeStrategy
+        const result = await callPackingApi(`${apiBaseUrl}/packing/optimize`, {
+          container: { ...container, layers: 1 },
+          rectangles: pool,
+          layers: 1,
+          strategyName: packingStrategy 
+        });
   
-    let bestResult = null;
-    let bestArea = 0;
+        const placed = (result?.result?.rectangles || [])
+          .filter(r => r && r.x !== undefined)
+          .map(r => ({
+            ...r,
+            originalTypeId: r.originalTypeId, pairId: r.pairId, pieceIndex: r.pieceIndex,
+            splitDirection: r.splitDirection, originalWidth: r.originalWidth, originalLength: r.originalLength,
+            layer: r.layer || 0, rotated: r.rotated || false
+          }));
+        
+        if (placed.length === 0) return null;
+
+        const usedTypeIds = new Set(placed.map(r => r.typeId));
+        const placedIds = new Set(placed.map(r => r.id));
+        const typeCount = {};
+        placed.forEach(r => { typeCount[r.typeId] = (typeCount[r.typeId] || 0) + 1; });
   
-    for (const strategy of strategies) {
-      const sortedPool = [...pool].sort(strategy.sort);
-      
-      // GỌI API THÔNG QUA FETCH
-      try {
-          const result = await callPackingApi(`${apiBaseUrl}/packing/optimize`, {
-            container: { ...container, layers: 1 },
-            rectangles: sortedPool,
-            layers: 1
-          });
-    
-          const placed = (result?.result?.rectangles || [])
-            .filter(r => r && r.x !== undefined)
-            .map(r => ({
-              ...r,
-              // Map lại các trường cần thiết
-              originalTypeId: r.originalTypeId, pairId: r.pairId, pieceIndex: r.pieceIndex,
-              splitDirection: r.splitDirection, originalWidth: r.originalWidth, originalLength: r.originalLength,
-              layer: r.layer || 0, rotated: r.rotated || false
-            }));
-    
-          const totalArea = placed.reduce((sum, r) => sum + (r.width * r.length), 0);
-          if (totalArea > bestArea) {
-            bestArea = totalArea;
-            bestResult = placed;
-          }
-      } catch (e) {
-          console.error("Worker fetch error", e);
-      }
+        return { placed, placedIds, usedTypeIds, typeCount };
+
+    } catch (e) {
+        console.error("Worker fetch error", e);
+        return null;
     }
-  
-    if (!bestResult || bestResult.length === 0) return null;
-  
-    const usedTypeIds = new Set(bestResult.map(r => r.typeId));
-    const placedIds = new Set(bestResult.map(r => r.id));
-    const typeCount = {};
-    bestResult.forEach(r => { typeCount[r.typeId] = (typeCount[r.typeId] || 0) + 1; });
-  
-    return { placed: bestResult, placedIds, usedTypeIds, typeCount };
   };
   
   // ==========================================
@@ -235,9 +210,9 @@ const runMergePhase = (allPlacedPieces) => {
   self.onmessage = async (e) => {
       const { 
           container, 
-          rectangles, // Đây là danh sách đầy đủ các loại (rectTypes)
-          quantities, // Số lượng từng loại
-          selectedRectangles, // ID các loại được chọn
+          rectangles,
+          quantities, 
+          selectedRectangles, 
           packingStrategy, 
           apiBaseUrl 
       } = e.data;
@@ -246,7 +221,7 @@ const runMergePhase = (allPlacedPieces) => {
       const reportWarning = (msg) => collectedWarnings.push({ message: msg, type: 'optimization' });
   
       try {
-          console.log('[Worker] Bắt đầu tối ưu hóa...');
+          console.log('[Worker] Bắt đầu tối ưu hóa. Strategy:', packingStrategy);
           
           const layersPerPlate = container.layers;
           const selectedTypes = rectangles.filter(
@@ -261,22 +236,25 @@ const runMergePhase = (allPlacedPieces) => {
           const MAX_ITERATIONS = 10000;
   
           // ========== GIAI ĐOẠN 1: TẠO POOL ==========
+          // Kiểm tra đúng giá trị 'FULL_SIZE'
           if (packingStrategy === 'FULL_SIZE') {
-              for (const rectType of selectedTypes) {
-                const quantity = quantities[rectType.id] || 0;
-                for (let i = 0; i < quantity; i++) {
-                  pool.push({
-                    ...rectType,
-                    id: `full_size_${poolCounter++}`,
-                    typeId: rectType.id, originalTypeId: rectType.id,
-                    pairId: null, pieceIndex: 0, splitDirection: 'none',
-                    originalWidth: rectType.width, originalLength: rectType.length,
-                    transform: { originalWidth: rectType.width, originalLength: rectType.length, splitAxis: 'none' },
-                  });
-                }
+            console.log('[Worker] Chế độ Size Nguyên: KHÔNG CẮT HÌNH');
+            for (const rectType of selectedTypes) {
+              const quantity = quantities[rectType.id] || 0;
+              for (let i = 0; i < quantity; i++) {
+                pool.push({
+                  ...rectType,
+                  id: `full_size_${poolCounter++}`,
+                  typeId: rectType.id, originalTypeId: rectType.id,
+                  // QUAN TRỌNG: Đánh dấu là không cắt
+                  pairId: null, pieceIndex: 0, splitDirection: 'none',
+                  originalWidth: rectType.width, originalLength: rectType.length,
+                  transform: { originalWidth: rectType.width, originalLength: rectType.length, splitAxis: 'none' },
+                });
               }
+            }
           } else {
-              // Logic chia đôi
+              // Logic chia đôi (Chỉ chạy khi là AREA_OPTIMIZED)
               for (const rectType of selectedTypes) {
                   const quantity = quantities[rectType.id] || 0;
                   const halfWidth = rectType.width / 2;
@@ -290,7 +268,6 @@ const runMergePhase = (allPlacedPieces) => {
                               splitAxis: 'width', pieceWidth: halfWidth, pieceLength: rectType.length,
                               expectedOrientation: 'horizontal'
                           };
-                          // Piece 1 & 2
                           pool.push({
                               ...rectType, id: `half_${poolCounter++}`, typeId: rectType.id, originalTypeId: rectType.id,
                               pairId: pairId, pieceIndex: 1, splitDirection: 'width',
@@ -325,8 +302,8 @@ const runMergePhase = (allPlacedPieces) => {
   
           while (pool.length > 0 && iterationCount < MAX_ITERATIONS) {
               iterationCount++;
-              // Gọi hàm tạo mixed plate (đã sửa để dùng fetch)
-              const mixedResult = await createMixedPlateMultiStrategy(pool, layersPerPlate, container, apiBaseUrl);
+              // Truyền packingStrategy vào hàm này
+              const mixedResult = await createMixedPlateMultiStrategy(pool, layersPerPlate, container, apiBaseUrl, packingStrategy);
   
               if (!mixedResult || mixedResult.placed.length === 0) break;
   
@@ -352,7 +329,6 @@ const runMergePhase = (allPlacedPieces) => {
                   });
                   existingData.repetitions++;
               } else {
-                  // New pattern
                   const typeDesc = Object.entries(typeCount).map(([id, cnt]) => {
                       const t = selectedTypes.find(x => x.id === Number(id));
                       return `${cnt}×${t ? t.name : `#${id}`}`;
@@ -373,7 +349,6 @@ const runMergePhase = (allPlacedPieces) => {
               pool = pool.filter(r => !placedIds.has(r.id));
           }
   
-          // Đẩy nốt các tấm còn trong map ra
           for (const [, data] of mixedPatterns.entries()) {
               const { plate, layers } = data;
               plate.description = `Tấm Hỗn Hợp #${plate.plateIndex + 1} (${layers.length} lớp)`;
@@ -395,12 +370,10 @@ const runMergePhase = (allPlacedPieces) => {
           finalPlates = runRebuildPhase(mergedRects, finalPlates, 1);
   
           // ========== GIAI ĐOẠN 5: CONSOLIDATION (Smart FFD) ==========
-          // Copy logic Smart FFD từ context vào đây
           const singleLayerPlates = finalPlates.filter(p => p.layers.length === 1);
           const platesToRemove = new Set(singleLayerPlates.map(p => p.plateIndex));
   
           if (singleLayerPlates.length > 1) {
-              // Định nghĩa lại hàm helper nhỏ trong scope này
               const checkOverlap = (rect, existingRects) => {
                   for (const existing of existingRects) {
                     if (!(rect.x + rect.width <= existing.x + 0.1 || rect.x >= existing.x + existing.width - 0.1 ||
@@ -426,13 +399,12 @@ const runMergePhase = (allPlacedPieces) => {
                       for (const p of candidates) {
                           if (p.x + w > cW || p.y + l > cL) continue;
                           if (checkOverlap({ x: p.x, y: p.y, width: w, length: l }, existingRects)) continue;
-                          let score = p.y * cW + p.x; // Bottom-left priority
-                          // Alignment bonus logic (giản lược)
+                          let score = p.y * cW + p.x; 
                           existingRects.forEach(e => {
                               if (Math.abs(e.x+e.width-p.x)<0.1 && Math.abs(e.length-l)<0.1) score -= 500000;
                               if (Math.abs(e.y+e.length-p.y)<0.1 && Math.abs(e.width-w)<0.1) score -= 500000;
                           });
-                          if (!r && (rect.rotated)) score += 1000; // Prefer original rotation
+                          if (!r && (rect.rotated)) score += 1000; 
                           if (score < bestScore) { bestScore = score; bestPos = { x: p.x, y: p.y, width: w, length: l, rotated: r }; }
                       }
                   }
@@ -440,7 +412,6 @@ const runMergePhase = (allPlacedPieces) => {
               };
   
               let allItems = singleLayerPlates.flatMap(p => p.layers[0].rectangles.map(r => ({ ...r })));
-              // Sort items
               allItems.sort((a, b) => {
                   const hA = Math.min(a.width, a.length), hB = Math.min(b.width, b.length);
                   if (Math.abs(hB - hA) > 1) return hB - hA;
@@ -474,13 +445,11 @@ const runMergePhase = (allPlacedPieces) => {
               finalPlates = [...multiLayerPlates, ...newConsolidatedPlates];
               reportWarning(`Đã gộp ${singleLayerPlates.length} tấm 1-lớp thành ${newConsolidatedPlates.length} tấm mới.`);
               
-              // RE-MERGE & REBUILD
               const piecesToReMerge = finalPlates.flatMap(p => p.layers.flatMap(l => l.rectangles));
               mergedRects = runMergePhase(piecesToReMerge);
               finalPlates = runRebuildPhase(mergedRects, finalPlates, 1);
           }
   
-          // ========== GIAI ĐOẠN 6: SUMMARY ==========
           const totalRequested = selectedTypes.reduce((s, t) => s + (quantities[t.id] || 0), 0);
           let placedCount = 0;
           const processedPairs = new Set();
@@ -501,11 +470,9 @@ const runMergePhase = (allPlacedPieces) => {
           const efficiency = totalPlateArea > 0 ? (placedArea / totalPlateArea) * 100 : 0;
   
           if (pool.length > 0 || placedCount < totalRequested) {
-             // Logic tạo warning chuỗi...
              reportWarning(`Chỉ sắp được ${placedCount}/${totalRequested} hình.`);
           }
   
-          // Gửi kết quả về UI
           self.postMessage({
               success: true,
               result: {
