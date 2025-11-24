@@ -134,34 +134,35 @@ class PackingService {
       };
     }
   }
-  optimizeLayoutWithWorker(container, rectangles, maxLayers = 1, strategyName = 'FULL_SIZE') {
+  optimizeLayoutWithWorker(payload) {
     return new Promise((resolve, reject) => {
-      // 1. Tạo Worker mới
       const worker = createWorker();
 
-      // 2. Gửi dữ liệu sang Worker
+      // Gửi toàn bộ dữ liệu cần thiết + API URL
       worker.postMessage({
-        container,
-        rectangles,
-        maxLayers,
-        strategyName
+        ...payload,
+        apiBaseUrl: API_BASE_URL // Truyền URL để worker dùng fetch
       });
 
-      // 3. Lắng nghe kết quả
       worker.onmessage = (e) => {
-        const { success, result, error } = e.data;
+        const { success, result, error, type, message } = e.data;
         
-        // Dùng xong tắt ngay để giải phóng RAM
-        worker.terminate(); 
+        // Nếu là cảnh báo tiến độ (nếu bạn muốn hiển thị progress bar sau này)
+        if (type === 'WARNING') {
+            console.warn('[Worker Warning]:', message);
+            // Bạn có thể handle callback warning ở đây nếu muốn
+            return;
+        }
+
+        worker.terminate(); // Xong việc thì tắt worker
 
         if (success) {
-          resolve(result);
+          resolve({ result, warnings: e.data.warnings }); // Trả về kết quả + cảnh báo
         } else {
           reject(new Error(error));
         }
       };
 
-      // 4. Bắt lỗi nếu Worker chết
       worker.onerror = (err) => {
         worker.terminate();
         reject(new Error('Worker encountered an error: ' + err.message));
@@ -169,6 +170,5 @@ class PackingService {
     });
   }
 }
-
 
 export const packingService = new PackingService();
