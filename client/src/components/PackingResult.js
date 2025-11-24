@@ -1035,7 +1035,20 @@ const PackingResult = () => {
                       }}
                       title={`[Tấm ${rect.plateIndex + 1}, Lớp ${rect.layer + 1}] ${rectName} (${originalDims}) tại X:${rect.x} Y:${rect.y} ${rect.rotated ? '(Xoay 90°)' : ''}`}
                     >
-                      <div className="text-[0.65em] md:text-xs">{rect.width}×{rect.length}</div>
+                      <div
+                        className="text-[0.65em] md:text-xs whitespace-nowrap font-bold"
+                        style={{
+                          // Logic THÔNG MINH: 
+                          // 1. (finalLength > finalWidth): Là tấm đứng
+                          // 2. (finalWidth < 60): VÀ bề ngang hiển thị nhỏ hơn 60px (tấm hẹp/nẹp)
+                          // -> Thì mới xoay -90 độ. Còn tấm to vẫn để ngang đọc cho dễ.
+                          transform: (finalLength > finalWidth && finalWidth < 60) 
+                            ? 'rotate(-90deg)' 
+                            : 'none',
+                        }}
+                      >
+                        {rect.width}×{rect.length}
+                      </div>
                     </div>
                   );
                 })}

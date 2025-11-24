@@ -71,16 +71,38 @@ class BaseStrategy {
     let score = 0;
     const rects = placedRectangles;
     for (let i = 0; i < rects.length; i++) {
+        // Vẫn trừ điểm nếu xoay (tuỳ chọn, có thể bỏ nếu bạn không quan trọng xoay)
         if (rects[i].rotated) score -= 2; 
 
         for (let j = i + 1; j < rects.length; j++) {
-            const touchingX = Math.abs((rects[i].x + rects[i].width) - rects[j].x) < 0.1;
-            const touchingY = Math.abs((rects[i].y + rects[i].length) - rects[j].y) < 0.1;
+            const touchingX = Math.abs((rects[i].x + rects[i].width) - rects[j].x) < 0.1; // Cạnh phải r[i] chạm cạnh trái r[j]
+            const touchingY = Math.abs((rects[i].y + rects[i].length) - rects[j].y) < 0.1; // Cạnh dưới r[i] chạm cạnh trên r[j]
+            
             const sameWidth = Math.abs(rects[i].width - rects[j].width) < 0.1;
-            const sameHeight = Math.abs(rects[i].length - rects[j].length) < 0.1;
+            const sameLength = Math.abs(rects[i].length - rects[j].length) < 0.1;
+            // logic mới: THƯỞNG LỚN nếu 2 tấm GIỐNG HỆT KÍCH THƯỚC nằm cạnh nhau -> Tạo thành size nguyên
+            
+            // Trường hợp 1: Chạm nhau theo chiều ngang (X)
+            if (touchingX && Math.abs(rects[i].y - rects[j].y) < 0.1) {
+                score += 50; // Điểm cơ bản
+                if (sameLength) { 
+                    score += 200; // BONUS LỚN: Cùng chiều cao + chạm nhau = Dễ cắt 1 đường
+                }
+                if (sameLength && sameWidth) {
+                    score += 500; // SUPER BONUS: Hai tấm y hệt nhau nằm cạnh nhau -> Size nguyên
+                }
+            }
 
-            if (touchingX && sameHeight && Math.abs(rects[i].y - rects[j].y) < 0.1) score += 50;
-            if (touchingY && sameWidth && Math.abs(rects[i].x - rects[j].x) < 0.1) score += 50;
+            // Trường hợp 2: Chạm nhau theo chiều dọc (Y)
+            if (touchingY && Math.abs(rects[i].x - rects[j].x) < 0.1) {
+                score += 50; // Điểm cơ bản
+                if (sameWidth) {
+                    score += 200; // BONUS LỚN: Cùng chiều rộng + chồng lên nhau
+                }
+                if (sameWidth && sameLength) {
+                     score += 500; // SUPER BONUS: Hai tấm y hệt nhau chồng lên nhau
+                }
+            }
         }
     }
     return score;

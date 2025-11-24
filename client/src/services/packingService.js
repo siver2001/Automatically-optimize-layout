@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
-
+const createWorker = () => new Worker(new URL('../workers/packing.worker.js', import.meta.url));
 class PackingService {
   constructor() {
     this.api = axios.create({
@@ -134,6 +134,41 @@ class PackingService {
       };
     }
   }
+  optimizeLayoutWithWorker(container, rectangles, maxLayers = 1, strategyName = 'FULL_SIZE') {
+    return new Promise((resolve, reject) => {
+      // 1. Tạo Worker mới
+      const worker = createWorker();
+
+      // 2. Gửi dữ liệu sang Worker
+      worker.postMessage({
+        container,
+        rectangles,
+        maxLayers,
+        strategyName
+      });
+
+      // 3. Lắng nghe kết quả
+      worker.onmessage = (e) => {
+        const { success, result, error } = e.data;
+        
+        // Dùng xong tắt ngay để giải phóng RAM
+        worker.terminate(); 
+
+        if (success) {
+          resolve(result);
+        } else {
+          reject(new Error(error));
+        }
+      };
+
+      // 4. Bắt lỗi nếu Worker chết
+      worker.onerror = (err) => {
+        worker.terminate();
+        reject(new Error('Worker encountered an error: ' + err.message));
+      };
+    });
+  }
 }
+
 
 export const packingService = new PackingService();
