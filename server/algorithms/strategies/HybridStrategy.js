@@ -6,23 +6,9 @@ class HybridStrategy extends BaseStrategy {
     super(container);
   }
 
+  // Chính là _runSingleLayerPacking cũ
   execute(rectanglesToPack) {
-    // [OPTIMIZATION 1] Windowing: Giới hạn số lượng hình tính toán
-    let workingSet = rectanglesToPack;
-    const THRESHOLD = 600; // Cho phép nhiều hơn FullSize một chút vì thuật toán này nhẹ hơn
-
-    if (rectanglesToPack.length > THRESHOLD) {
-        // Sort theo diện tích
-        const sortedByArea = [...rectanglesToPack].sort((a, b) => (b.width * b.length) - (a.width * a.length));
-        
-        // Lấy 400 hình to nhất + 200 hình nhỏ nhất
-        const bigOnes = sortedByArea.slice(0, 400);
-        const smallOnes = sortedByArea.slice(Math.max(400, sortedByArea.length - 200));
-        
-        workingSet = [...bigOnes, ...smallOnes];
-    }
-
-    const rawRects = workingSet.map(r => ({...r}));
+    const rawRects = rectanglesToPack.map(r => ({...r}));
 
     // 1. Chuẩn bị dữ liệu
     const stripHorizontalData = this.preAlignRectangles(rawRects, 'horizontal');
@@ -33,14 +19,13 @@ class HybridStrategy extends BaseStrategy {
 
     const areaData = this.sortRectanglesByArea(rawRects);
 
-    // Chiến thuật cho Hybrid (ít hơn FullSize nhưng cần hiệu quả)
     const strategies = [
-      // ✅ SMART SHELF: Rất nhanh và hiệu quả cho hình chữ nhật
+      // ✅ SMART SHELF
       {
         name: 'Shelf_Smart_Horizontal',
         fn: () => this._shelfNextFitSmart(sortedByHeight.map(r => ({...r})), false) 
       },
-      // ✅ Strip Packing: Tốt cho các băng dài
+      // Chiến thuật cũ
       { 
           name: 'Strip_Horizontal_BL', 
           fn: () => this._maxRectsBL(sortedByHeight.map(r => ({...r})), true) 
@@ -49,7 +34,6 @@ class HybridStrategy extends BaseStrategy {
           name: 'Strip_Vertical_BL', 
           fn: () => this._maxRectsBL(sortedByWidth.map(r => ({...r})), true)
       },
-      // ✅ MaxRects (Area & BSSF): Vét cạn kinh điển
       { 
           name: 'Area_BSSF', 
           fn: () => this._maxRectsBSSF(areaData.map(r => ({...r})), false) 
@@ -65,12 +49,10 @@ class HybridStrategy extends BaseStrategy {
     for (const strategy of strategies) {
         const { placed, remaining } = strategy.fn(); 
         
-        // Nếu chiến thuật này thất bại (không xếp được gì), bỏ qua
-        if (placed.length === 0) continue;
-
         const count = placed.length;
         const usedArea = placed.reduce((sum, rect) => sum + (rect.width * rect.length), 0);
         const alignmentScore = this._calculateAlignmentScore(placed); 
+        const rotatedCount = placed.filter(r => r.rotated).length;
         
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
         placed.forEach(r => {
@@ -82,25 +64,10 @@ class HybridStrategy extends BaseStrategy {
         const boundingArea = (placed.length > 0) ? (maxX - minX) * (maxY - minY) : 0;
         const compactness = (boundingArea > 0) ? (usedArea / boundingArea) : 0; 
 
-        // [OPTIMIZATION 2] EARLY EXIT: Thoát sớm nếu kết quả quá tốt
-        // Với Hybrid, ta yêu cầu độ nén cao hơn một chút (95%)
-        if (compactness > 0.95 && placed.length > 0) {
-            const placedIds = new Set(placed.map(r => r.id));
-            // Tính lại remaining từ danh sách gốc
-            const realRemaining = rectanglesToPack.filter(r => !placedIds.has(r.id));
-            
-            return { 
-                placed: placed.map(r => ({...r, layer: 0})), 
-                remaining: realRemaining,
-                count, usedArea, alignmentScore, compactness,
-                strategyName: strategy.name + '_EarlyExit'
-            };
-        }
-
         const currentResult = { 
             placed: placed.map(r => ({...r, layer: 0})), 
-            remaining: remaining.map(r => ({...r})), // Lưu ý: remaining này chỉ đúng với workingSet
-            count, usedArea, alignmentScore, compactness,
+            remaining: remaining.map(r => ({...r})),
+            count, usedArea, alignmentScore, rotatedCount, compactness,
             strategyName: strategy.name
         };
 
@@ -109,7 +76,6 @@ class HybridStrategy extends BaseStrategy {
             continue;
         }
 
-        // Logic so sánh (giữ nguyên)
         if (currentResult.count > bestResult.count) {
             bestResult = currentResult;
         } 
@@ -125,16 +91,10 @@ class HybridStrategy extends BaseStrategy {
         }
     }
 
-    // [QUAN TRỌNG] Chuẩn hóa lại remaining cuối cùng
-    if (bestResult) {
-        const finalPlacedIds = new Set(bestResult.placed.map(r => r.id));
-        bestResult.remaining = rectanglesToPack.filter(r => !finalPlacedIds.has(r.id));
-    }
-
     return bestResult; 
   }
 
-  // Giữ lại hàm này để tương thích ngược
+  // Giữ lại hàm này để tương thích ngược (nếu có code nào gọi)
   run2DPacking(rectanglesToPack) {
     return this.execute(rectanglesToPack);
   }

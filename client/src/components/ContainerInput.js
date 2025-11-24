@@ -158,7 +158,7 @@ const ContainerInput = () => {
           </form>
           
           {containerErrors.length > 0 && (
-            <div className="bg-red-100 border-l-4 border-red-500 p-2 rounded text-sm text-red-800">
+            <div className="bg-red-100 border-l-4 border-red-500 p-1 rounded text-sm text-red-800">
               <div className="flex items-center gap-2 mb-1 font-semibold">
                 ⚠️ Chưa thiết kế tấm liệu
               </div>

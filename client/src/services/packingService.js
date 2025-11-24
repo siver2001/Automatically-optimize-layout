@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
-const createWorker = () => new Worker(new URL('../workers/packing.worker.js', import.meta.url));
+
 class PackingService {
   constructor() {
     this.api = axios.create({
@@ -133,41 +133,6 @@ class PackingService {
         error: error.response?.data?.error || error.message || 'Không thể xuất file PDF.' 
       };
     }
-  }
-  optimizeLayoutWithWorker(payload) {
-    return new Promise((resolve, reject) => {
-      const worker = createWorker();
-
-      // Gửi toàn bộ dữ liệu cần thiết + API URL
-      worker.postMessage({
-        ...payload,
-        apiBaseUrl: API_BASE_URL // Truyền URL để worker dùng fetch
-      });
-
-      worker.onmessage = (e) => {
-        const { success, result, error, type, message } = e.data;
-        
-        // Nếu là cảnh báo tiến độ (nếu bạn muốn hiển thị progress bar sau này)
-        if (type === 'WARNING') {
-            console.warn('[Worker Warning]:', message);
-            // Bạn có thể handle callback warning ở đây nếu muốn
-            return;
-        }
-
-        worker.terminate(); // Xong việc thì tắt worker
-
-        if (success) {
-          resolve({ result, warnings: e.data.warnings }); // Trả về kết quả + cảnh báo
-        } else {
-          reject(new Error(error));
-        }
-      };
-
-      worker.onerror = (err) => {
-        worker.terminate();
-        reject(new Error('Worker encountered an error: ' + err.message));
-      };
-    });
   }
 }
 
