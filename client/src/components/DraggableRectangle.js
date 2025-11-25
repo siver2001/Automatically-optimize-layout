@@ -1,5 +1,4 @@
-
-import React from 'react';
+import React, { memo } from 'react';
 
 const DraggableRectangle = ({
   rect,
@@ -9,7 +8,7 @@ const DraggableRectangle = ({
   onPickUp,
   onContextMenu,
 }) => {
-  // Tính kích thước hiển thị dựa trên data hiện tại (width along internal x, length along internal y)
+  // Tính kích thước hiển thị dựa trên data hiện tại
   const displayWidth = rect.width * scale;
   const displayLength = rect.length * scale;
 
@@ -35,8 +34,6 @@ const DraggableRectangle = ({
     onContextMenu(e, rect);
   };
 
-  // Hiển thị kích thước gốc (width x length từ data), nhưng nếu rotated, có thể swap để show gốc nếu cần
-  // Nhưng theo code gốc, giữ nguyên ${rect.width}×${rect.length}, giả sử data đã là current sau swap
   const dimensionsText = `${rect.width}×${rect.length}`;
 
   return (
@@ -55,7 +52,8 @@ const DraggableRectangle = ({
         minHeight: '15px',
         overflow: 'hidden',
         zIndex: isSelected ? 30 : 20,
-        transform: isSelected ? 'scale(1.02)' : 'scale(1)'
+        // Loại bỏ transform scale khi không cần thiết để giảm tải GPU
+        transform: isSelected ? 'scale(1.02)' : 'none'
       }}
       onClick={handleClick}
       onContextMenu={handleRightClick}
@@ -71,4 +69,15 @@ const DraggableRectangle = ({
   );
 };
 
-export default DraggableRectangle;
+// CÁCH 1: Dùng memo với hàm so sánh tùy chỉnh (Custom Comparator)
+function arePropsEqual(prevProps, nextProps) {
+  return (
+    prevProps.rect === nextProps.rect && 
+    prevProps.scale === nextProps.scale &&
+    prevProps.isLandscape === nextProps.isLandscape &&
+    prevProps.isSelected === nextProps.isSelected
+    // Không cần so sánh onPickUp và onContextMenu vì chúng ta sẽ xử lý ở Cách 2
+  );
+}
+
+export default memo(DraggableRectangle, arePropsEqual);
