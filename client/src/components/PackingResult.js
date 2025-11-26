@@ -671,14 +671,12 @@ const PackingResult = () => {
     }
   }, [hasUnsavedChanges, originalRectangles]);
 
-  const handleContextMenu = useCallback((e, rect) => {
+  const handleContextMenu = (e, rect) => {
     e.preventDefault(); 
     if (!isEditMode || pickedUpRect) return;
-    
-    // Logic hiển thị menu
     setContextMenu({ visible: true, x: e.clientX, y: e.clientY, targetRect: rect });
     setSelectedRectIds([rect.id]);
-  }, [isEditMode, pickedUpRect]); // Chỉ tạo lại hàm khi isEditMode hoặc pickedUpRect thay đổi
+  };
 
   // --- NHẤC TỪ KHO TẠM ---
   const handlePickUpFromSession = useCallback((clickedRect) => {
@@ -988,20 +986,20 @@ const PackingResult = () => {
                 </div>
                 
                 {displayRectangles.map((rect) => {
-                  if (!rect || typeof rect.width !== 'number') return null;
-                    if (isEditMode) {
-                      return (
-                        <DraggableRectangle
-                          key={rect.id}
-                          rect={rect} // Object rect này không đổi khi di chuột (do state editedRectangles ko đổi)
-                          scale={scale} // scale không đổi khi di chuột
-                          isLandscape={isLandscape}
-                          isSelected={selectedRectIds.includes(rect.id)}
-                          onPickUp={handlePickUpRect} 
-                          onContextMenu={handleContextMenu}
-                        />
-                      );
-                    }
+                  if (!rect || typeof rect.width !== 'number' || typeof rect.length !== 'number') return null;
+                  if (isEditMode) {
+                    return (
+                      <DraggableRectangle
+                        key={rect.id}
+                        rect={rect}
+                        scale={scale}
+                        isLandscape={isLandscape}
+                        isSelected={selectedRectIds.includes(rect.id)}
+                        onPickUp={handlePickUpRect}
+                        onContextMenu={handleContextMenu}
+                      />
+                    );
+                  }
                   const rectWidth = rect.width * scale;
                   const rectLength = rect.length * scale;
                   const rectX = isLandscape ? rect.x * scale : rect.y * scale;

@@ -4,19 +4,19 @@ const { fork } = require('child_process');
 const isDev = !app.isPackaged;
 let serverProcess;
 
-// 1. Hàm khởi động server (ĐÃ CHUYỂN SANG PROMISE)
+// 1. Hàm khởi động server 
 function startServer() {
   // Trả về một Promise, chỉ hoàn thành khi nhận được tin nhắn 'server-ready'
   return new Promise((resolve, reject) => {
     // Đường dẫn đến server/index.js
-// Khi dev, __dirname là thư mục gốc. Khi build, __dirname là .../resources/app.asar
     const serverPath = path.join(__dirname, 'server', 'index.js');
 
     console.log(`[Electron] Starting server at ${serverPath}...`);
 
 serverProcess = fork(serverPath, [], {
       stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
-      silent: false 
+      silent: false ,
+      execArgv: ['--max-old-space-size=4096']
     });
 
     const timeout = setTimeout(() => {

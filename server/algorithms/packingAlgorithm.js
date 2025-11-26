@@ -38,7 +38,6 @@ class PackingAlgorithm {
               for (const acc of accepted) {
                   if (overlaps(rect, acc)) { 
                       conflict = true; 
-                      console.error(`[Optimize] Conflict detected: ${rect.id} overlaps with ${acc.id}`);
                       break; 
                   }
               }
@@ -57,8 +56,6 @@ class PackingAlgorithm {
         if (unpackedRectangles.length === 0) {
           break;
         }
-
-        // [THAY ĐỔI DUY NHẤT: Gọi Strategy]
         const { placed: placedRaw, remaining: remainingRaw } = strategyProcessor.execute(unpackedRectangles);
         
         const sanitizeResult = sanitizeLayer(placedRaw, []); 
@@ -103,25 +100,86 @@ class PackingAlgorithm {
     try {
       this.checkTimeout(30);
       
-      // Factory: Chọn chiến thuật
       let strategyProcessor;
       if (strategyName === 'FULL_SIZE') {
           strategyProcessor = new FullSizeStrategy(container);
       } else {
-          // Mặc định dùng Hybrid cũ
           strategyProcessor = new HybridStrategy(container);
       }
 
-      const bestResult = this._runGreedyLayeringPass(
-        container, 
-        initialRectangles, 
-        maxLayers,
-        strategyProcessor
+      // 1. CHẠY THUẬT TOÁN CHÍNH (Lần 1)
+      let bestResult = this._runGreedyLayeringPass(container, initialRectangles, maxLayers, strategyProcessor);
+
+      // =====================================================================
+      // [NÂNG CẤP] TỐI ƯU HÓA 2 TẤM CUỐI CÙNG (RE-OPTIMIZE LAST 2 SHEETS)
+      // =====================================================================
+      if (strategyName !== 'FULL_SIZE' && bestResult.layersUsed > 0 && strategyProcessor.executeFinalSheet) {
+          
+          const startOptimizeLayer = Math.max(0, bestResult.layersUsed - 2);
+          const endOptimizeLayer = bestResult.layersUsed - 1;
+
+          let itemsToRepack = bestResult.rectangles.filter(r => r.layer >= startOptimizeLayer);
+          
+          // Reset kích thước gốc
+          itemsToRepack = itemsToRepack.map(r => {
+              const { x, y, layer, rotated, ...rest } = r; 
+              let w = r.width; let l = r.length;
+              if (r.rotated) { w = r.length; l = r.width; } 
+              return { ...rest, width: w, length: l };
+          });
+
+          if (itemsToRepack.length > 0) {
+              let newPlacedRects = [];
+              let currentPool = [...itemsToRepack];
+              let success = true;
+
+              for (let i = startOptimizeLayer; i <= endOptimizeLayer; i++) {
+                  // --- THAY ĐỔI Ở ĐÂY ---
+                  // Trước đây: Chỉ tấm cuối dùng executeFinalSheet.
+                  // Bây giờ: CẢ 2 TẤM đều dùng executeFinalSheet.
+                  // Lý do: executeFinalSheet bỏ qua AlignmentScore, chỉ tập trung Dồn Trái (MaxX Min).
+                  
+                  let res = strategyProcessor.executeFinalSheet(currentPool);
+
+                  if (res && res.placed.length > 0) {
+                      res.placed.forEach(r => {
+                          r.layer = i;
+                          // Đánh dấu strategy là Final_DeepSearch để dễ debug
+                          r.strategy = `ReOpt_ForceLeft_${res.strategyName}`;
+                          newPlacedRects.push(r);
+                      });
+                      currentPool = res.remaining; 
+                  } else {
+                      if (currentPool.length > 0) success = false;
+                  }
+              }
+
+              // Chỉ cập nhật nếu thành công (xếp hết vật tư và không phát sinh tấm mới)
+              if (success && currentPool.length === 0) {
+                  bestResult.rectangles = bestResult.rectangles.filter(r => r.layer < startOptimizeLayer);
+                  bestResult.rectangles.push(...newPlacedRects);
+              }
+          }
+      }
+      
+      const containerAreaPerLayer = container.width * container.length;
+      const finalUsedArea = bestResult.rectangles.reduce((sum, rect) => 
+        sum + (rect.width * rect.length), 0
       );
-      bestResult.strategy = strategyName;
-      return bestResult;
+      const totalUsedArea = containerAreaPerLayer * bestResult.layersUsed; 
+
+      return {
+        ...bestResult,
+        strategy: strategyName,
+        efficiency: totalUsedArea > 0 ? (finalUsedArea / totalUsedArea) * 100 : 0, 
+        usedArea: finalUsedArea,
+        totalArea: totalUsedArea, 
+        wasteArea: totalUsedArea - finalUsedArea,
+        remainingFeasibleCount: bestResult.remainingRectangles ? bestResult.remainingRectangles.filter(r => (r.width <= container.width && r.length <= container.length) || (r.length <= container.width && r.width <= container.length)).length : 0,
+        remainingUnfitCount: bestResult.remainingRectangles ? (bestResult.remainingRectangles.length - bestResult.remainingRectangles.filter(r => (r.width <= container.width && r.length <= container.length) || (r.length <= container.width && r.width <= container.length)).length) : 0
+      };
+
     } catch (error) {
-      console.error(`[Algorithm] ✗ Lỗi:`, error);
       throw error;
     }
   }
