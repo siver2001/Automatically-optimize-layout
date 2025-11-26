@@ -244,6 +244,7 @@ const initialState = {
   errors: [],
   warnings: [],
   packingStrategy: 'AREA_OPTIMIZED',
+  unsplitableRectIds: [],
 };
 
 const packingReducer = (state, action) => {
@@ -387,6 +388,8 @@ const packingReducer = (state, action) => {
       };
     case 'SET_PACKING_STRATEGY':
       return { ...state, packingStrategy: action.payload };
+    case 'SET_UNSPLITABLE_IDS':
+      return { ...state, unsplitableRectIds: action.payload };
     default:
       return state;
   }
@@ -443,6 +446,10 @@ export const PackingProvider = ({ children }) => {
       const setQuantity = useCallback((id, quantity) => {
         dispatch({ type: 'SET_QUANTITY', payload: { id, quantity } });
       }, []);
+
+  const setUnsplitableRectIds = useCallback((ids) => {
+    dispatch({ type: 'SET_UNSPLITABLE_IDS', payload: ids });
+  }, []);
 
   const validateContainer = useCallback(() => {
     const { width, length, layers } = state.container;
@@ -520,7 +527,7 @@ export const PackingProvider = ({ children }) => {
         sort: (a, b) => {
           const ratioA = Math.max(a.width, a.length) / Math.min(a.width, a.length);
           const ratioB = Math.max(b.width, b.length) / Math.min(b.width, b.length);
-          return ratioA - ratioB;
+          return (ratioA - ratioB) || (a.pairId || '').localeCompare(b.pairId || '');
         }
       }
     ];
@@ -529,6 +536,7 @@ export const PackingProvider = ({ children }) => {
     let bestArea = 0;
 
     for (const strategy of strategies) {
+      // Clone và sort pool theo chiến thuật mới
       const sortedPool = [...pool].sort(strategy.sort);
 
       // CHỈ CHẠY CHO 1 LỚP - Logic xếp nhiều lớp sẽ được xử lý ở bên ngoài
@@ -637,14 +645,19 @@ export const PackingProvider = ({ children }) => {
           }
         }
       } else {
-        // 🔴 TRƯỜNG HỢP 2: CHIẾN THUẬT TỐI ƯU DIỆN TÍCH (CŨ)
-        // Logic: Chia đôi chiều rộng nếu đủ lớn (Code gốc của bạn)
+        // 🔴 TRƯỜNG HỢP 2: CHIẾN THUẬT TỐI ƯU DIỆN TÍCH 
+        // Logic: Chia đôi chiều rộng nếu đủ lớn 
         for (const rectType of selectedTypes) {
           const quantity = state.quantities[rectType.id] || 0;
           if (quantity <= 0) continue;
 
+          // --- LOGIC MỚI BẮT ĐẦU TỪ ĐÂY ---
+          // Kiểm tra xem ID này có nằm trong danh sách cấm chia không
+          const isRestricted = state.unsplitableRectIds.includes(rectType.id);
+          
           const halfWidth = rectType.width / 2;
-          const canSplit = halfWidth >= MIN_SPLIT_WIDTH;
+          // Chỉ chia nếu: Không bị cấm VÀ đủ rộng
+          const canSplit = !isRestricted && (halfWidth >= MIN_SPLIT_WIDTH);
 
           for (let i = 0; i < quantity; i++) {
             const pairId = `pair_${rectType.id}_${i}`;
@@ -706,7 +719,7 @@ export const PackingProvider = ({ children }) => {
                 splitDirection: 'none',
                 originalWidth: rectType.width,
                 originalLength: rectType.length,
-                transform: { // ✅ THÊM cho full piece
+                transform: { 
                   originalWidth: rectType.width,
                   originalLength: rectType.length,
                   splitAxis: 'none'
@@ -728,7 +741,7 @@ export const PackingProvider = ({ children }) => {
           }
         }
       }
-
+      const initialPoolSize = pool.length;
       // ========== GIAI ĐOẠN 2: PACK - Sắp xếp các pieces ==========
 
       const mixedPatterns = new Map();
@@ -737,6 +750,16 @@ export const PackingProvider = ({ children }) => {
 
       while (pool.length > 0 && iterationCount < MAX_ITERATIONS) {
         iterationCount++;
+
+        const currentProgress = initialPoolSize > 0 
+           ? Math.round(((initialPoolSize - pool.length) / initialPoolSize) * 100) 
+           : 0;
+        
+        // Cập nhật tiến độ ra ngoài
+        dispatch({ type: 'UPDATE_OPTIMIZATION_PROGRESS', payload: currentProgress });
+        
+        // Yield (nhường) một chút thời gian cho UI render lại (tránh bị đơ màn hình)
+        await new Promise(resolve => setTimeout(resolve, 0));
 
         const mixedResult = await createMixedPlateMultiStrategy(pool, layersPerPlate);
 
@@ -1218,6 +1241,7 @@ export const PackingProvider = ({ children }) => {
     validateRectangles,
     addRectanglesFromExcel,
     setPackingStrategy,
+    setUnsplitableRectIds,
   };
 
   return <PackingContext.Provider value={value}>{children}</PackingContext.Provider>;

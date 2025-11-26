@@ -1,6 +1,8 @@
 import React, { useCallback, useState, useRef } from 'react';
 import { usePacking } from '../context/PackingContext.js';
 import ExcelJS from 'exceljs';
+import SplitRestrictionModal from './SplitRestrictionModal';
+import OptimizationLoadingModal from './OptimizationLoadingModal';
 
 // --- Các hàm tiện ích (Phiên bản ExcelJS) ---
 const generateRandomColor = () => {
@@ -37,6 +39,20 @@ const parseCell = (cellValue) => {
 };
 // --- Kết thúc hàm tiện ích ---
 
+// 👇 Component Icon Check Xanh
+const CheckIcon = () => (
+  <svg className="w-4 h-4 text-green-500 ml-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+  </svg>
+);
+
+// 👇 Component Mũi tên phải (cho sub-menu)
+const ChevronRightIcon = () => (
+    <svg className="w-4 h-4 text-gray-400 ml-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+    </svg>
+);
+
 const RectangleList = () => {
   const { 
     rectangles, 
@@ -50,15 +66,18 @@ const RectangleList = () => {
     addRectanglesFromExcel, 
     removeRectangle, 
     isOptimizing,
-    // 👇 [QUAN TRỌNG] Đã thêm 2 dòng này để lấy biến từ Context
     packingStrategy,
-    setPackingStrategy
+    setPackingStrategy,
+    unsplitableRectIds,
+    setUnsplitableRectIds,
+    optimizationProgress,
   } = usePacking();
   
   // --- State mới cho trình tải lên Excel ---
   const [isParsing, setIsParsing] = useState(false); 
   const [parseMessage, setParseMessage] = useState(''); 
   const fileInputRef = useRef(null); 
+  const [isSplitModalOpen, setIsSplitModalOpen] = useState(false);
 
   const handleQuantityChange = useCallback((rectId, value) => {
     const quantity = Math.max(0, parseInt(value) || 0);
@@ -185,6 +204,13 @@ const RectangleList = () => {
 
   const isCustomRect = (id) => id > 8; 
 
+  // 👇 Helper xác định text hiển thị cho nút chính
+  const getCurrentStrategyLabel = () => {
+      if (packingStrategy === 'FULL_SIZE') return 'Size Nguyên';
+      if (unsplitableRectIds.length > 0) return 'Tối ưu: Tuỳ chỉnh';
+      return 'Tối ưu diện tích';
+  }
+
   return (
     <div className="mb-2 card p-2">
       <div className="flex justify-between items-center mb-2 border-b pb-1">
@@ -229,23 +255,89 @@ const RectangleList = () => {
             </span>
           </div>
 
-          {/* 👇 List box chọn thuật toán - Đã hoạt động vì có setPackingStrategy */}
-          <select 
-            value={packingStrategy} 
-            onChange={(e) => setPackingStrategy(e.target.value)}
-            disabled={isOptimizing || isParsing}
-            className="border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white text-gray-700 cursor-pointer shadow-sm"
-          >
-            <option value="AREA_OPTIMIZED">Tối ưu diện tích</option>
-            <option value="FULL_SIZE">Size nguyên</option>
-          </select>
+          {/* 👇 CUSTOM NESTED DROPDOWN */}
+          <div className="relative group inline-block">
+             {/* Nút hiển thị chính */}
+            <button 
+                disabled={isOptimizing || isParsing}
+                className={`
+                    flex items-center justify-between w-fit px-3 py-2 text-sm font-medium bg-white border rounded-lg shadow-sm transition-all
+                    ${isOptimizing ? 'opacity-50 cursor-not-allowed' : 'hover:border-primary-500 hover:shadow-md cursor-pointer'}
+                    ${unsplitableRectIds.length > 0 ? 'border-yellow-400 text-yellow-800 bg-yellow-50' : 'border-gray-300 text-gray-700'}
+                `}
+            >
+                <span>{getCurrentStrategyLabel()}</span>
+                <svg className="w-4 h-4 ml-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+            </button>
+
+            {/* Menu chính */}
+            <div className="absolute left-0 top-full mb-1 w-max min-w-full bg-white border border-gray-200 rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 transform origin-bottom z-50">
+                <div className="py-1">
+                    
+                    {/* Option 1: Tối ưu diện tích (ĐƯA LÊN ĐẦU) */}
+                    <div className="relative group/nested px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 cursor-pointer flex items-center justify-between">
+                        <div className="flex items-center w-full" onClick={() => setPackingStrategy('AREA_OPTIMIZED')}>
+                            <span>Tối ưu diện tích</span>
+                            {packingStrategy === 'AREA_OPTIMIZED' && <CheckIcon />}
+                        </div>
+                        <ChevronRightIcon />
+
+                        {/* Sub-menu (Listbox trong listbox) - Giữ nguyên vị trí hiển thị bên phải */}
+                        <div className="absolute left-full top-0 ml-1 w-max bg-white border border-gray-200 rounded-lg shadow-xl opacity-0 invisible group-hover/nested:opacity-100 group-hover/nested:visible transition-all duration-200 transform origin-top-left">
+                             <div className="py-1">
+                                <div className="px-3 py-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">Cấu hình chia nhỏ</div>
+                                
+                                {/* Sub-Option 1.1: Tuỳ ý chia */}
+                                <div 
+                                    className="px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 cursor-pointer flex items-center"
+                                    onClick={(e) => {
+                                        e.stopPropagation(); 
+                                        setPackingStrategy('AREA_OPTIMIZED');
+                                        setUnsplitableRectIds([]); 
+                                    }}
+                                >
+                                    <span>✂️ Tuỳ ý chia tất cả</span>
+                                    {packingStrategy === 'AREA_OPTIMIZED' && unsplitableRectIds.length === 0 && <CheckIcon />}
+                                </div>
+
+                                {/* Sub-Option 1.2: Chọn size cấm chia */}
+                                <div 
+                                    className="px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 cursor-pointer flex items-center"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setPackingStrategy('AREA_OPTIMIZED');
+                                        setIsSplitModalOpen(true); 
+                                    }}
+                                >
+                                    <span>🔒 Chọn size KHÔNG chia...</span>
+                                    {packingStrategy === 'AREA_OPTIMIZED' && unsplitableRectIds.length > 0 && <CheckIcon />}
+                                </div>
+                             </div>
+                        </div>
+                    </div>
+
+                    {/* Option 2: Size Nguyên (ĐƯA XUỐNG DƯỚI) */}
+                    <div 
+                        className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 cursor-pointer flex items-center"
+                        onClick={() => setPackingStrategy('FULL_SIZE')}
+                    >
+                        <span>Size Nguyên</span>
+                        {packingStrategy === 'FULL_SIZE' && <CheckIcon />}
+                    </div>
+
+                </div>
+            </div>
+          </div>
 
           <button 
             onClick={startOptimization}
             disabled={totalRectanglesCount === 0 || isOptimizing || isParsing}
-            className="btn-primary text-sm px-4 py-2 flex-shrink-0"
+            className={`
+                btn-primary text-sm px-4 py-2 flex-shrink-0 transition-all 
+                ${isOptimizing ? 'opacity-70 cursor-not-allowed' : ''}
+            `}
           >
-            {isOptimizing ? '🔄 Tối ưu...' : 
+            {isOptimizing ? '🔄 Đang xử lý...' : 
              isParsing ? '⏳ Please, wait...' : 
              `Netting`
             }
@@ -359,7 +451,21 @@ const RectangleList = () => {
           ))}
         </div>
       </div>
-      
+
+      <SplitRestrictionModal
+        isOpen={isSplitModalOpen}
+        onClose={() => setIsSplitModalOpen(false)}
+        rectangles={selectedRectsWithQuantities} 
+        initialRestrictedIds={unsplitableRectIds}
+        onSave={(newIds) => {
+          setUnsplitableRectIds(newIds);
+          setIsSplitModalOpen(false);
+        }}
+      />
+      <OptimizationLoadingModal 
+        isOpen={isOptimizing} 
+        progress={optimizationProgress} 
+      />
     </div>
   );
 };
