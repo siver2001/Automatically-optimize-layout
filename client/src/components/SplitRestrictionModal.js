@@ -1,6 +1,6 @@
 // client/src/components/SplitRestrictionModal.js
 import React, { useState, useEffect } from 'react';
-import ReactDOM from 'react-dom'; // 👈 Import ReactDOM để dùng Portal
+import ReactDOM from 'react-dom';
 
 const SplitRestrictionModal = ({ 
   isOpen, 
@@ -29,10 +29,12 @@ const SplitRestrictionModal = ({
 
   if (!isOpen) return null;
 
-  // 👇 Dùng Portal để đưa Modal ra ngoài cùng của DOM (gắn vào body)
-  // Giúp nó không bị giới hạn bởi khung "Quản lý size"
   return ReactDOM.createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm p-4 animate-fade-in">
+    // 👇 THAY ĐỔI Ở ĐÂY: 
+    // - Đổi 'justify-center' thành 'justify-start' để căn menu sang trái.
+    // - Lớp 'p-4' sẽ giữ một khoảng cách nhỏ (padding) so với mép màn hình.
+    <div className="fixed inset-0 z-[9999] flex items-center justify-start bg-black bg-opacity-60 backdrop-blur-sm p-4 animate-fade-in">
+      
       {/* Click ra ngoài để đóng */}
       <div className="absolute inset-0" onClick={onClose}></div>
 
@@ -71,7 +73,6 @@ const SplitRestrictionModal = ({
                       onChange={() => toggleId(rect.id)}
                       className="peer h-5 w-5 cursor-pointer appearance-none rounded-md border border-gray-300 transition-all checked:border-primary-500 checked:bg-primary-500"
                     />
-                    {/* Custom checkmark icon */}
                     <svg className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none opacity-0 peer-checked:opacity-100 text-white transition-opacity" viewBox="0 0 14 10" fill="none">
                         <path d="M1 5L4.5 8.5L13 1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                     </svg>
@@ -111,7 +112,7 @@ const SplitRestrictionModal = ({
         </div>
       </div>
     </div>,
-    document.body // 👈 Gắn vào body
+    document.body
   );
 };
 

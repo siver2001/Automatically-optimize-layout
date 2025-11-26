@@ -283,7 +283,7 @@ const RectangleList = () => {
                         <ChevronRightIcon />
 
                         {/* Sub-menu (Listbox trong listbox) - Giữ nguyên vị trí hiển thị bên phải */}
-                        <div className="absolute left-full top-0 ml-1 w-max bg-white border border-gray-200 rounded-lg shadow-xl opacity-0 invisible group-hover/nested:opacity-100 group-hover/nested:visible transition-all duration-200 transform origin-top-left">
+                        <div className="absolute right-full top-0 mr-1 w-max bg-white border border-gray-200 rounded-lg shadow-xl opacity-0 invisible group-hover/nested:opacity-100 group-hover/nested:visible transition-all duration-200 transform origin-top-right">
                              <div className="py-1">
                                 <div className="px-3 py-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">Cấu hình chia nhỏ</div>
                                 

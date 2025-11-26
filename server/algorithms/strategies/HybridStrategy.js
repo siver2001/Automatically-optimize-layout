@@ -20,10 +20,10 @@ class HybridStrategy extends BaseStrategy {
     const groupedData = this.sortRectanglesByExactDimension(rawRects);
     const widthSortData = this.sortRectanglesByWidth(rawRects);
     
-    // [MỚI 1] Sắp xếp ưu tiên Chiều Cao (Length) giảm dần -> Quan trọng cho hình mẫu của bạn
+    //  Sắp xếp ưu tiên Chiều Cao (Length) giảm dần -> Quan trọng cho hình mẫu của bạn
     const heightSortData = rawRects.slice().sort((a, b) => b.length - a.length);
 
-    // [MỚI 2] Sắp xếp "Thông minh": Cao trước, nếu bằng nhau thì Rộng trước
+    //  Sắp xếp "Thông minh": Cao trước, nếu bằng nhau thì Rộng trước
     const smartSortData = rawRects.slice().sort((a, b) => {
         if (Math.abs(b.length - a.length) > 1) return b.length - a.length; // Ưu tiên chiều cao
         return b.width - a.width; // Sau đó đến chiều rộng
@@ -44,14 +44,13 @@ class HybridStrategy extends BaseStrategy {
           fn: () => this._maxRectsPackLeft(widthSortData.map(r => ({...r})), false)
       },
 
-      // 2. [QUAN TRỌNG] Dồn trái theo Chiều Cao (Giải quyết vấn đề của bạn)
-      // Giúp xếp các tấm 290mm vào cột 1, 2 trước, sau đó mới đến các tấm thấp hơn.
+      // 2. Dồn trái theo Chiều Cao 
       {
           name: 'Pack_Left_ByHeight',
           fn: () => this._maxRectsPackLeft(heightSortData.map(r => ({...r})), false)
       },
 
-      // 3. [QUAN TRỌNG] Dồn trái Smart (Cao -> Rộng)
+      // 3. Dồn trái Smart (Cao -> Rộng)
       // Tạo ra các cột chặt chẽ nhất
       {
           name: 'Pack_Left_Smart',
