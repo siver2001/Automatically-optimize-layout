@@ -134,8 +134,8 @@ class HybridStrategy extends BaseStrategy {
     return bestResult; 
   }
   executeFinalSheet(rectanglesToPack) {
-    // Tăng số lần thử lên 600 để tìm ra phương án ghép đôi tốt nhất (như ghép 2 tấm 112.5 thành 225)
-    const ITERATIONS = 600; 
+    // Tăng số lần thử lên 1000 để tìm ra phương án ghép đôi tốt nhất (như ghép 2 tấm 112.5 thành 225)
+    const ITERATIONS = 1000; 
     const rawRects = rectanglesToPack.map(r => ({...r}));
     
     // Các chiến thuật khởi đầu (Heuristic)
