@@ -285,9 +285,9 @@ const RectangleList = () => {
                         {/* Sub-menu (Listbox trong listbox) - Giữ nguyên vị trí hiển thị bên phải */}
                         <div className="absolute right-full top-0 mr-1 w-max bg-white border border-gray-200 rounded-lg shadow-xl opacity-0 invisible group-hover/nested:opacity-100 group-hover/nested:visible transition-all duration-200 transform origin-top-right">
                              <div className="py-1">
-                                <div className="px-3 py-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">Cấu hình chia nhỏ</div>
+                                <div className="px-3 py-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">Cấu hình size</div>
                                 
-                                {/* Sub-Option 1.1: Tuỳ ý chia */}
+                                {/* Sub-Option 1.1: Xếp tuỳ ý */}
                                 <div 
                                     className="px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 cursor-pointer flex items-center"
                                     onClick={(e) => {
@@ -296,7 +296,7 @@ const RectangleList = () => {
                                         setUnsplitableRectIds([]); 
                                     }}
                                 >
-                                    <span>✂️ Tuỳ ý chia tất cả</span>
+                                    <span>Xếp tuỳ ý</span>
                                     {packingStrategy === 'AREA_OPTIMIZED' && unsplitableRectIds.length === 0 && <CheckIcon />}
                                 </div>
 
@@ -309,7 +309,7 @@ const RectangleList = () => {
                                         setIsSplitModalOpen(true); 
                                     }}
                                 >
-                                    <span>🔒 Chọn size KHÔNG chia...</span>
+                                    <span>Chọn size nguyên</span>
                                     {packingStrategy === 'AREA_OPTIMIZED' && unsplitableRectIds.length > 0 && <CheckIcon />}
                                 </div>
                              </div>

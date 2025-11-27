@@ -93,7 +93,7 @@ class PackingAlgorithm {
       layersUsed: layersUsed
     };
   }
-
+  
   async optimize(container, initialRectangles, maxLayers, strategyName = 'AREA_OPTIMIZED') {
     this.startTime = Date.now(); 
     this.container = container;
