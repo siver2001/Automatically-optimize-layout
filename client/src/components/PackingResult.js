@@ -167,16 +167,16 @@ const PackingResult = () => {
       } else {
         if (screenWidth >= 1920) {
           maxVisualWidth = screenWidth * 0.52;
-          maxVisualLength = window.innerHeight * 0.65;
+          maxVisualLength = window.innerHeight * 0.55; 
         } else if (screenWidth >= 1536) {
           maxVisualWidth = screenWidth * 0.50;
-          maxVisualLength = window.innerHeight * 0.62;
+          maxVisualLength = window.innerHeight * 0.52; 
         } else if (screenWidth >= 1280) {
           maxVisualWidth = screenWidth * 0.48;
-          maxVisualLength = window.innerHeight * 0.58;
+          maxVisualLength = window.innerHeight * 0.50; 
         } else {
           maxVisualWidth = screenWidth * 0.46;
-          maxVisualLength = window.innerHeight * 0.55;
+          maxVisualLength = window.innerHeight * 0.45; 
         }
       }
       

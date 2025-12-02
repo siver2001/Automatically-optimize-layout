@@ -36,7 +36,7 @@ const OptimizationLoadingModal = ({ isOpen, progress }) => {
 
         {/* Dòng 2: Lời nhắn */}
         <p className="text-gray-500 text-sm font-medium animate-pulse">
-          Vui lòng chờ, quá trình này có thể mất phút...
+          Vui lòng chờ, quá trình này có thể mất vài phút...
         </p>
 
       </div>

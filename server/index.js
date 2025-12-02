@@ -56,7 +56,6 @@ io.on('connection', (socket) => {
 
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  console.log('--- SERVER PHIÊN BAN MỚI NHẤT ĐÃ CHẠY ---');
   
   if (process.send) {
     process.send('server-ready');

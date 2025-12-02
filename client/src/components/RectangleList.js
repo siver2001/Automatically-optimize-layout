@@ -316,7 +316,7 @@ const RectangleList = () => {
                         </div>
                     </div>
 
-                    {/* Option 2: Size Nguyên (ĐƯA XUỐNG DƯỚI) */}
+                    {/* Option 2: Size Nguyên  */}
                     <div 
                         className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 cursor-pointer flex items-center"
                         onClick={() => setPackingStrategy('FULL_SIZE')}
