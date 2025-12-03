@@ -45,16 +45,16 @@ const SessionUnplacedItem = ({ rectInstance, details, onPickUp, isDisabled }) =>
 const GroupedInventoryItem = ({ item, onPickUp, isDisabled }) => {
   const { details, instances } = item;
   const quantity = instances.length;
-  
-  if (quantity === 0) return null; 
 
-  const rectInstance = instances[0]; 
+  if (quantity === 0) return null;
+
+  const rectInstance = instances[0];
   const name = details.name || `ID ${rectInstance.typeId}`;
   const color = rectInstance.color || details.color || '#3498db';
 
   const handleClick = () => {
     if (!isDisabled) {
-      onPickUp(rectInstance.typeId); 
+      onPickUp(rectInstance.typeId);
     }
   };
 
@@ -84,11 +84,11 @@ const GroupedInventoryItem = ({ item, onPickUp, isDisabled }) => {
 
 const PackingResult = () => {
   const { packingResult, isOptimizing, container, rectangles } = usePacking();
-  
+
   const [selectedPlate, setSelectedPlate] = useState(0);
   const [placedRectDetails, setPlacedRectDetails] = useState({});
   const [visualScale, setVisualScale] = useState(1);
-  
+
   // Edit Mode States
   const [isEditMode, setIsEditMode] = useState(false);
   const [editedRectangles, setEditedRectangles] = useState([]);
@@ -109,9 +109,10 @@ const PackingResult = () => {
   const mainAreaRef = useRef(null);
 
   const [pickedUpRect, setPickedUpRect] = useState(null);
+  const [originalPickedUpState, setOriginalPickedUpState] = useState(null); // Store original state for cancel
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [snapGuides, setSnapGuides] = useState({ x: [], y: [] });
-  const [ghostRectPosition_data, setGhostRectPosition_data] = useState(null); 
+  const [ghostRectPosition_data, setGhostRectPosition_data] = useState(null);
   const [contextMenu, setContextMenu] = useState({
     visible: false,
     x: 0,
@@ -120,7 +121,7 @@ const PackingResult = () => {
   });
 
   const [isUnplacedPanelOpen, setIsUnplacedPanelOpen] = useState(true);
-  const [pickUpOrigin, setPickUpOrigin] =useState(null); 
+  const [pickUpOrigin, setPickUpOrigin] = useState(null);
   const [editablePlates, setEditablePlates] = useState([]);
 
   // Sync packingResult to editablePlates
@@ -151,47 +152,47 @@ const PackingResult = () => {
   const displayLength = vizLength * scale;
   const gridWidth = isLandscape ? container.width : container.length;
   const gridLength = isLandscape ? container.length : container.width;
-  
+
   useEffect(() => {
     const updateScale = () => {
       if (!vizWidth || !vizLength) return;
 
       let maxVisualWidth, maxVisualLength;
       const screenWidth = window.innerWidth;
-      
+
       if (isEditMode && mainAreaRef.current) {
         const availableWidth = mainAreaRef.current.clientWidth;
         if (availableWidth === 0) return;
-        maxVisualWidth = availableWidth * 0.95; 
-        maxVisualLength = window.innerHeight * 0.65; 
+        maxVisualWidth = availableWidth * 0.95;
+        maxVisualLength = window.innerHeight * 0.65;
       } else {
         if (screenWidth >= 1920) {
           maxVisualWidth = screenWidth * 0.52;
-          maxVisualLength = window.innerHeight * 0.55; 
+          maxVisualLength = window.innerHeight * 0.55;
         } else if (screenWidth >= 1536) {
           maxVisualWidth = screenWidth * 0.50;
-          maxVisualLength = window.innerHeight * 0.52; 
+          maxVisualLength = window.innerHeight * 0.52;
         } else if (screenWidth >= 1280) {
           maxVisualWidth = screenWidth * 0.48;
-          maxVisualLength = window.innerHeight * 0.50; 
+          maxVisualLength = window.innerHeight * 0.50;
         } else {
           maxVisualWidth = screenWidth * 0.46;
-          maxVisualLength = window.innerHeight * 0.45; 
+          maxVisualLength = window.innerHeight * 0.45;
         }
       }
-      
+
       const newScale = Math.min(maxVisualWidth / vizWidth, maxVisualLength / vizLength);
       setVisualScale(newScale);
     };
-    
-    const timerId = setTimeout(updateScale, 50); 
+
+    const timerId = setTimeout(updateScale, 50);
     window.addEventListener('resize', updateScale);
     return () => {
-        clearTimeout(timerId);
-        window.removeEventListener('resize', updateScale);
+      clearTimeout(timerId);
+      window.removeEventListener('resize', updateScale);
     }
   }, [container.width, container.length, vizWidth, vizLength, isEditMode, isUnplacedPanelOpen]);
-  
+
   useEffect(() => {
     const details = rectangles.reduce((acc, rect) => {
       acc[rect.id] = { name: rect.name, color: rect.color, width: rect.width, length: rect.length };
@@ -234,28 +235,29 @@ const PackingResult = () => {
       if (currentPlateData && currentPlateData.layers) {
         const layer0 = currentPlateData.layers.find(l => l.layerIndexInPlate === 0);
         const rects = layer0 ? layer0.rectangles.filter(Boolean) : [];
-        
-        const finalRects = rects.length > 0 
-             ? rects 
-             : (currentPlateData.layers[0]?.rectangles.filter(Boolean) || []);
 
-        setEditedRectangles(finalRects.map(r => ({...r})));
-        setOriginalRectangles(finalRects.map(r => ({...r})));
+        const finalRects = rects.length > 0
+          ? rects
+          : (currentPlateData.layers[0]?.rectangles.filter(Boolean) || []);
+
+        setEditedRectangles(finalRects.map(r => ({ ...r })));
+        setOriginalRectangles(finalRects.map(r => ({ ...r })));
       } else {
         setEditedRectangles([]);
         setOriginalRectangles([]);
       }
-      
+
       // CHỈ reset các biến tạm, KHÔNG reset isEditMode ở đây để tránh xung đột vòng lặp update
-      setSessionUnplacedRects([]); 
+      setSessionUnplacedRects([]);
       setHasUnsavedChanges(false);
       setSelectedRectIds([]);
       setPickedUpRect(null);
+      setOriginalPickedUpState(null);
       setContextMenu({ visible: false });
 
       // Khi chọn tấm khác hoặc dữ liệu thay đổi từ bên ngoài, tự động thoát Edit Mode an toàn
       setIsEditMode(false);
-      
+
     } else {
       setEditedRectangles([]);
       setOriginalRectangles([]);
@@ -275,10 +277,10 @@ const PackingResult = () => {
       newY = Math.max(0, Math.min(newY, container.length - rectToSnap.length));
       return { snappedX: newX, snappedY: newY, guidesX, guidesY };
     }
-    
+
     const threshold = snapThreshold;
-    const GRID_SIZE = 50; 
-    
+    const GRID_SIZE = 50;
+
     let bestSnapX = null;
     let bestSnapY = null;
     let bestDistX = threshold;
@@ -310,9 +312,9 @@ const PackingResult = () => {
 
     newX = Math.max(0, Math.min(newX, container.width - rectToSnap.width));
     newY = Math.max(0, Math.min(newY, container.length - rectToSnap.length));
-    
+
     return { snappedX: newX, snappedY: newY, guidesX, guidesY };
-  }, []); 
+  }, []);
 
   useEffect(() => {
     const handleMouseMove = (e) => {
@@ -330,7 +332,7 @@ const PackingResult = () => {
 
       const idealDataX = dataMouseX - (pickedUpRect.width / 2);
       const idealDataY = dataMouseY - (pickedUpRect.length / 2);
-      
+
       const { snappedX, snappedY, guidesX, guidesY } = calculateSnapPosition(
         idealDataX, idealDataY, pickedUpRect, editedRectangles, container, snapEnabled, snapThreshold
       );
@@ -345,19 +347,20 @@ const PackingResult = () => {
 
   // --- XÓA size (DỰA TRÊN SỐ LỚP) ---
   const handleDeleteSelected = useCallback((id = null) => {
-  
+
     if (pickedUpRect && id === null) {
       if (window.confirm(`Bạn có chắc muốn gỡ size đang cầm? (Sẽ trả ${currentLayerCount} đơn vị về kho)`)) {
         const rectsToAdd = [];
         for (let i = 0; i < currentLayerCount; i++) {
-          rectsToAdd.push({ 
-              ...pickedUpRect, 
-              id: `${pickedUpRect.id}_copy_${Date.now()}_${i}`,
-              plateLayerCount: currentLayerCount
+          rectsToAdd.push({
+            ...pickedUpRect,
+            id: `${pickedUpRect.id}_copy_${Date.now()}_${i}`,
+            plateLayerCount: currentLayerCount
           });
         }
         setSessionUnplacedRects(prev => [...prev, ...rectsToAdd]);
         setPickedUpRect(null);
+        setOriginalPickedUpState(null);
         setPickUpOrigin(null);
         setGhostRectPosition_data(null);
         setSnapGuides({ x: [], y: [] });
@@ -368,22 +371,22 @@ const PackingResult = () => {
 
     const finalId = (typeof id === 'object' && id !== null) ? null : id;
     const idsToDelete = finalId ? [finalId] : selectedRectIds;
-    
+
     if (idsToDelete.length > 0 && window.confirm(`Xóa ${idsToDelete.length} size? (Sẽ thu hồi ${idsToDelete.length * currentLayerCount} đơn vị về kho)`)) {
-      
+
       const rectsToUnplace = [];
       const targetRects = editedRectangles.filter(r => idsToDelete.includes(r.id));
-      
+
       targetRects.forEach(rect => {
-          for (let i = 0; i < currentLayerCount; i++) {
-            rectsToUnplace.push({ 
-              ...rect, 
-              id: `${rect.id}_return_${Date.now()}_${i}`,
-              plateLayerCount: currentLayerCount
-            });
-          }
+        for (let i = 0; i < currentLayerCount; i++) {
+          rectsToUnplace.push({
+            ...rect,
+            id: `${rect.id}_return_${Date.now()}_${i}`,
+            plateLayerCount: currentLayerCount
+          });
+        }
       });
-      
+
       setSessionUnplacedRects(prev => [...prev, ...rectsToUnplace]);
       setEditedRectangles(prev => prev.filter(r => !idsToDelete.includes(r.id)));
       setSelectedRectIds([]);
@@ -396,58 +399,50 @@ const PackingResult = () => {
     const handleKeyDown = (e) => {
       if (!isEditMode) return;
 
+      // Rotate with R
+      if ((e.key === 'r' || e.key === 'R') && pickedUpRect) {
+        setPickedUpRect(prev => ({
+          ...prev,
+          rotated: !prev.rotated,
+          width: prev.length,
+          length: prev.width
+        }));
+      }
+
+      // Cancel with Escape
       if (e.key === 'Escape' && pickedUpRect) {
         e.preventDefault();
-        
         if (pickUpOrigin === 'board') {
-          setEditedRectangles(prev => [...prev, pickedUpRect]);
-        
+          // Restore ORIGINAL state (including rotation/dimensions)
+          const rectToRestore = originalPickedUpState || pickedUpRect;
+          setEditedRectangles(prev => [...prev, rectToRestore]);
         } else if (pickUpOrigin === 'unplaced-session') {
-          const rectsReturn = [];
-          for(let i=0; i<currentLayerCount; i++) {
-             rectsReturn.push({...pickedUpRect, id: `esc_${Date.now()}_${i}`});
-          }
-          setSessionUnplacedRects(prev => [...prev, ...rectsReturn]);
-        
+          setSessionUnplacedRects(prev => [...prev, pickedUpRect]);
         } else if (pickUpOrigin === 'unplaced-global') {
-          setGlobalInventory(prevInventory => {
-            const newInventory = new Map(prevInventory);
-            const typeId = pickedUpRect.typeId;
-            
-            let item = newInventory.get(typeId);
-            if (!item) {
-              item = {
-                details: placedRectDetails[typeId] || { name: `ID ${typeId}` },
-                instances: []
-              };
+          setGlobalInventory(prev => {
+            const newMap = new Map(prev);
+            const item = newMap.get(pickedUpRect.typeId);
+            if (item) {
+              item.instances.push(pickedUpRect);
             } else {
-              item = { ...item, instances: [...item.instances] };
+              const details = placedRectDetails[pickedUpRect.typeId] || { name: 'Unknown', color: pickedUpRect.color, width: pickedUpRect.width, length: pickedUpRect.length };
+              newMap.set(pickedUpRect.typeId, { details, instances: [pickedUpRect] });
             }
-
-            for(let i=0; i<currentLayerCount; i++) {
-                item.instances.push({...pickedUpRect});
-            }
-            
-            newInventory.set(typeId, item);
-            return newInventory;
+            return newMap;
           });
         }
-        
         setPickedUpRect(null);
+        setOriginalPickedUpState(null);
         setPickUpOrigin(null);
         setGhostRectPosition_data(null);
         setSnapGuides({ x: [], y: [] });
         return;
       }
 
-      if (pickedUpRect && (e.key.toLowerCase() === 'r')) {
-        e.preventDefault(); 
-        setPickedUpRect(prev => ({ ...prev, width: prev.length, length: prev.width, rotated: !prev.rotated }));
-      }
       if (e.key === 'Delete' && pickedUpRect) {
         e.preventDefault();
         handleDeleteSelected(null);
-        return; 
+        return;
       }
       if (e.key === 'Delete' && selectedRectIds.length > 0 && !pickedUpRect) {
         e.preventDefault();
@@ -457,22 +452,24 @@ const PackingResult = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => { window.removeEventListener('keydown', handleKeyDown); };
-  }, [isEditMode, pickedUpRect, selectedRectIds, pickUpOrigin, handleDeleteSelected, placedRectDetails, currentLayerCount]); 
+  }, [isEditMode, pickedUpRect, selectedRectIds, pickUpOrigin, handleDeleteSelected, placedRectDetails, currentLayerCount, ghostRectPosition_data, originalPickedUpState]);
 
   const handleToggleEditMode = useCallback(() => {
     if (isEditMode && hasUnsavedChanges) {
       if (window.confirm('Bạn có thay đổi chưa lưu. Bạn có muốn thoát không?')) {
         setEditedRectangles([...originalRectangles]);
-        setSessionUnplacedRects([]); 
+        setSessionUnplacedRects([]);
         setHasUnsavedChanges(false);
         setIsEditMode(false);
         setSelectedRectIds([]);
         setPickedUpRect(null);
+        setOriginalPickedUpState(null);
       }
     } else {
       setIsEditMode(!isEditMode);
       setSelectedRectIds([]);
       setPickedUpRect(null);
+      setOriginalPickedUpState(null);
       setContextMenu({ visible: false });
     }
   }, [isEditMode, hasUnsavedChanges, originalRectangles]);
@@ -483,7 +480,8 @@ const PackingResult = () => {
     const rectToPickUp = editedRectangles.find(r => r.id === clickedRect.id);
     if (rectToPickUp) {
       setPickedUpRect(rectToPickUp);
-      setGhostRectPosition_data({ x: rectToPickUp.x, y: rectToPickUp.y }); 
+      setOriginalPickedUpState(rectToPickUp);
+      setGhostRectPosition_data({ x: rectToPickUp.x, y: rectToPickUp.y });
       setEditedRectangles(prev => prev.filter(r => r.id !== clickedRect.id));
       setSelectedRectIds([]);
       setContextMenu({ visible: false });
@@ -503,7 +501,7 @@ const PackingResult = () => {
       const containerBounds = containerRef.current.getBoundingClientRect();
       const clickX_visual = e.clientX - containerBounds.left;
       const clickY_visual = e.clientY - containerBounds.top;
-      
+
       const clickX_unscaled_visual = clickX_visual / visualScale;
       const clickY_unscaled_visual = clickY_visual / visualScale;
       const dataClickX = isLandscape ? clickX_unscaled_visual : clickY_unscaled_visual;
@@ -515,9 +513,10 @@ const PackingResult = () => {
       const { snappedX, snappedY } = calculateSnapPosition(
         idealDataX, idealDataY, pickedUpRect, editedRectangles, container, snapEnabled, snapThreshold
       );
-      
+
       setEditedRectangles(prev => [...prev, { ...pickedUpRect, x: snappedX, y: snappedY }]);
       setPickedUpRect(null);
+      setOriginalPickedUpState(null);
       setHasUnsavedChanges(true);
       setPickUpOrigin(null);
       setGhostRectPosition_data(null);
@@ -531,7 +530,7 @@ const PackingResult = () => {
     const finalId = (typeof id === 'object' && id !== null) ? null : id;
     const idsToRotate = finalId ? [finalId] : selectedRectIds;
     if (idsToRotate.length === 0) return;
-    setEditedRectangles(prev => 
+    setEditedRectangles(prev =>
       prev.map(r => {
         if (idsToRotate.includes(r.id)) return { ...r, width: r.length, length: r.width, rotated: !r.rotated };
         return r;
@@ -540,59 +539,151 @@ const PackingResult = () => {
     setHasUnsavedChanges(true);
   }, [selectedRectIds]);
 
-  const handleAlignSelected = useCallback((alignType) => {
-    if (selectedRectIds.length < 2) return;
-    const selectedRects = editedRectangles.filter(r => selectedRectIds.includes(r.id));
-    setEditedRectangles(prev => {
-      const updated = [...prev];
-      if (alignType === 'left') {
-        const minX = Math.min(...selectedRects.map(r => r.x));
-        selectedRects.forEach(r => {
-          const idx = updated.findIndex(ur => ur.id === r.id);
-          if (idx !== -1) updated[idx] = { ...updated[idx], x: minX };
-        });
-      } else if (alignType === 'top') {
-        const minY = Math.min(...selectedRects.map(r => r.y));
-        selectedRects.forEach(r => {
-          const idx = updated.findIndex(ur => ur.id === r.id);
-          if (idx !== -1) updated[idx] = { ...updated[idx], y: minY };
-        });
-      } else if (alignType === 'center') {
-        const avgX = selectedRects.reduce((sum, r) => sum + r.x + r.width / 2, 0) / selectedRects.length;
-        selectedRects.forEach(r => {
-          const idx = updated.findIndex(ur => ur.id === r.id);
-          if (idx !== -1) updated[idx] = { ...updated[idx], x: avgX - r.width / 2 };
-        });
+  // --- HỢP NHẤT (MERGE) ---
+  const handleMerge = useCallback(() => {
+    if (!isEditMode) return;
+
+    setEditedRectangles(prevRects => {
+      const rects = prevRects.map(r => ({ ...r })); // Deep copy for safety
+      let hasMerged = false;
+
+      // Helper: Check if two rects are identical in size
+      const areIdenticalSize = (r1, r2) => {
+        const tolerance = 0.5; // 0.5mm tolerance
+        return Math.abs(r1.width - r2.width) < tolerance && Math.abs(r1.length - r2.length) < tolerance;
+      };
+
+      // Helper: Check adjacency
+      const areAdjacent = (r1, r2) => {
+        const tolerance = 0.5;
+        // Check Horizontal Adjacency (Side-by-side)
+        // Same Y, Same Height, X touches
+        const sameY = Math.abs(r1.y - r2.y) < tolerance;
+        const sameHeight = Math.abs(r1.length - r2.length) < tolerance; // Height is length in this context usually
+        const touchesX = Math.abs((r1.x + r1.width) - r2.x) < tolerance || Math.abs((r2.x + r2.width) - r1.x) < tolerance;
+
+        if (sameY && sameHeight && touchesX) return 'horizontal';
+
+        // Check Vertical Adjacency (Top-to-bottom)
+        // Same X, Same Width, Y touches
+        const sameX = Math.abs(r1.x - r2.x) < tolerance;
+        const sameWidth = Math.abs(r1.width - r2.width) < tolerance;
+        const touchesY = Math.abs((r1.y + r1.length) - r2.y) < tolerance || Math.abs((r2.y + r2.length) - r1.y) < tolerance;
+
+        if (sameX && sameWidth && touchesY) return 'vertical';
+
+        return null;
+      };
+
+      // Helper: Check if merged result matches original size
+      const matchesOriginalSize = (width, length, typeId) => {
+        const original = placedRectDetails[typeId];
+        if (!original) return false;
+        const tolerance = 0.5;
+
+        // Check normal orientation
+        const matchNormal = Math.abs(width - original.width) < tolerance && Math.abs(length - original.length) < tolerance;
+        // Check rotated orientation
+        const matchRotated = Math.abs(width - original.length) < tolerance && Math.abs(length - original.width) < tolerance;
+
+        return matchNormal || matchRotated;
+      };
+
+      let keepMerging = true;
+      let currentPool = rects;
+
+      while (keepMerging) {
+        keepMerging = false;
+        const nextPool = [];
+        const processedIndices = new Set();
+
+        for (let i = 0; i < currentPool.length; i++) {
+          if (processedIndices.has(i)) continue;
+
+          let merged = false;
+          for (let j = i + 1; j < currentPool.length; j++) {
+            if (processedIndices.has(j)) continue;
+
+            const r1 = currentPool[i];
+            const r2 = currentPool[j];
+
+            // 1. Check same Type ID (Name)
+            if (r1.typeId === r2.typeId) {
+              // 2. Check identical current size (optional, but good for symmetry)
+              if (areIdenticalSize(r1, r2)) {
+                const adjacency = areAdjacent(r1, r2);
+                if (adjacency) {
+                  // Calculate potential new dimensions
+                  const newWidth = adjacency === 'horizontal' ? r1.width + r2.width : r1.width;
+                  const newLength = adjacency === 'vertical' ? r1.length + r2.length : r1.length;
+
+                  // 3. Check if new dimensions match ORIGINAL size
+                  if (matchesOriginalSize(newWidth, newLength, r1.typeId)) {
+                    // MERGE!
+                    const newRect = {
+                      ...r1,
+                      id: `merged_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                      name: r1.name,
+                      width: newWidth,
+                      length: newLength,
+                      x: Math.min(r1.x, r2.x),
+                      y: Math.min(r1.y, r2.y),
+                    };
+
+                    nextPool.push(newRect);
+                    processedIndices.add(i);
+                    processedIndices.add(j);
+                    merged = true;
+                    hasMerged = true;
+                    keepMerging = true;
+                    break;
+                  }
+                }
+              }
+            }
+          }
+
+          if (!merged) {
+            nextPool.push(currentPool[i]);
+            processedIndices.add(i);
+          }
+        }
+        currentPool = nextPool;
       }
-      return updated;
+
+      if (hasMerged) {
+        setHasUnsavedChanges(true);
+        return currentPool;
+      }
+
+      return prevRects;
     });
-    setHasUnsavedChanges(true);
-  }, [selectedRectIds, editedRectangles]);
+  }, [isEditMode, placedRectDetails]);
 
 
   // --- LƯU THAY ĐỔI & CẬP NHẬT DIỆN TÍCH ---
   const handleSaveChanges = useCallback(() => {
     setOriginalRectangles([...editedRectangles]);
-    
+
     // Gộp kho TẠM vào GLOBAL
     if (sessionUnplacedRects.length > 0) {
       setGlobalInventory(prevInventory => {
         const newInventory = new Map(prevInventory);
-        
+
         sessionUnplacedRects.forEach(rect => {
           const typeId = rect.typeId;
-          const details = placedRectDetails[typeId] || { 
-              name: `ID ${typeId}`, 
-              color: rect.color,
-              width: rect.width,
-              length: rect.length
+          const details = placedRectDetails[typeId] || {
+            name: `ID ${typeId}`,
+            color: rect.color,
+            width: rect.width,
+            length: rect.length
           };
 
           let item = newInventory.get(typeId);
           if (!item) {
-             item = { details: details, instances: [] };
+            item = { details: details, instances: [] };
           } else {
-             item = { ...item, instances: [...item.instances] };
+            item = { ...item, instances: [...item.instances] };
           }
           item.instances.push(rect);
           newInventory.set(typeId, item);
@@ -601,7 +692,7 @@ const PackingResult = () => {
       });
     }
 
-    setSessionUnplacedRects([]); 
+    setSessionUnplacedRects([]);
     setHasUnsavedChanges(false);
 
     const safeIndex = Math.max(0, Math.min(selectedPlate, categorizedPlates.length - 1));
@@ -614,14 +705,14 @@ const PackingResult = () => {
 
       if (plateToUpdateIndex !== -1) {
         const oldPlate = newPlates[plateToUpdateIndex];
-        const numLayers = oldPlate.layers.length; 
-        
+        const numLayers = oldPlate.layers.length;
+
         const updatedLayers = [];
-        for(let i=0; i < numLayers; i++) {
-            updatedLayers.push({
-                layerIndexInPlate: i,
-                rectangles: editedRectangles.map(r => ({...r, layer: i}))
-            });
+        for (let i = 0; i < numLayers; i++) {
+          updatedLayers.push({
+            layerIndexInPlate: i,
+            rectangles: editedRectangles.map(r => ({ ...r, layer: i }))
+          });
         }
 
         const singleLayerArea = container.width * container.length;
@@ -635,20 +726,21 @@ const PackingResult = () => {
           layers: updatedLayers,
           efficiency: plateEfficiency,
           description: (oldPlate.description || `Tấm ${originalPlateIndex + 1}`)
-                          .replace(" (Đã chỉnh sửa)", "") + " (Đã chỉnh sửa)"
+            .replace(" (Đã chỉnh sửa)", "") + " (Đã chỉnh sửa)"
         };
-        
+
         newPlates[plateToUpdateIndex] = updatedPlate;
         return newPlates;
       }
       return prevPlates;
     });
-    
+
     // ✅ FIX: Reset trạng thái và thoát Edit Mode ngay lập tức.
     // Đã xóa alert() để tránh chặn thread trình duyệt.
     setIsEditMode(false);
     setSelectedRectIds([]);
     setPickedUpRect(null);
+    setOriginalPickedUpState(null);
     setContextMenu({ visible: false });
 
   }, [editedRectangles, sessionUnplacedRects, placedRectDetails, selectedPlate, categorizedPlates, container.width, container.length]);
@@ -657,22 +749,24 @@ const PackingResult = () => {
     if (hasUnsavedChanges) {
       if (window.confirm('Bạn có thay đổi chưa lưu. Bạn có muốn hủy không?')) {
         setEditedRectangles([...originalRectangles]);
-        setSessionUnplacedRects([]); 
+        setSessionUnplacedRects([]);
         setHasUnsavedChanges(false);
         setIsEditMode(false);
         setSelectedRectIds([]);
         setPickedUpRect(null);
+        setOriginalPickedUpState(null);
       }
     } else {
       setIsEditMode(false);
       setSelectedRectIds([]);
       setPickedUpRect(null);
-      setSessionUnplacedRects([]); 
+      setOriginalPickedUpState(null);
+      setSessionUnplacedRects([]);
     }
   }, [hasUnsavedChanges, originalRectangles]);
 
   const handleContextMenu = (e, rect) => {
-    e.preventDefault(); 
+    e.preventDefault();
     if (!isEditMode || pickedUpRect) return;
     setContextMenu({ visible: true, x: e.clientX, y: e.clientY, targetRect: rect });
     setSelectedRectIds([rect.id]);
@@ -680,13 +774,13 @@ const PackingResult = () => {
 
   // --- NHẤC TỪ KHO TẠM ---
   const handlePickUpFromSession = useCallback((clickedRect) => {
-    if (!isEditMode || pickedUpRect) return; 
+    if (!isEditMode || pickedUpRect) return;
 
     const availableItems = sessionUnplacedRects.filter(r => r.typeId === clickedRect.typeId);
-    
+
     if (availableItems.length < currentLayerCount) {
-        alert(`Không đủ số lượng! Tấm này có ${currentLayerCount} lớp, nhưng kho tạm chỉ có ${availableItems.length} size.`);
-        return;
+      alert(`Không đủ số lượng! Tấm này có ${currentLayerCount} lớp, nhưng kho tạm chỉ có ${availableItems.length} size.`);
+      return;
     }
 
     const rectToPickUp = availableItems[0];
@@ -694,12 +788,12 @@ const PackingResult = () => {
 
     if (rectToPickUp) {
       setPickedUpRect(rectToPickUp);
-      setGhostRectPosition_data({ x: 0, y: 0 }); 
+      setGhostRectPosition_data({ x: 0, y: 0 });
       // Filter tạo mảng mới nên an toàn
       setSessionUnplacedRects(prev => prev.filter(r => !idsToRemove.includes(r.id)));
       setSelectedRectIds([]);
       setContextMenu({ visible: false });
-      setPickUpOrigin('unplaced-session'); 
+      setPickUpOrigin('unplaced-session');
     }
   }, [isEditMode, pickedUpRect, sessionUnplacedRects, currentLayerCount]);
 
@@ -711,8 +805,8 @@ const PackingResult = () => {
     const availableCount = inventoryItem ? inventoryItem.instances.length : 0;
 
     if (availableCount < currentLayerCount) {
-        alert(`Không đủ số lượng! Tấm này có ${currentLayerCount} lớp, nhưng kho tồn chỉ có ${availableCount} size.`);
-        return;
+      alert(`Không đủ số lượng! Tấm này có ${currentLayerCount} lớp, nhưng kho tồn chỉ có ${availableCount} size.`);
+      return;
     }
 
     // ✅ FIX QUAN TRỌNG: State Mutation Fix
@@ -724,22 +818,22 @@ const PackingResult = () => {
       if (oldItem && oldItem.instances.length >= currentLayerCount) {
         // 1. Shallow copy object item để không sửa tham chiếu cũ
         const newItem = { ...oldItem };
-        
+
         // 2. Lấy item để cầm
-        const rectToPickUp = newItem.instances[newItem.instances.length - 1]; 
-        
+        const rectToPickUp = newItem.instances[newItem.instances.length - 1];
+
         // 3. Tạo mảng instances mới bằng slice (tạo mảng mới, không sửa mảng cũ)
         newItem.instances = newItem.instances.slice(0, newItem.instances.length - currentLayerCount);
-        
+
         // 4. Cập nhật vào Map
         newInventory.set(typeId, newItem);
-        
+
         // Side effects
         setPickedUpRect(rectToPickUp);
         setGhostRectPosition_data({ x: 0, y: 0 });
         setSelectedRectIds([]);
         setContextMenu({ visible: false });
-        setPickUpOrigin('unplaced-global'); 
+        setPickUpOrigin('unplaced-global');
       }
       return newInventory;
     });
@@ -753,9 +847,9 @@ const PackingResult = () => {
     setIsExporting(true);
     setExportError(null);
     try {
-      const platesToExport = editablePlates; 
+      const platesToExport = editablePlates;
       const response = await packingService.exportMultiPagePdf(container, platesToExport);
-      
+
       if (!response.success) setExportError(response.error || 'Lỗi không xác định khi xuất file.');
     } catch (error) {
       console.error('Lỗi handleExportPdf:', error);
@@ -767,10 +861,10 @@ const PackingResult = () => {
 
   // --- TÍNH HIỆU SUẤT REAL-TIME (ĐÃ SỬA) ---
   const singleLayerArea = container.width * container.length;
-  
+
   // Diện tích sử dụng trên 1 layout (1 lớp)
   const currentPlateUsedArea = (isEditMode ? editedRectangles : originalRectangles).reduce((sum, rect) => sum + (rect.width * rect.length), 0);
-  
+
   // ✅ Sửa: Chỉ chia cho diện tích của 1 lớp (singleLayerArea). 
   // Vì layout xếp giống nhau cho mọi lớp, nên hiệu suất 1 lớp cũng là hiệu suất cả tấm.
   const plateEfficiency = singleLayerArea > 0 ? (currentPlateUsedArea / singleLayerArea * 100).toFixed(1) : 0;
@@ -782,23 +876,23 @@ const PackingResult = () => {
 
     editablePlates.forEach(plate => {
       if (plate.originalIndex === currentPlateMeta?.originalIndex) {
-         const used = (isEditMode ? editedRectangles : originalRectangles).reduce((s, r) => s + (r.width * r.length), 0);
-         const pLayers = currentLayerCount;
-         totalUsedArea += (used * pLayers); 
-         totalArea += (singleLayerArea * pLayers);
-         totalLayers += pLayers;
+        const used = (isEditMode ? editedRectangles : originalRectangles).reduce((s, r) => s + (r.width * r.length), 0);
+        const pLayers = currentLayerCount;
+        totalUsedArea += (used * pLayers);
+        totalArea += (singleLayerArea * pLayers);
+        totalLayers += pLayers;
       } else {
-         let plateUsed = 0;
-         plate.layers.forEach(layer => {
-            plateUsed += layer.rectangles.reduce((s, r) => s + (r.width * r.length), 0);
-         });
-         const pLayers = plate.layers.length;
-         totalUsedArea += plateUsed;
-         totalArea += (singleLayerArea * pLayers);
-         totalLayers += pLayers;
+        let plateUsed = 0;
+        plate.layers.forEach(layer => {
+          plateUsed += layer.rectangles.reduce((s, r) => s + (r.width * r.length), 0);
+        });
+        const pLayers = plate.layers.length;
+        totalUsedArea += plateUsed;
+        totalArea += (singleLayerArea * pLayers);
+        totalLayers += pLayers;
       }
     });
-    
+
     const efficiency = totalArea > 0 ? (totalUsedArea / totalArea * 100) : 0;
     return { efficiency, totalLayers };
   }, [editablePlates, editedRectangles, originalRectangles, currentPlateMeta, currentLayerCount, singleLayerArea, isEditMode]);
@@ -820,6 +914,7 @@ const PackingResult = () => {
       </div>
     );
   }
+
   if (!packingResult || !packingResult.plates || packingResult.plates.length === 0) {
     return (
       <div className="mb-4 card p-6 md:p-8 min-h-[300px] md:min-h-[400px] flex flex-col justify-center items-center">
@@ -834,6 +929,7 @@ const PackingResult = () => {
       </div>
     );
   }
+
   if (!currentPlateMeta) {
     return (
       <div className="mb-4 card p-6 text-center text-red-600">Lỗi: Không tìm thấy thông tin tấm liệu</div>
@@ -841,9 +937,8 @@ const PackingResult = () => {
   }
 
   const totalGlobalInventory = Array.from(globalInventory.values())
-                                .reduce((sum, item) => sum + item.instances.length, 0);
+    .reduce((sum, item) => sum + item.instances.length, 0);
 
-  // --- RETURN JSX ---
   return (
     <div className="mb-4 card p-1 md:p-2">
       <EditModeControls
@@ -851,8 +946,6 @@ const PackingResult = () => {
         onToggleEditMode={handleToggleEditMode}
         selectedRectangles={selectedRectIds}
         onDeleteSelected={handleDeleteSelected}
-        onRotateSelected={handleRotateSelected}
-        onAlignSelected={handleAlignSelected}
         snapEnabled={snapEnabled}
         onToggleSnap={() => setSnapEnabled(!snapEnabled)}
         snapThreshold={snapThreshold}
@@ -867,6 +960,7 @@ const PackingResult = () => {
         onTogglePalette={() => setIsUnplacedPanelOpen(!isUnplacedPanelOpen)}
         pickedUpRect={pickedUpRect}
         onShowHelp={() => setIsHelpModalOpen(true)}
+        onMerge={handleMerge}
       />
 
       {exportError && (
@@ -884,7 +978,7 @@ const PackingResult = () => {
             Hiệu suất (Tấm này): <span className="font-bold text-primary-600">{plateEfficiency}%</span>
           </div>
         </div>
-        
+
         {platesNeeded > 1 && (
           <div className="mb-3 flex items-center gap-2 md:gap-3 overflow-x-auto pb-2">
             <span className="font-medium text-gray-700 flex-shrink-0 text-xs md:text-sm">Chọn Tấm liệu:</span>
@@ -892,11 +986,10 @@ const PackingResult = () => {
               <button
                 key={plateMeta.originalIndex}
                 onClick={() => setSelectedPlate(index)}
-                className={`px-2 md:px-3 py-1 rounded-full text-xs md:text-sm font-medium transition-all duration-200 flex-shrink-0 border ${
-                  selectedPlate === index 
-                    ? 'bg-primary-600 text-white shadow-md border-primary-600' 
-                    : 'bg-white text-gray-700 hover:bg-primary-50 border-gray-300'
-                }`}
+                className={`px-2 md:px-3 py-1 rounded-full text-xs md:text-sm font-medium transition-all duration-200 flex-shrink-0 border ${selectedPlate === index
+                  ? 'bg-primary-600 text-white shadow-md border-primary-600'
+                  : 'bg-white text-gray-700 hover:bg-primary-50 border-gray-300'
+                  }`}
                 title={plateMeta.description}
               >
                 {plateMeta.type === 'pure' ? `Thuần ${plateMeta.displayIndex}` : `Hỗn Hợp ${plateMeta.displayIndex}`}
@@ -904,12 +997,11 @@ const PackingResult = () => {
             ))}
           </div>
         )}
-        
+
         <div className={`flex ${isEditMode ? 'flex-col lg:flex-row' : 'flex-col'} gap-4`}>
           {isEditMode && isUnplacedPanelOpen && (
             <div className="lg:w-1/4 xl:w-1/5 p-2 border-r border-gray-200">
               <div className="max-h-[400px] lg:max-h-[500px] overflow-y-auto pr-1 space-y-4">
-
                 <div>
                   <h4 className="font-semibold text-yellow-800 mb-1 text-base">
                     ♻️ size đã gỡ ({sessionUnplacedRects.length})
@@ -926,7 +1018,7 @@ const PackingResult = () => {
                           key={rect.id}
                           rectInstance={rect}
                           details={placedRectDetails}
-                          onPickUp={handlePickUpFromSession} 
+                          onPickUp={handlePickUpFromSession}
                           isDisabled={!!pickedUpRect}
                         />
                       ))}
@@ -949,26 +1041,25 @@ const PackingResult = () => {
                         <GroupedInventoryItem
                           key={typeId}
                           item={item}
-                          onPickUp={handlePickUpFromGlobal} 
+                          onPickUp={handlePickUpFromGlobal}
                           isDisabled={!!pickedUpRect}
                         />
                       ))}
                     </div>
                   )}
                 </div>
-              
               </div>
             </div>
           )}
 
           <div ref={mainAreaRef} className={`${isEditMode ? 'flex-1 min-w-0' : 'w-full'}`}>
             <div className="flex justify-center p-2 overflow-x-auto overflow-y-auto">
-              <div 
+              <div
                 ref={containerRef}
                 className="relative border-4 border-gray-900 rounded-lg shadow-inner bg-gray-200 flex-shrink-0 overflow-hidden"
-                style={{ 
+                style={{
                   maxWidth: '100%',
-                  width: `${displayWidth}px`, 
+                  width: `${displayWidth}px`,
                   height: `${displayLength}px`,
                   minWidth: 'min(300px, 90vw)',
                   minHeight: 'min(200px, 40vh)',
@@ -977,14 +1068,14 @@ const PackingResult = () => {
                 onClick={handleContainerClick}
               >
                 <div className="absolute inset-0 opacity-20">
-                  {Array.from({length: Math.floor(gridWidth/100)}).map((_, i) => (
+                  {Array.from({ length: Math.floor(gridWidth / 100) }).map((_, i) => (
                     <div key={`v-${i}`} className="absolute top-0 bottom-0 w-px bg-gray-400" style={{ left: `${(i + 1) * 100 * scale}px` }}></div>
                   ))}
-                  {Array.from({length: Math.floor(gridLength/100)}).map((_, i) => (
+                  {Array.from({ length: Math.floor(gridLength / 100) }).map((_, i) => (
                     <div key={`h-${i}`} className="absolute left-0 right-0 h-px bg-gray-400" style={{ top: `${(i + 1) * 100 * scale}px` }}></div>
                   ))}
                 </div>
-                
+
                 {displayRectangles.map((rect) => {
                   if (!rect || typeof rect.width !== 'number' || typeof rect.length !== 'number') return null;
                   if (isEditMode) {
@@ -1011,11 +1102,11 @@ const PackingResult = () => {
                   const originalRect = placedRectDetails[rect.typeId] || {};
                   const originalDims = (originalRect.width && originalRect.length) ? `${originalRect.width}×${originalRect.length}mm` : 'Kích thước gốc không xác định';
                   const rectName = originalRect.name || `ID ${rect.typeId}`;
-                  
+
                   const maxLayers = Math.max(1, ...displayRectangles.map(r => r.layer + 1));
                   const opacity = 1 - (rect.layer / maxLayers) * 0.4;
                   const zIndex = 10 + (maxLayers - rect.layer);
-                  
+
                   return (
                     <div
                       key={rect.id}
@@ -1038,12 +1129,8 @@ const PackingResult = () => {
                       <div
                         className="text-[0.65em] md:text-xs whitespace-nowrap font-bold"
                         style={{
-                          // Logic THÔNG MINH: 
-                          // 1. (finalLength > finalWidth): Là tấm đứng
-                          // 2. (finalWidth < 60): VÀ bề ngang hiển thị nhỏ hơn 60px (tấm hẹp/nẹp)
-                          // -> Thì mới xoay -90 độ. Còn tấm to vẫn để ngang đọc cho dễ.
-                          transform: (finalLength > finalWidth && finalWidth < 60) 
-                            ? 'rotate(-90deg)' 
+                          transform: (finalLength > finalWidth && finalWidth < 60)
+                            ? 'rotate(-90deg)'
                             : 'none',
                         }}
                       >
@@ -1052,7 +1139,7 @@ const PackingResult = () => {
                     </div>
                   );
                 })}
-                
+
                 {pickedUpRect && (() => {
                   const pickedDisplayWidth = pickedUpRect.width * scale;
                   const pickedDisplayLength = pickedUpRect.length * scale;
@@ -1061,7 +1148,7 @@ const PackingResult = () => {
 
                   let visualLeft = mousePos.x - (pickedFinalWidth / 2);
                   let visualTop = mousePos.y - (pickedFinalHeight / 2);
-                  
+
                   if (ghostRectPosition_data) {
                     visualLeft = (isLandscape ? ghostRectPosition_data.x : ghostRectPosition_data.y) * scale;
                     visualTop = (isLandscape ? ghostRectPosition_data.y : ghostRectPosition_data.x) * scale;
@@ -1073,17 +1160,17 @@ const PackingResult = () => {
                     <>
                       {snapEnabled && (
                         <div className="absolute inset-0 pointer-events-none z-40">
-                          {snapGuides.x.map((x, i) => ( 
+                          {snapGuides.x.map((x, i) => (
                             <div key={`snap-x-${i}`} className="absolute bg-red-500 opacity-70" style={isLandscape ? { left: `${x * scale}px`, top: 0, bottom: 0, width: '1px' } : { top: `${x * scale}px`, left: 0, right: 0, height: '1px' }} />
                           ))}
-                          {snapGuides.y.map((y, i) => ( 
+                          {snapGuides.y.map((y, i) => (
                             <div key={`snap-y-${i}`} className="absolute bg-red-500 opacity-70" style={isLandscape ? { top: `${y * scale}px`, left: 0, right: 0, height: '1px' } : { left: `${y * scale}px`, top: 0, bottom: 0, width: '1px' }} />
                           ))}
                           <div className="absolute top-0 bottom-0 w-0.5 bg-blue-400 opacity-30" style={{ left: `${mousePos.x}px`, display: mousePos.x > 0 ? 'block' : 'none' }} />
                           <div className="absolute left-0 right-0 h-0.5 bg-blue-400 opacity-30" style={{ top: `${mousePos.y}px`, display: mousePos.y > 0 ? 'block' : 'none' }} />
                         </div>
                       )}
-                      
+
                       <div
                         className={`absolute border-4 bg-opacity-70 z-50 flex items-center justify-center text-white font-bold shadow-2xl ${isSnapped ? 'border-red-500' : 'border-dashed border-blue-500 animate-pulse'}`}
                         style={{
@@ -1108,7 +1195,7 @@ const PackingResult = () => {
             </div>
           </div>
         </div>
-        
+
         <div className="mt-3 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
           <div className="text-xs md:text-sm text-gray-700 font-semibold">
             <span className="text-gray-500 font-medium">Tổng cộng {dynamicTotalStats.totalLayers} tấm</span>

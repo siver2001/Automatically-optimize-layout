@@ -33,6 +33,12 @@ const PanelCollapseIcon = () => (
     <path strokeLinecap="round" strokeLinejoin="round" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
   </svg>
 );
+const MergeIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+  </svg>
+);
+
 const PanelExpandIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
@@ -46,10 +52,9 @@ const ActionButton = ({ onClick, disabled, label, isDanger = false, children }) 
     disabled={disabled}
     title={label}
     className={`p-2 rounded-lg transition-all
-      ${
-        isDanger 
-          ? 'text-red-500 hover:bg-red-100 disabled:text-red-200' 
-          : 'text-gray-600 hover:bg-gray-100 disabled:text-gray-300'
+      ${isDanger
+        ? 'text-red-500 hover:bg-red-100 disabled:text-red-200'
+        : 'text-gray-600 hover:bg-gray-100 disabled:text-gray-300'
       }
       disabled:opacity-50 disabled:cursor-not-allowed
     `}
@@ -60,6 +65,7 @@ const ActionButton = ({ onClick, disabled, label, isDanger = false, children }) 
 
 // --- Component chính ---
 const EditModeControls = ({
+  onMerge,
   isEditMode,
   onToggleEditMode,
   selectedRectangles,
@@ -86,31 +92,30 @@ const EditModeControls = ({
   return (
     <div className="mb-3 card p-3 md:p-2 bg-gray-50 border-t-4 border-primary-500 rounded-b-xl shadow-lg">
       <div className="flex flex-row flex-wrap justify-between items-center gap-3">
-        
+
         {/* Nút Bật/Tắt Chế độ Chỉnh sửa */}
         <div className="flex-shrink-0">
           <button
             onClick={onToggleEditMode}
-            className={`px-4 py-2 text-sm font-semibold transition-all duration-300 rounded-lg shadow-md hover:-translate-y-0.5 ${
-              isEditMode 
-                ? 'bg-gradient-to-r from-yellow-500 to-orange-500 text-white' 
-                : 'btn-primary'
-            }`}
+            className={`px-4 py-2 text-sm font-semibold transition-all duration-300 rounded-lg shadow-md hover:-translate-y-0.5 ${isEditMode
+              ? 'bg-gradient-to-r from-yellow-500 to-orange-500 text-white'
+              : 'btn-primary'
+              }`}
           >
             {isEditMode ? '🔒 Thoát Chỉnh sửa' : '✏️ Mở Chế độ Chỉnh sửa'}
           </button>
         </div>
-        
+
         {/* Nút Xuất PDF (CHỈ HIỂN THỊ KHI KHÔNG CHỈNH SỬA) */}
         {!isEditMode && (
           <div className="flex-shrink-0">
-            <button 
+            <button
               onClick={onExportAllPdf} // Dùng prop mới
               disabled={isExporting || totalPlates === 0} // Dùng prop mới
               className="px-4 py-2 bg-green-600 text-white font-semibold rounded-md shadow-sm hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
             >
-              {isExporting 
-                ? 'Đang xử lý...' 
+              {isExporting
+                ? 'Đang xử lý...'
                 : `Xuất PDF `}
             </button>
           </div>
@@ -119,6 +124,16 @@ const EditModeControls = ({
         {/* Bảng điều khiển (chỉ hiển thị khi isEditMode = true) */}
         {isEditMode && (
           <div className="flex-1 w-full flex flex-col lg:flex-row justify-end items-center gap-3">
+            {/* Nút Hợp nhất (Merge) */}
+            <div className="flex items-center justify-center p-1 bg-white rounded-lg shadow-inner border">
+              <ActionButton
+                onClick={onMerge}
+                label="Hợp nhất các size cạnh nhau (Merge)"
+              >
+                <MergeIcon />
+              </ActionButton>
+            </div>
+
             {/*Nút thu/mở */}
             <div className="flex items-center justify-center p-1 bg-white rounded-lg shadow-inner border">
               <ActionButton
@@ -200,7 +215,7 @@ const EditModeControls = ({
         )}
       </div>
     </div>
-    
+
   );
 };
 

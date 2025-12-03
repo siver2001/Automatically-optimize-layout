@@ -1,4 +1,4 @@
-// client/src/components/Rectangle.js - ĐÃ SỬA LỖI
+// client/src/components/Rectangle.js 
 class Rectangle {
   constructor(id, width, length, color = '#000000', name = '') {
     this.id = id;
@@ -12,8 +12,8 @@ class Rectangle {
     this.layer = 0;
 
     // ✅ Thêm các thuộc tính metadata
-    this.typeId = id; // Mặc định
-    this.originalTypeId = id; // Mặc định
+    this.typeId = id; 
+    this.originalTypeId = id; 
     this.pairId = null;
     this.pieceIndex = 0;
     this.splitDirection = 'none';

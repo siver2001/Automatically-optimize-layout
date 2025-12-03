@@ -3,7 +3,7 @@ import React, { memo } from 'react';
 const DraggableRectangle = ({
   rect,
   scale,
-  isLandscape, 
+  isLandscape,
   isSelected,
   onPickUp,
   onContextMenu,
@@ -38,9 +38,8 @@ const DraggableRectangle = ({
 
   return (
     <div
-      className={`rectangle-item absolute border-2 shadow-xl flex items-center justify-center text-white font-bold cursor-grab hover:shadow-2xl transition-all duration-200 ${
-        isSelected ? 'ring-4 ring-blue-400 ring-offset-2 border-blue-500' : 'border-white hover:border-yellow-300'
-      }`}
+      className={`rectangle-item absolute border-2 shadow-xl flex items-center justify-center text-white font-bold cursor-grab hover:shadow-2xl transition-all duration-200 ${isSelected ? 'ring-4 ring-blue-400 ring-offset-2 border-blue-500' : 'border-white hover:border-yellow-300'
+        }`}
       style={{
         left: `${rectX}px`,
         top: `${rectY}px`,
@@ -59,7 +58,12 @@ const DraggableRectangle = ({
       onContextMenu={handleRightClick}
       title={`${dimensionsText}mm ${rect.rotated ? '(Đã xoay)' : ''} - Click để nhấc | Chuột phải để menu`}
     >
-      <div className="text-[0.65em] md:text-xs pointer-events-none">
+      <div
+        className="text-[0.65em] md:text-xs pointer-events-none whitespace-nowrap font-bold"
+        style={{
+          transform: (finalHeight > finalWidth && finalWidth < 60) ? 'rotate(-90deg)' : 'none',
+        }}
+      >
         {dimensionsText}
       </div>
       {isSelected && (
@@ -72,7 +76,7 @@ const DraggableRectangle = ({
 // CÁCH 1: Dùng memo với hàm so sánh tùy chỉnh (Custom Comparator)
 function arePropsEqual(prevProps, nextProps) {
   return (
-    prevProps.rect === nextProps.rect && 
+    prevProps.rect === nextProps.rect &&
     prevProps.scale === nextProps.scale &&
     prevProps.isLandscape === nextProps.isLandscape &&
     prevProps.isSelected === nextProps.isSelected
