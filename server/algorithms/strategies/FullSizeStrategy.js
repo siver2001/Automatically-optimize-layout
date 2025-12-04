@@ -198,6 +198,56 @@ class FullSizeStrategy extends BaseStrategy {
             }
         });
 
+        // [EARLY EXIT 1] Nếu Super Clustering Mode đã làm tốt, dừng ngay
+        // Chạy thử chiến thuật 1 trước
+        const firstStrat = strategies[0];
+        const firstRes = firstStrat.fn();
+
+        if (firstRes) {
+            const usedArea = firstRes.placed.reduce((sum, r) => sum + r.width * r.length, 0);
+            const totalArea = this.container.width * this.container.length;
+            const efficiency = totalArea > 0 ? (usedArea / totalArea) : 0;
+
+            // Nếu hiệu suất > 93% và hết sạch vật tư -> Dừng luôn, khỏi chạy Genetic tốn kém
+            if (firstRes.remaining.length === 0 && efficiency > 0.93) {
+                return {
+                    placed: firstRes.placed,
+                    remaining: firstRes.remaining,
+                    count: firstRes.placed.length,
+                    usedArea,
+                    alignmentScore: this._calculateAlignmentScore(firstRes.placed),
+                    compactness: efficiency, // Xấp xỉ
+                    strategyName: `FullSize_${firstStrat.name}_EarlyExit`
+                };
+            }
+        }
+
+        // Nếu chưa tốt, mới chạy tiếp các chiến thuật nặng đô
+        // Lưu lại kết quả 1 để so sánh sau này
+        let bestResult = null;
+        if (firstRes) {
+            const usedArea = firstRes.placed.reduce((sum, r) => sum + r.width * r.length, 0);
+            const alignmentScore = this._calculateAlignmentScore(firstRes.placed);
+
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            if (firstRes.placed.length > 0) {
+                firstRes.placed.forEach(r => {
+                    minX = Math.min(minX, r.x); minY = Math.min(minY, r.y);
+                    maxX = Math.max(maxX, r.x + r.width); maxY = Math.max(maxY, r.y + r.length);
+                });
+            } else { minX = 0; minY = 0; maxX = 0; maxY = 0; }
+            const boundingArea = (maxX - minX) * (maxY - minY);
+            const compactness = boundingArea > 0 ? (usedArea / boundingArea) : 0;
+
+            bestResult = {
+                placed: firstRes.placed,
+                remaining: firstRes.remaining,
+                count: firstRes.placed.length,
+                usedArea, alignmentScore, compactness,
+                strategyName: firstStrat.name
+            };
+        }
+
         // -----------------------------------------------------------------------
         // CHIẾN THUẬT 2: GENETIC HYBRID CHAOS V3 (Di truyền + Simulated Annealing)
         // -----------------------------------------------------------------------
@@ -220,9 +270,13 @@ class FullSizeStrategy extends BaseStrategy {
 
                 let bestSolution = null;
                 let bestScore = Infinity;
+                const startTimeGA = Date.now();
 
                 // B. VÒNG LẶP TIẾN HÓA
                 for (let gen = 0; gen < GENERATIONS; gen++) {
+                    // [TIME LIMIT] Nếu chạy quá 2 giây cho GA thì dừng
+                    if (Date.now() - startTimeGA > 2000) break;
+
                     const results = population.map(individual => {
                         // [OPTIMIZATION] Dùng BAF (Best Area Fit) thay vì Contact Point cho GA
                         // BAF thường cho hiệu suất diện tích tốt hơn
@@ -314,8 +368,11 @@ class FullSizeStrategy extends BaseStrategy {
 
                 let bestLocalSol = null;
                 let bestLocalScore = Infinity;
+                const startTimeGA = Date.now();
 
                 for (let gen = 0; gen < HYBRID_GEN; gen++) {
+                    if (Date.now() - startTimeGA > 1500) break; // Time limit 1.5s
+
                     const results = population.map(individual => {
                         const res = this._maxRectsBAF(individual, false); // Dùng BAF
 
@@ -381,9 +438,10 @@ class FullSizeStrategy extends BaseStrategy {
         // PHẦN 3: ĐẤU TRƯỜNG - SO SÁNH VÀ CHỌN NGƯỜI CHIẾN THẮNG
         // =======================================================================
 
-        let bestResult = null;
-
-        for (const strat of strategies) {
+        // Lưu ý: strategies[0] đã chạy ở trên rồi, nhưng logic vòng lặp dưới đây sẽ chạy lại nó
+        // Để tối ưu, ta bỏ qua strategies[0] trong vòng lặp này
+        for (let i = 1; i < strategies.length; i++) {
+            const strat = strategies[i];
             const result = strat.fn();
             if (!result) continue;
 
