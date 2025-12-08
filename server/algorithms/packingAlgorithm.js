@@ -1,6 +1,7 @@
 // server/algorithms/packingAlgorithm.js
 import HybridStrategy from './strategies/HybridStrategy.js';
 import FullSizeStrategy from './strategies/FullSizeStrategy.js';
+import { FastGrid } from './utils/FastGrid.js';
 
 class PackingAlgorithm {
   constructor() {
@@ -9,13 +10,13 @@ class PackingAlgorithm {
     this.startTime = null;
   }
 
-  checkTimeout(maxSeconds = 240) {
+  checkTimeout(maxSeconds = 60) {
     if (this.startTime && (Date.now() - this.startTime) / 1000 > maxSeconds) {
       throw new Error(`Thuật toán vượt quá ${maxSeconds} giây`);
     }
   }
 
-  _runGreedyLayeringPass(container, initialRectangles, maxLayers, strategyProcessor) {
+  async _runGreedyLayeringPass(container, initialRectangles, maxLayers, strategyProcessor) {
     let unpackedRectangles = initialRectangles.map(r => ({ ...r }));
     let allPlacedRectangles = [];
     let layersUsed = 0;
@@ -26,7 +27,11 @@ class PackingAlgorithm {
       const accepted = [];
       const stillRemaining = [...remaining];
       const isWithinBounds = (r) => r.x >= 0 && r.y >= 0 && (r.x + r.width) <= container.width && (r.y + r.length) <= container.length;
-      const overlaps = (a, b) => (a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.length && a.y + a.length > b.y);
+
+      // --- SPATIAL GRID OPTIMIZATION (TYPED ARRAY) ---
+      // Estimate capacity: placed items + potential remaining items
+      const capacity = placed.length + remaining.length + 100;
+      const grid = new FastGrid(container.width, container.length, 100, capacity);
 
       for (const rect of placed) {
         if (!isWithinBounds(rect)) {
@@ -34,17 +39,12 @@ class PackingAlgorithm {
           stillRemaining.push(rect);
           continue;
         }
-        let conflict = false;
-        for (const acc of accepted) {
-          if (overlaps(rect, acc)) {
-            conflict = true;
-            break;
-          }
-        }
-        if (conflict) {
+
+        if (grid.collides(rect)) {
           stillRemaining.push(rect);
         } else {
           accepted.push(rect);
+          grid.add(rect);
         }
       }
       return { accepted, stillRemaining };
@@ -56,7 +56,9 @@ class PackingAlgorithm {
       if (unpackedRectangles.length === 0) {
         break;
       }
-      const { placed: placedRaw, remaining: remainingRaw } = strategyProcessor.execute(unpackedRectangles);
+
+      // [ASYNC UPDATE] Await the execution result
+      const { placed: placedRaw, remaining: remainingRaw } = await strategyProcessor.execute(unpackedRectangles);
 
       const sanitizeResult = sanitizeLayer(placedRaw, []);
       let placedInLayer = sanitizeResult.accepted;
@@ -108,7 +110,8 @@ class PackingAlgorithm {
       }
 
       // 1. CHẠY THUẬT TOÁN CHÍNH (Lần 1)
-      let bestResult = this._runGreedyLayeringPass(container, initialRectangles, maxLayers, strategyProcessor);
+      // [ASYNC UPDATE] Await here
+      let bestResult = await this._runGreedyLayeringPass(container, initialRectangles, maxLayers, strategyProcessor);
 
       // =====================================================================
       // [NÂNG CẤP] TỐI ƯU HÓA 2 TẤM CUỐI CÙNG (RE-OPTIMIZE LAST 2 SHEETS)
@@ -138,12 +141,8 @@ class PackingAlgorithm {
           let success = true;
 
           for (let i = startOptimizeLayer; i <= endOptimizeLayer; i++) {
-            // --- THAY ĐỔI Ở ĐÂY ---
-            // Trước đây: Chỉ tấm cuối dùng executeFinalSheet.
-            // Bây giờ: CẢ 2 TẤM đều dùng executeFinalSheet.
-            // Lý do: executeFinalSheet bỏ qua AlignmentScore, chỉ tập trung Dồn Trái (MaxX Min).
-
-            let res = strategyProcessor.executeFinalSheet(currentPool);
+            // executeFinalSheet is now async and parallelized
+            let res = await strategyProcessor.executeFinalSheet(currentPool);
 
             if (res && res.placed.length > 0) {
               res.placed.forEach(r => {

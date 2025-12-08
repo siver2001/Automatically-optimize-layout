@@ -1,72 +1,135 @@
 import BaseStrategy from './BaseStrategy.js';
+import WorkerPool from '../workers/WorkerPool.js';
 
 class HybridStrategy extends BaseStrategy {
     constructor(container) {
         super(container);
     }
 
-    execute(rectanglesToPack) {
+    async execute(rectanglesToPack) {
         const rawRects = rectanglesToPack.map(r => ({ ...r }));
 
-        // 1. CHUẨN BỊ DỮ LIỆU
+        // 1. CHUẨN BỊ DỮ LIỆU (Main Thread)
+        // Việc sort rất nhanh, nên làm ở main thread để tránh gửi dữ liệu qua lại quá nhiều lần cho việc sort
         const stripHorizontalData = this.preAlignRectangles(rawRects, 'horizontal');
         const sortedByHeight = this.sortRectanglesByHeight(stripHorizontalData);
 
         const stripVerticalData = this.preAlignRectangles(rawRects, 'vertical');
-        const sortedByWidth = this.sortRectanglesByHeight(stripVerticalData); // Lưu ý: hàm sort cũ tên là ByHeight nhưng logic là sort cạnh dài
+        const sortedByWidth = this.sortRectanglesByHeight(stripVerticalData);
 
         const areaData = this.sortRectanglesByArea(rawRects);
         const groupedData = this.sortRectanglesByExactDimension(rawRects);
         const widthSortData = this.sortRectanglesByWidth(rawRects);
-
-        //  Sắp xếp ưu tiên Chiều Cao (Length) giảm dần -> Quan trọng cho hình mẫu của bạn
         const heightSortData = rawRects.slice().sort((a, b) => b.length - a.length);
 
-        //  Sắp xếp "Thông minh": Cao trước, nếu bằng nhau thì Rộng trước
         const smartSortData = rawRects.slice().sort((a, b) => {
-            if (Math.abs(b.length - a.length) > 1) return b.length - a.length; // Ưu tiên chiều cao
-            return b.width - a.width; // Sau đó đến chiều rộng
+            if (Math.abs(b.length - a.length) > 1) return b.length - a.length;
+            return b.width - a.width;
         });
 
-        const strategies = [
-            // --- NHÓM CŨ (GIỮ NGUYÊN ĐỂ ĐẢM BẢO HIỆU SUẤT CÁC TẤM GIỮA) ---
-            { name: 'Shelf_Smart_Horizontal', fn: () => this._shelfNextFitSmart(sortedByHeight.map(r => ({ ...r })), false) },
-            { name: 'Grouped_BSSF', fn: () => this._maxRectsBSSF(groupedData.map(r => ({ ...r })), true) },
-            { name: 'Area_BSSF', fn: () => this._maxRectsBSSF(areaData.map(r => ({ ...r })), false) },
-            { name: 'Area_BAF', fn: () => this._maxRectsBAF(areaData.map(r => ({ ...r })), false) },
-
-            // --- NHÓM MỚI: TỐI ƯU TẤM CUỐI (PACK LEFT) ---
-
-            // 1. Dồn trái theo Chiều Rộng (Code cũ - Giữ lại)
-            {
-                name: 'Pack_Left_ByWidth',
-                fn: () => this._maxRectsPackLeft(widthSortData.map(r => ({ ...r })), false)
-            },
-
-            // 2. Dồn trái theo Chiều Cao 
-            {
-                name: 'Pack_Left_ByHeight',
-                fn: () => this._maxRectsPackLeft(heightSortData.map(r => ({ ...r })), false)
-            },
-
-            // 3. Dồn trái Smart (Cao -> Rộng)
-            // Tạo ra các cột chặt chẽ nhất
-            {
-                name: 'Pack_Left_Smart',
-                fn: () => this._maxRectsPackLeft(smartSortData.map(r => ({ ...r })), false)
-            },
-
-            // 4. Dồn trái theo Diện tích (Phòng hờ)
-            {
-                name: 'Pack_Left_ByArea',
-                fn: () => this._maxRectsPackLeft(areaData.map(r => ({ ...r })), false)
-            }
+        // 2. ĐỊNH NGHĨA CÁC TASKS
+        const tasks = [
+            { name: 'Shelf_Smart_Horizontal', method: '_shelfNextFitSmart', params: [sortedByHeight.map(r => ({ ...r })), false] },
+            { name: 'Grouped_BSSF', method: '_maxRectsBSSF', params: [groupedData.map(r => ({ ...r })), true] },
+            { name: 'Area_BSSF', method: '_maxRectsBSSF', params: [areaData.map(r => ({ ...r })), false] },
+            { name: 'Area_BAF', method: '_maxRectsBAF', params: [areaData.map(r => ({ ...r })), false] },
+            { name: 'Pack_Left_ByWidth', method: '_maxRectsPackLeft', params: [widthSortData.map(r => ({ ...r })), false] },
+            { name: 'Pack_Left_ByHeight', method: '_maxRectsPackLeft', params: [heightSortData.map(r => ({ ...r })), false] },
+            { name: 'Pack_Left_Smart', method: '_maxRectsPackLeft', params: [smartSortData.map(r => ({ ...r })), false] },
+            { name: 'Pack_Left_ByArea', method: '_maxRectsPackLeft', params: [areaData.map(r => ({ ...r })), false] }
         ];
+
+        let validResults = [];
+
+        // [ADAPTIVE EXECUTION]
+        // Nếu ít hơn 1500 items -> Chạy đơn luồng (Single Thread) để tránh overhead tạo worker
+        // Nếu nhiều hơn -> Chạy đa luồng (Multi Thread) để tận dụng CPU
+        if (rawRects.length < 1500) {
+            // --- SINGLE THREAD MODE ---
+            for (const task of tasks) {
+                // Gọi trực tiếp method của class cha (BaseStrategy)
+                // Lưu ý: task.method là string tên hàm, ta truy cập qua this[task.method]
+                if (typeof this[task.method] === 'function') {
+                    const { placed, remaining } = this[task.method](...task.params);
+                    validResults.push({
+                        strategyName: task.name,
+                        result: { placed, remaining }
+                    });
+                }
+            }
+        } else {
+            // --- MULTI THREAD MODE WITH RACING ---
+            // Helper to determine if a result is "Good Enough" to exit early
+            const isGoodEnough = (res) => {
+                if (!res || !res.result) return false;
+                const { remaining, placed } = res.result;
+                // Criteria: All items placed AND Efficiency > 96%
+                // Calculate efficiency locally to check
+                if (remaining.length === 0) {
+                    const usedArea = placed.reduce((sum, rect) => sum + (rect.width * rect.length), 0);
+                    const totalContainerArea = this.container.width * this.container.length;
+                    const efficiency = totalContainerArea > 0 ? (usedArea / totalContainerArea) : 0;
+                    return efficiency > 0.96;
+                }
+                return false;
+            };
+
+            const promises = tasks.map(task => {
+                return WorkerPool.executeTask({
+                    strategyName: task.name,
+                    container: this.container,
+                    rectangles: task.params[0],
+                    method: task.method,
+                    params: task.params
+                }).then(res => {
+                    // Attach strategy name if missing
+                    if (res && !res.strategyName) res.strategyName = task.name;
+                    return res;
+                }).catch(err => {
+                    console.error(`Strategy ${task.name} failed:`, err);
+                    return null;
+                });
+            });
+
+            // Custom Race Logic
+            // We want to resolve as soon as ONE promise returns a "Good Enough" result.
+            // If all finish and none are good enough, we resolve with ALL results.
+
+            const raceToSuccess = (promises) => {
+                return new Promise((resolve) => {
+                    let completedCount = 0;
+                    const results = [];
+                    let resolved = false;
+
+                    promises.forEach(p => {
+                        p.then(res => {
+                            if (resolved) return; // Already finished
+
+                            results.push(res);
+                            completedCount++;
+
+                            if (isGoodEnough(res)) {
+                                resolved = true;
+                                resolve([res]); // Return just this winner (as an array to match format)
+                            } else if (completedCount === promises.length) {
+                                resolved = true;
+                                resolve(results); // Return all results to pick best
+                            }
+                        });
+                    });
+                });
+            };
+
+            const resultsRaw = await raceToSuccess(promises);
+            validResults = resultsRaw.filter(r => r && r.result);
+        }
 
         let bestResult = null;
 
-        for (const strategy of strategies) {
-            const { placed, remaining } = strategy.fn();
+        // 4. CHỌN KẾT QUẢ TỐT NHẤT (Main Thread Logic)
+        for (const res of validResults) {
+            const { placed, remaining } = res.result;
+            const strategyName = res.strategyName;
 
             const count = placed.length;
             const usedArea = placed.reduce((sum, rect) => sum + (rect.width * rect.length), 0);
@@ -85,18 +148,16 @@ class HybridStrategy extends BaseStrategy {
             const totalContainerArea = this.container.width * this.container.length;
             const efficiency = totalContainerArea > 0 ? (usedArea / totalContainerArea) : 0;
 
-            // Chỉ số Max X (Càng nhỏ càng tốt -> Dồn trái càng mạnh)
             const rightMostEdge = maxX;
 
             const currentResult = {
                 placed: placed.map(r => ({ ...r, layer: 0 })),
                 remaining: remaining.map(r => ({ ...r })),
                 count, usedArea, alignmentScore, compactness, rightMostEdge,
-                strategyName: strategy.name
+                strategyName: strategyName
             };
 
-            // [EARLY EXIT] Nếu kết quả quá tốt, dừng ngay lập tức
-            // Điều kiện: Hết sạch vật tư VÀ Hiệu suất > 96% (Rất cao)
+            // [EARLY EXIT]
             if (remaining.length === 0 && efficiency > 0.96) {
                 return currentResult;
             }
@@ -106,29 +167,21 @@ class HybridStrategy extends BaseStrategy {
                 continue;
             }
 
-            // --- LOGIC CHỌN NGƯỜI CHIẾN THẮNG ---
-
-            // 1. Số lượng là VUA (Để tránh bị tách ra 2 tấm lẻ)
             if (currentResult.count > bestResult.count) {
                 bestResult = currentResult;
             }
             else if (currentResult.count === bestResult.count) {
-                // 2. Nếu số lượng bằng nhau -> Chọn cái nào dồn về trái (rightMostEdge nhỏ nhất)
-                // Ngưỡng 30mm: Nếu chênh lệch đáng kể thì chọn ngay cái dồn trái tốt hơn
                 if (currentResult.rightMostEdge < bestResult.rightMostEdge - 30) {
                     bestResult = currentResult;
                 }
-                // Nếu phương án mới bị bè ra to hơn -> Bỏ qua
                 else if (currentResult.rightMostEdge > bestResult.rightMostEdge + 30) {
                     continue;
                 }
-                // Nếu độ dồn trái ngang nhau -> Chọn cái nào đẹp hơn (Alignment)
                 else {
                     if (currentResult.alignmentScore > bestResult.alignmentScore) {
                         bestResult = currentResult;
                     }
                     else if (currentResult.alignmentScore === bestResult.alignmentScore) {
-                        // Cuối cùng mới xét đến độ đặc
                         if (currentResult.compactness > bestResult.compactness) {
                             bestResult = currentResult;
                         }
@@ -140,28 +193,26 @@ class HybridStrategy extends BaseStrategy {
         return bestResult;
     }
 
-    executeFinalSheet(rectanglesToPack) {
-        // [OPTIMIZATION] Dynamic Iterations & Time Limit
-        // Giảm số lần thử từ 1000 xuống thấp hơn tùy theo số lượng items
-        // Nếu ít items (< 20) -> Chạy nhiều (500) để tìm tối ưu
-        // Nếu nhiều items -> Chạy ít (100) để tránh lag
-
+    async executeFinalSheet(rectanglesToPack) {
         const itemCount = rectanglesToPack.length;
-        let ITERATIONS = 200;
-        if (itemCount < 20) ITERATIONS = 500;
-        if (itemCount > 100) ITERATIONS = 50; // Quá nhiều items thì giảm mạnh
+        let TOTAL_ITERATIONS = 200;
+        if (itemCount < 20) TOTAL_ITERATIONS = 500;
+        if (itemCount > 100) TOTAL_ITERATIONS = 50;
 
-        const MAX_TIME_MS = 1000; // Tối đa 1 giây cho việc optimize tấm cuối
-        const startTime = Date.now();
+        // Dynamic parallelism based on pool size
+        // We can access the pool size via WorkerPool.poolSize if we export it or just guess.
+        // Better to just spawn a reasonable number of tasks, e.g., 4 or 8.
+        // Let's assume 4 parallel tasks for now to be safe, or we can try to get it from WorkerPool if we import it.
+        const PARALLEL_TASKS = 4;
+        const iterationsPerTask = Math.ceil(TOTAL_ITERATIONS / PARALLEL_TASKS);
 
         const rawRects = rectanglesToPack.map(r => ({ ...r }));
 
-        // Các chiến thuật khởi đầu (Heuristic)
+        // 1. Initial Candidates (Fast Heuristics) - Run on Main Thread (or can be parallelized too, but they are fast)
         const initialCandidates = [
-            rawRects.slice().sort((a, b) => b.length - a.length), // Cao trước (Thác nước)
-            this.sortRectanglesByWidth(rawRects),                 // Rộng trước (Cột)
-            this.sortRectanglesByArea(rawRects),                  // Lớn trước
-            // Smart Sort: Cao trước, nếu bằng thì Rộng
+            rawRects.slice().sort((a, b) => b.length - a.length),
+            this.sortRectanglesByWidth(rawRects),
+            this.sortRectanglesByArea(rawRects),
             rawRects.slice().sort((a, b) => {
                 if (Math.abs(b.length - a.length) > 1) return b.length - a.length;
                 return b.width - a.width;
@@ -170,76 +221,182 @@ class HybridStrategy extends BaseStrategy {
 
         let bestResult = null;
 
-        // Hàm đánh giá: TUYỆT ĐỐI KHÔNG TÍNH ĐIỂM ĐẸP (AlignmentScore)
-        const evaluateAndSave = (placed, remaining, strategyName) => {
-            // Tấm cuối phải xếp hết
-            if (remaining.length > 0 && bestResult && bestResult.remaining.length === 0) return;
+        // Helper to update best result
+        const updateBest = (res) => {
+            if (!res || !res.placed || res.remaining.length > 0) return; // Only consider full packs for now? Or partials?
+            // The original logic allowed partials but preferred full packs.
+            // Let's stick to the original comparison logic.
 
+            // Re-construct the comparison object
             let maxX = 0;
             let maxY = 0;
-            placed.forEach(r => {
+            res.placed.forEach(r => {
                 maxX = Math.max(maxX, r.x + r.width);
                 maxY = Math.max(maxY, r.y + r.length);
             });
-
-            const current = { placed, remaining, count: placed.length, maxX, maxY, strategyName };
+            const current = { ...res, count: res.placed.length, maxX, maxY };
 
             if (!bestResult) {
                 bestResult = current;
                 return;
             }
 
-            // TIÊU CHÍ 1: Số lượng (Phải xếp hết)
+            // Comparison logic from original
             if (current.count > bestResult.count) {
                 bestResult = current;
             }
             else if (current.count === bestResult.count) {
-                // TIÊU CHÍ 2: Dồn trái cực đoan (MaxX nhỏ nhất)
-                // Chỉ cần nhỏ hơn 1 chút xíu cũng chọn
                 if (current.maxX < bestResult.maxX - 0.5) {
                     bestResult = current;
                 }
-                // TIÊU CHÍ 3: Nếu MaxX bằng nhau, chọn dồn đáy (MaxY nhỏ nhất)
                 else if (Math.abs(current.maxX - bestResult.maxX) <= 0.5 && current.maxY < bestResult.maxY) {
                     bestResult = current;
                 }
-                // KHÔNG CÓ TIÊU CHÍ ALIGNMENT SCORE Ở ĐÂY
             }
         };
 
-        // BƯỚC 1: Chạy Heuristic
+        // Run heuristics locally first
         for (let i = 0; i < initialCandidates.length; i++) {
             const sortedRects = initialCandidates[i];
             const res = this._maxRectsPackLeft(sortedRects.map(r => ({ ...r })), false);
-            evaluateAndSave(res.placed, res.remaining, `Final_Heuristic_${i}`);
-
-            // [EARLY EXIT] Nếu Heuristic đã xếp hết và rất gọn (MaxX < 1/2 container) -> Dừng
-            if (bestResult && bestResult.remaining.length === 0 && bestResult.maxX < this.container.width * 0.5) {
-                return bestResult;
-            }
+            updateBest({ placed: res.placed, remaining: res.remaining, strategyName: `Final_Heuristic_${i}` });
         }
 
-        // BƯỚC 2: DEEP SEARCH (SHUFFLE) - QUAN TRỌNG NHẤT
-        for (let i = 0; i < ITERATIONS; i++) {
-            // [TIME LIMIT CHECK]
+        // [EARLY EXIT]
+        if (bestResult && bestResult.remaining.length === 0 && bestResult.maxX < this.container.width * 0.5) {
+            return bestResult;
+        }
+
+        // 2. Deep Search (Parallelized with Racing)
+        const promises = [];
+        for (let i = 0; i < PARALLEL_TASKS; i++) {
+            promises.push(
+                WorkerPool.executeTask({
+                    strategyName: `Final_DeepSearch_Task_${i}`,
+                    container: this.container,
+                    rectangles: rawRects, // Send raw rects
+                    method: 'executeFinalSheet_Worker', // Special method we added to worker
+                    params: [rawRects, iterationsPerTask]
+                }).catch(err => {
+                    console.error("Deep search task failed:", err);
+                    return null;
+                })
+            );
+        }
+
+        // Custom Race Logic for Final Sheet
+        // Exit if we find a result that packs ALL items with very high density (e.g. maxX < 50% of container)
+        // Note: The worker returns { placed, remaining, ... }
+        const isGoodEnoughFinal = (res) => {
+            if (!res || !res.placed) return false;
+            // Check if all items placed
+            if (res.remaining && res.remaining.length > 0) return false;
+
+            // Check compactness
+            let maxX = 0;
+            res.placed.forEach(r => maxX = Math.max(maxX, r.x + r.width));
+
+            // If we packed everything into less than 40% of the container width (arbitrary "good" threshold for last sheet)
+            // Or just if we packed everything, maybe that's good enough to stop?
+            // Let's be aggressive: If we packed EVERYTHING, that's already great.
+            // But we want the BEST packing. 
+            // Let's stick to: Packed everything AND very compact.
+            return maxX < this.container.width * 0.45;
+        };
+
+        const raceToSuccessFinal = (promises) => {
+            return new Promise((resolve) => {
+                let completedCount = 0;
+                const results = [];
+                let resolved = false;
+
+                promises.forEach(p => {
+                    p.then(res => {
+                        if (resolved) return;
+
+                        // Worker returns 'result' inside the wrapper, but here executeTask returns the result directly?
+                        // Wait, WorkerPool.executeTask returns the data sent from worker.
+                        // In strategyWorker, we send { strategyName, result }.
+                        // So 'res' here is { strategyName, result: { placed, remaining... } }
+
+                        // Wait, for 'executeFinalSheet_Worker', the worker returns 'batchResult' directly as 'result'.
+                        // So res is { strategyName, result: batchResult }
+
+                        results.push(res);
+                        completedCount++;
+
+                        if (res && res.result && isGoodEnoughFinal(res.result)) {
+                            resolved = true;
+                            resolve([res]);
+                        } else if (completedCount === promises.length) {
+                            resolved = true;
+                            resolve(results);
+                        }
+                    });
+                });
+            });
+        };
+
+        const results = await raceToSuccessFinal(promises);
+
+        // 3. Aggregate Results
+        results.forEach(taskRes => {
+            if (taskRes && taskRes.result) {
+                updateBest(taskRes.result);
+            }
+        });
+
+        return bestResult;
+    }
+
+    // New helper method for the worker to call
+    _runDeepSearchBatch(rectanglesToPack, iterations) {
+        const rawRects = rectanglesToPack.map(r => ({ ...r }));
+        let bestLocal = null;
+        const MAX_TIME_MS = 5000; // Safety timeout per batch
+        const startTime = Date.now();
+
+        const evaluateAndSave = (placed, remaining, strategyName) => {
+            let maxX = 0;
+            let maxY = 0;
+            placed.forEach(r => {
+                maxX = Math.max(maxX, r.x + r.width);
+                maxY = Math.max(maxY, r.y + r.length);
+            });
+            const current = { placed, remaining, count: placed.length, maxX, maxY, strategyName };
+
+            if (!bestLocal) {
+                bestLocal = current;
+                return;
+            }
+
+            if (current.count > bestLocal.count) {
+                bestLocal = current;
+            }
+            else if (current.count === bestLocal.count) {
+                if (current.maxX < bestLocal.maxX - 0.5) {
+                    bestLocal = current;
+                }
+                else if (Math.abs(current.maxX - bestLocal.maxX) <= 0.5 && current.maxY < bestLocal.maxY) {
+                    bestLocal = current;
+                }
+            }
+        };
+
+        for (let i = 0; i < iterations; i++) {
             if (Date.now() - startTime > MAX_TIME_MS) break;
 
             const shuffled = this.shuffleArray(rawRects.map(r => ({ ...r })));
             const res = this._maxRectsPackLeft(shuffled, false);
 
-            // Chỉ lưu nếu xếp hết 100% (hoặc tốt hơn kết quả hiện tại)
-            if (res.remaining.length === 0 || (bestResult && res.placed.length >= bestResult.count)) {
-                evaluateAndSave(res.placed, res.remaining, `Final_DeepSearch_${i}`);
-            }
-
-            // [EARLY EXIT] Nếu tìm thấy phương án rất tốt trong lúc random
-            if (bestResult && bestResult.remaining.length === 0 && bestResult.maxX < this.container.width * 0.4) {
-                break;
-            }
+            // Only save if it's a "good" result (e.g. packs everything or packs more than before)
+            // To save memory transfer, we might only want to return the VERY best of this batch.
+            evaluateAndSave(res.placed, res.remaining, `DeepSearch_Iter_${i}`);
         }
 
-        return bestResult;
+        return bestLocal; // This will be sent back to main thread
     }
+
     run2DPacking(rectanglesToPack) {
         return this.execute(rectanglesToPack);
     }
