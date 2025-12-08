@@ -6,21 +6,77 @@ class HybridStrategy extends BaseStrategy {
         super(container);
     }
 
+    // --- HEURISTIC ANALYSIS ---
+    _analyzeInput(rectangles) {
+        if (!rectangles || rectangles.length === 0) return { uniqueRatio: 0, avgAspectRatio: 1, totalCount: 0 };
+
+        const totalCount = rectangles.length;
+        const uniqueKeys = new Set(rectangles.map(r => `${r.width}x${r.length}`));
+        const uniqueRatio = uniqueKeys.size / totalCount;
+
+        let totalAR = 0;
+        rectangles.forEach(r => {
+            const dim1 = r.width;
+            const dim2 = r.length;
+            const ar = Math.max(dim1, dim2) / Math.min(dim1, dim2);
+            totalAR += ar;
+        });
+        const avgAspectRatio = totalAR / totalCount;
+
+        return { uniqueRatio, avgAspectRatio, totalCount };
+    }
+
+    _selectStrategies(allTasks, analytics) {
+        // Rule 0: If small dataset, run ALL for safety/quality
+        if (analytics.totalCount < 100) return allTasks;
+
+        const { uniqueRatio, avgAspectRatio } = analytics;
+        let selected = [...allTasks];
+
+        // Rule 1: High Uniformity (Many duplicates) -> Prioritize Grouping & Simple patterns
+        // uniqueRatio < 0.1 means e.g. 1000 items but only <100 sizes.
+        if (uniqueRatio < 0.1) {
+            // Keep: Grouped_BSSF, Shelf_Smart
+            // Drop: Complex "Chaos" strategies like Area_BAF or Smart sorts that might be overkill
+            // We want to KEEP standard vertical sorting
+            const prioritized = ['Grouped_BSSF', 'Shelf_Smart_Horizontal', 'Pack_Left_ByHeight', 'Pack_Left_ByWidth'];
+            selected = allTasks.filter(t => prioritized.includes(t.name));
+            // Add at least one Area fallback just in case
+            if (!selected.find(t => t.name === 'Area_BSSF')) {
+                const fallback = allTasks.find(t => t.name === 'Area_BSSF');
+                if (fallback) selected.push(fallback);
+            }
+        }
+
+        // Rule 2: High Aspect Ratio (Long strips) -> Prioritize orientation-specific packs
+        if (avgAspectRatio > 4.0) {
+            // Very long items. BL (Pack Bottom) or Pack Left (Vertical) is best.
+            // BSSF/BAF might create weird gaps.
+            const prioritized = ['Pack_Left_ByHeight', 'Pack_Left_ByWidth', 'Shelf_Smart_Horizontal'];
+            // If we are in Hybrid (Vertical preference usually), Pack_Left is king.
+            selected = allTasks.filter(t => prioritized.includes(t.name));
+        }
+
+        // Ensure we always have at least 2 strategies to race
+        if (selected.length < 2) return allTasks;
+
+        return selected;
+    }
+
     async execute(rectanglesToPack) {
         const rawRects = rectanglesToPack.map(r => ({ ...r }));
+
+        // 0. HEURISTIC SELECTION
+        const analytics = this._analyzeInput(rawRects);
 
         // 1. CHUẨN BỊ DỮ LIỆU (Main Thread)
         // Việc sort rất nhanh, nên làm ở main thread để tránh gửi dữ liệu qua lại quá nhiều lần cho việc sort
         const stripHorizontalData = this.preAlignRectangles(rawRects, 'horizontal');
         const sortedByHeight = this.sortRectanglesByHeight(stripHorizontalData);
 
-        const stripVerticalData = this.preAlignRectangles(rawRects, 'vertical');
-        const sortedByWidth = this.sortRectanglesByHeight(stripVerticalData);
-
         const areaData = this.sortRectanglesByArea(rawRects);
         const groupedData = this.sortRectanglesByExactDimension(rawRects);
         const widthSortData = this.sortRectanglesByWidth(rawRects);
-        const heightSortData = rawRects.slice().sort((a, b) => b.length - a.length);
 
         const smartSortData = rawRects.slice().sort((a, b) => {
             if (Math.abs(b.length - a.length) > 1) return b.length - a.length;
@@ -28,16 +84,20 @@ class HybridStrategy extends BaseStrategy {
         });
 
         // 2. ĐỊNH NGHĨA CÁC TASKS
-        const tasks = [
+        const allTasks = [
             { name: 'Shelf_Smart_Horizontal', method: '_shelfNextFitSmart', params: [sortedByHeight.map(r => ({ ...r })), false] },
             { name: 'Grouped_BSSF', method: '_maxRectsBSSF', params: [groupedData.map(r => ({ ...r })), true] },
             { name: 'Area_BSSF', method: '_maxRectsBSSF', params: [areaData.map(r => ({ ...r })), false] },
             { name: 'Area_BAF', method: '_maxRectsBAF', params: [areaData.map(r => ({ ...r })), false] },
             { name: 'Pack_Left_ByWidth', method: '_maxRectsPackLeft', params: [widthSortData.map(r => ({ ...r })), false] },
-            { name: 'Pack_Left_ByHeight', method: '_maxRectsPackLeft', params: [heightSortData.map(r => ({ ...r })), false] },
+            { name: 'Pack_Left_ByHeight', method: '_maxRectsPackLeft', params: [(rawRects.slice().sort((a, b) => b.length - a.length)).map(r => ({ ...r })), false] },
             { name: 'Pack_Left_Smart', method: '_maxRectsPackLeft', params: [smartSortData.map(r => ({ ...r })), false] },
             { name: 'Pack_Left_ByArea', method: '_maxRectsPackLeft', params: [areaData.map(r => ({ ...r })), false] }
         ];
+
+        // FILTER TASKS
+        const tasks = this._selectStrategies(allTasks, analytics);
+
 
         let validResults = [];
 
