@@ -1,5 +1,5 @@
 /* eslint-disable no-loop-func */
-import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react';
+import React from 'react';
 import { packingService } from '../services/packingService.js';
 
 // ============================================================
@@ -19,10 +19,10 @@ const runMergePhase = (allPlacedPieces) => {
   const processedPieces = new Set(); // Đánh dấu các mảnh đã được merge
 
   // Sắp xếp các mảnh theo Tấm -> Lớp -> Y -> X
-  halfPieces.sort((a, b) => 
-    a.plateIndex - b.plateIndex || 
-    a.layer - b.layer || 
-    a.y - b.y || 
+  halfPieces.sort((a, b) =>
+    a.plateIndex - b.plateIndex ||
+    a.layer - b.layer ||
+    a.y - b.y ||
     a.x - b.x
   );
 
@@ -37,7 +37,7 @@ const runMergePhase = (allPlacedPieces) => {
     // Lấy kích thước gốc từ p1 (quan trọng)
     const originalW = p1.originalWidth;
     const originalL = p1.originalLength;
-    
+
     // Chỉ tìm các mảnh "hàng xóm" tiềm năng (gần p1)
     for (let j = i + 1; j < halfPieces.length; j++) {
       const p2 = halfPieces[j];
@@ -59,10 +59,10 @@ const runMergePhase = (allPlacedPieces) => {
 
       // --- LOGIC KIỂM TRA KỀ NHAU (GIỮ NGUYÊN) ---
       // 1. p2 nằm BÊN PHẢI p1 (ghép ngang)
-      if (Math.abs(p1.y - p2.y) < tolerance && 
-          Math.abs((p1.x + p1.width) - p2.x) < tolerance &&
-          Math.abs(p1.length - p2.length) < tolerance) { // Phải cùng chiều dài
-        
+      if (Math.abs(p1.y - p2.y) < tolerance &&
+        Math.abs((p1.x + p1.width) - p2.x) < tolerance &&
+        Math.abs(p1.length - p2.length) < tolerance) { // Phải cùng chiều dài
+
         adjacent = true;
         minX = p1.x;
         minY = p1.y;
@@ -70,10 +70,10 @@ const runMergePhase = (allPlacedPieces) => {
         boundingL = p1.length;
       }
       // 2. p1 nằm BÊN PHẢI p2 (ghép ngang)
-      else if (Math.abs(p1.y - p2.y) < tolerance && 
-               Math.abs((p2.x + p2.width) - p1.x) < tolerance &&
-               Math.abs(p1.length - p2.length) < tolerance) { // Phải cùng chiều dài
-        
+      else if (Math.abs(p1.y - p2.y) < tolerance &&
+        Math.abs((p2.x + p2.width) - p1.x) < tolerance &&
+        Math.abs(p1.length - p2.length) < tolerance) { // Phải cùng chiều dài
+
         adjacent = true;
         minX = p2.x;
         minY = p1.y;
@@ -82,8 +82,8 @@ const runMergePhase = (allPlacedPieces) => {
       }
       // 3. p2 nằm BÊN DƯỚI p1 (ghép dọc)
       else if (Math.abs(p1.x - p2.x) < tolerance &&
-               Math.abs((p1.y + p1.length) - p2.y) < tolerance &&
-               Math.abs(p1.width - p2.width) < tolerance) { // Phải cùng chiều rộng
+        Math.abs((p1.y + p1.length) - p2.y) < tolerance &&
+        Math.abs(p1.width - p2.width) < tolerance) { // Phải cùng chiều rộng
 
         adjacent = true;
         minX = p1.x;
@@ -93,8 +93,8 @@ const runMergePhase = (allPlacedPieces) => {
       }
       // 4. p1 nằm BÊN DƯỚI p2 (ghép dọc)
       else if (Math.abs(p1.x - p2.x) < tolerance &&
-               Math.abs((p2.y + p2.length) - p1.y) < tolerance &&
-               Math.abs(p1.width - p2.width) < tolerance) { // Phải cùng chiều rộng
+        Math.abs((p2.y + p2.length) - p1.y) < tolerance &&
+        Math.abs(p1.width - p2.width) < tolerance) { // Phải cùng chiều rộng
 
         adjacent = true;
         minX = p2.x;
@@ -109,11 +109,11 @@ const runMergePhase = (allPlacedPieces) => {
 
       // --- Đã tìm thấy hàng xóm, kiểm tra kích thước merge ---
       let mergedRect = null;
-      
+
       // CASE 1: Bounding khớp kích thước gốc (KHÔNG xoay)
-      if (Math.abs(boundingW - originalW) < tolerance && 
-          Math.abs(boundingL - originalL) < tolerance) {
-        
+      if (Math.abs(boundingW - originalW) < tolerance &&
+        Math.abs(boundingL - originalL) < tolerance) {
+
         mergedRect = {
           width: originalW,
           length: originalL,
@@ -121,9 +121,9 @@ const runMergePhase = (allPlacedPieces) => {
         };
       }
       // CASE 2: Bounding khớp kích thước gốc (ĐÃ xoay 90°)
-      else if (Math.abs(boundingW - originalL) < tolerance && 
-               Math.abs(boundingL - originalW) < tolerance) {
-        
+      else if (Math.abs(boundingW - originalL) < tolerance &&
+        Math.abs(boundingL - originalW) < tolerance) {
+
         mergedRect = {
           width: originalL, // Đảo
           length: originalW, // Đảo
@@ -158,7 +158,7 @@ const runMergePhase = (allPlacedPieces) => {
       mergedRects.push(p1); // Vẫn thêm mảnh mồ côi vào
       processedPieces.add(p1.id);
     }
-  } 
+  }
   return mergedRects;
 };
 
@@ -199,38 +199,38 @@ const runRebuildPhase = (mergedRects, originalPlates, displayIdStart) => {
         description: `Tấm ${rect.plateIndex + 1}`,
         layers: []
       };
-      
-      plateMap.set(rect.plateIndex, { 
+
+      plateMap.set(rect.plateIndex, {
         ...originalMeta, // Giữ lại metadata
-        plateIndex: rect.plateIndex, 
-        layers: new Map() 
+        plateIndex: rect.plateIndex,
+        layers: new Map()
       });
     }
-    
+
     const plateData = plateMap.get(rect.plateIndex);
-    
+
     if (!plateData.layers.has(rect.layer)) {
       plateData.layers.set(rect.layer, {
         layerIndexInPlate: rect.layer,
         rectangles: []
       });
     }
-    
+
     plateData.layers.get(rect.layer).rectangles.push(rect);
   }
 
   for (const [, plateData] of plateMap.entries()) {
-    const newPlate = { 
+    const newPlate = {
       ...plateData,
       layers: Array.from(plateData.layers.values()).sort((a, b) => a.layerIndexInPlate - b.layerIndexInPlate)
     };
     newFinalPlates.push(newPlate);
   }
-  
+
   return newFinalPlates.sort((a, b) => a.plateIndex - b.plateIndex);
 };
 
-const PackingContext = createContext();
+const PackingContext = React.createContext();
 
 const initialState = {
   container: { width: 0, length: 0, layers: 1 },
@@ -258,10 +258,10 @@ const packingReducer = (state, action) => {
 
     case 'SET_RECTANGLES': {
       let counter = 1;
-      
+
       const processedRectangles = action.payload.map(rect => {
         const id = rect.id ?? counter++;
-        
+
         return {
           ...rect,
           id: id,
@@ -293,7 +293,7 @@ const packingReducer = (state, action) => {
     case 'REMOVE_RECTANGLE': {
       const idToRemove = action.payload;
       const { [idToRemove]: _removed, ...newQuantities } = state.quantities;
-      
+
       return {
         ...state,
         rectangles: state.rectangles.filter(r => r.id !== idToRemove),
@@ -397,9 +397,9 @@ const packingReducer = (state, action) => {
 
 export const PackingProvider = ({ children }) => {
 
-  const [state, dispatch] = useReducer(packingReducer, initialState);
-  
-  useEffect(() => {
+  const [state, dispatch] = React.useReducer(packingReducer, initialState);
+
+  React.useEffect(() => {
     const loadDefaultRectangles = async () => {
       try {
         const data = await packingService.getDefaultRectangles();
@@ -412,8 +412,8 @@ export const PackingProvider = ({ children }) => {
   }, []);
 
   const nextIdRef = React.useRef(Math.max(0, ...initialState.rectangles.map(r => r?.id || 0)) + 1);
-  
-  const getNewRectId = useCallback(() => {
+
+  const getNewRectId = React.useCallback(() => {
     const currentMaxId = Math.max(0, ...state.rectangles.map(r => r.id));
     if (currentMaxId >= nextIdRef.current) {
       nextIdRef.current = currentMaxId + 1;
@@ -423,7 +423,7 @@ export const PackingProvider = ({ children }) => {
     return newId;
   }, [state.rectangles]);
 
-  const addRectanglesFromExcel = useCallback((parsedData) => {
+  const addRectanglesFromExcel = React.useCallback((parsedData) => {
     const newRectangles = [];
     const newQuantities = {};
     const newSelected = [];
@@ -433,25 +433,25 @@ export const PackingProvider = ({ children }) => {
         ...item.rect,// { name, length, width, color }
         id: newId,
         typeId: newId // Gán ID và typeId
-        };
-        newRectangles.push(newRect);
-        newQuantities[newId] = item.quantity; // Gán số lượng
-        newSelected.push(newId); // Tự động chọn
-         }
-         dispatch({
-          type: 'ADD_RECTANGLES_BATCH',
-          payload: { newRectangles, newQuantities, newSelected }
-          });
-          }, [getNewRectId]);
-      const setQuantity = useCallback((id, quantity) => {
-        dispatch({ type: 'SET_QUANTITY', payload: { id, quantity } });
-      }, []);
+      };
+      newRectangles.push(newRect);
+      newQuantities[newId] = item.quantity; // Gán số lượng
+      newSelected.push(newId); // Tự động chọn
+    }
+    dispatch({
+      type: 'ADD_RECTANGLES_BATCH',
+      payload: { newRectangles, newQuantities, newSelected }
+    });
+  }, [getNewRectId]);
+  const setQuantity = React.useCallback((id, quantity) => {
+    dispatch({ type: 'SET_QUANTITY', payload: { id, quantity } });
+  }, []);
 
-  const setUnsplitableRectIds = useCallback((ids) => {
+  const setUnsplitableRectIds = React.useCallback((ids) => {
     dispatch({ type: 'SET_UNSPLITABLE_IDS', payload: ids });
   }, []);
 
-  const validateContainer = useCallback(() => {
+  const validateContainer = React.useCallback(() => {
     const { width, length, layers } = state.container;
     const errs = [];
     if (width <= 0) errs.push('Chiều rộng tấm liệu phải lớn hơn 0');
@@ -465,7 +465,7 @@ export const PackingProvider = ({ children }) => {
     return true;
   }, [state.container]);
 
-  const validateRectangles = useCallback(() => {
+  const validateRectangles = React.useCallback(() => {
     const total = state.rectangles
       .filter(r => state.selectedRectangles.includes(r.id))
       .reduce((sum, r) => sum + (state.quantities[r.id] || 0), 0);
@@ -491,14 +491,14 @@ export const PackingProvider = ({ children }) => {
   // ============================================================
   const createPatternSignature = (placed) => {
     const layer0Rects = placed.filter(r => r.layer === 0);
-    
+
     const sorted = [...layer0Rects].sort((a, b) => {
       if (a.typeId !== b.typeId) return a.typeId - b.typeId;
       if (a.x !== b.x) return a.x - b.x;
       return a.y - b.y;
     });
 
-    return sorted.map(r => 
+    return sorted.map(r =>
       `${r.typeId}:${r.x}:${r.y}:${r.width}:${r.length}:${r.rotated ? 1 : 0}`
     ).join('|');
   };
@@ -654,7 +654,7 @@ export const PackingProvider = ({ children }) => {
           // --- LOGIC MỚI BẮT ĐẦU TỪ ĐÂY ---
           // Kiểm tra xem ID này có nằm trong danh sách cấm chia không
           const isRestricted = state.unsplitableRectIds.includes(rectType.id);
-          
+
           const halfWidth = rectType.width / 2;
           // Chỉ chia nếu: Không bị cấm VÀ đủ rộng
           const canSplit = !isRestricted && (halfWidth >= MIN_SPLIT_WIDTH);
@@ -719,7 +719,7 @@ export const PackingProvider = ({ children }) => {
                 splitDirection: 'none',
                 originalWidth: rectType.width,
                 originalLength: rectType.length,
-                transform: { 
+                transform: {
                   originalWidth: rectType.width,
                   originalLength: rectType.length,
                   splitAxis: 'none'
@@ -751,13 +751,13 @@ export const PackingProvider = ({ children }) => {
       while (pool.length > 0 && iterationCount < MAX_ITERATIONS) {
         iterationCount++;
 
-        const currentProgress = initialPoolSize > 0 
-           ? Math.round(((initialPoolSize - pool.length) / initialPoolSize) * 100) 
-           : 0;
-        
+        const currentProgress = initialPoolSize > 0
+          ? Math.round(((initialPoolSize - pool.length) / initialPoolSize) * 100)
+          : 0;
+
         // Cập nhật tiến độ ra ngoài
         dispatch({ type: 'UPDATE_OPTIMIZATION_PROGRESS', payload: currentProgress });
-        
+
         // Yield (nhường) một chút thời gian cho UI render lại (tránh bị đơ màn hình)
         await new Promise(resolve => setTimeout(resolve, 0));
 
@@ -842,13 +842,13 @@ export const PackingProvider = ({ children }) => {
           mixedPlateCounter++;
         }
 
-        
+
         pool = pool.filter(r => !placedIds.has(r.id));
       }
       // Đưa plates vào finalPlates
       for (const [, data] of mixedPatterns.entries()) {
         const { plate, layers } = data;
-        
+
         plate.description = `Tấm Hỗn Hợp #${plate.plateIndex + 1} (${layers.length} lớp)`;
         plate.layers = layers;
         finalPlates.push(plate);
@@ -863,23 +863,23 @@ export const PackingProvider = ({ children }) => {
           }
         });
       }
-      
+
       // ========== GIAI ĐOẠN 3: MERGE - Hợp nhất các mảnh đôi với bounding box ==========
       const allPlacedPieces = finalPlates.flatMap(p => p.layers.flatMap(l => l.rectangles));
-      
+
       let mergedRects;
       // Nếu là FULL_SIZE thì KHÔNG CẦN MERGE (vì đâu có chia)
       if (state.packingStrategy === 'FULL_SIZE') {
-          mergedRects = allPlacedPieces;
+        mergedRects = allPlacedPieces;
       } else {
-          // Nếu là tối ưu diện tích thì chạy Merge như cũ
-          mergedRects = runMergePhase(allPlacedPieces);
+        // Nếu là tối ưu diện tích thì chạy Merge như cũ
+        mergedRects = runMergePhase(allPlacedPieces);
       }
 
       // ========== GIAI ĐOẠN 4: REBUILD - Xây dựng lại plates ==========
       finalPlates = runRebuildPhase(mergedRects, finalPlates, 1);
 
-      
+
       // ============================================================
       // ✅ GIAI ĐOẠN 5: CONSOLIDATION - Gộp dùng Smart FFD (NÂNG CẤP CHO SHELF)
       // ============================================================
@@ -894,16 +894,16 @@ export const PackingProvider = ({ children }) => {
 
         const checkOverlap = (rect, existingRects, tolerance = 0.1) => {
           for (const existing of existingRects) {
-            const overlapX = !(rect.x + rect.width <= existing.x + tolerance || 
-                              rect.x >= existing.x + existing.width - tolerance);
-            const overlapY = !(rect.y + rect.length <= existing.y + tolerance || 
-                              rect.y >= existing.y + existing.length - tolerance);
-            
+            const overlapX = !(rect.x + rect.width <= existing.x + tolerance ||
+              rect.x >= existing.x + existing.width - tolerance);
+            const overlapY = !(rect.y + rect.length <= existing.y + tolerance ||
+              rect.y >= existing.y + existing.length - tolerance);
+
             if (overlapX && overlapY) return true;
           }
           return false;
         };
-        
+
         // ✅ HELPER MỚI: Find Best Position ưu tiên GRID/SHELF
         const findBestPositionSmart = (rect, existingRects, containerWidth, containerLength) => {
           let bestPos = null;
@@ -916,7 +916,7 @@ export const PackingProvider = ({ children }) => {
           ];
 
           // Các điểm neo: Góc (0,0) và các góc của hình đã xếp
-          const candidates = [{x:0, y:0}];
+          const candidates = [{ x: 0, y: 0 }];
           existingRects.forEach(e => {
             candidates.push({ x: e.x + e.width, y: e.y }); // Bên phải (Tạo hàng)
             candidates.push({ x: e.x, y: e.y + e.length }); // Bên dưới (Tạo hàng mới)
@@ -930,7 +930,7 @@ export const PackingProvider = ({ children }) => {
             for (const p of candidates) {
               // 1. Check biên
               if (p.x + w > containerWidth || p.y + l > containerLength) continue;
-              
+
               // 2. Check chồng lấn
               const testRect = { x: p.x, y: p.y, width: w, length: l };
               if (checkOverlap(testRect, existingRects)) continue;
@@ -944,19 +944,19 @@ export const PackingProvider = ({ children }) => {
               for (const e of existingRects) {
                 // Khớp chiều cao với hình bên trái (Tạo hàng ngang đẹp)
                 if (Math.abs(e.x + e.width - p.x) < 0.1 && Math.abs(e.length - l) < 0.1 && Math.abs(e.y - p.y) < 0.1) {
-                    score -= 500000; // Thưởng siêu lớn
-                    aligns = true;
+                  score -= 500000; // Thưởng siêu lớn
+                  aligns = true;
                 }
                 // Khớp chiều rộng với hình bên dưới (Tạo cột đẹp)
                 if (Math.abs(e.y + e.length - p.y) < 0.1 && Math.abs(e.width - w) < 0.1 && Math.abs(e.x - p.x) < 0.1) {
-                    score -= 500000;
-                    aligns = true;
+                  score -= 500000;
+                  aligns = true;
                 }
               }
-              
+
               // Tiêu chí 3: Phạt xoay (nếu không align)
               if (!aligns && r !== (rect.rotated || false)) {
-                  score += 1000; 
+                score += 1000;
               }
 
               if (score < bestScore) {
@@ -969,28 +969,28 @@ export const PackingProvider = ({ children }) => {
         };
 
         // 2. THU THẬP ITEMS
-        let allItems = singleLayerPlates.flatMap(p => 
-          p.layers[0].rectangles.map(r => ({ ...r })) 
+        let allItems = singleLayerPlates.flatMap(p =>
+          p.layers[0].rectangles.map(r => ({ ...r }))
         );
 
         // ✅ CẬP NHẬT SẮP XẾP: Ưu tiên Chiều Cao (Height) để tạo Shelf
         allItems.sort((a, b) => {
-           const hA = Math.min(a.width, a.length); 
-           const hB = Math.min(b.width, b.length);
-           if (Math.abs(hB - hA) > 1) return hB - hA; // Ưu tiên hình cao trước
-           
-           const wA = Math.max(a.width, a.length);
-           const wB = Math.max(b.width, b.length);
-           return wB - wA; // Nếu cùng cao, ưu tiên hình rộng
+          const hA = Math.min(a.width, a.length);
+          const hB = Math.min(b.width, b.length);
+          if (Math.abs(hB - hA) > 1) return hB - hA; // Ưu tiên hình cao trước
+
+          const wA = Math.max(a.width, a.length);
+          const wB = Math.max(b.width, b.length);
+          return wB - wA; // Nếu cùng cao, ưu tiên hình rộng
         });
-        
+
         console.log(`[DEBUG CONSOLIDATION] Tổng cộng ${allItems.length} items, sắp xếp ưu tiên Shelf (Height)`);
 
         // Lấy các tấm nhiều lớp (không gộp) ra
         const multiLayerPlates = finalPlates.filter(p => !platesToRemove.has(p.plateIndex));
-        
+
         // 4. ĐÓNG GÓI (Smart First Fit)
-        const newConsolidatedPlates = []; 
+        const newConsolidatedPlates = [];
         let newPlateCounter = multiLayerPlates.length;
 
         for (const item of allItems) {
@@ -999,7 +999,7 @@ export const PackingProvider = ({ children }) => {
           // Thử xếp vào các "thùng" (tấm) đã có
           for (const bin of newConsolidatedPlates) {
             const targetRects = bin.layers[0].rectangles;
-            
+
             // Sử dụng hàm Smart mới
             const bestPos = findBestPositionSmart(
               item,
@@ -1014,9 +1014,9 @@ export const PackingProvider = ({ children }) => {
                 x: bestPos.x, y: bestPos.y, width: bestPos.width, length: bestPos.length, rotated: bestPos.rotated,
                 layer: 0, plateIndex: bin.plateIndex
               };
-              targetRects.push(mergedRect); 
+              targetRects.push(mergedRect);
               placed = true;
-              break; 
+              break;
             }
           }
 
@@ -1030,11 +1030,11 @@ export const PackingProvider = ({ children }) => {
               x: bestPos.x, y: bestPos.y, width: bestPos.width, length: bestPos.length, rotated: bestPos.rotated,
               layer: 0, plateIndex: newPlateIndex
             };
-            
+
             const newBin = {
               plateIndex: newPlateIndex,
               type: 'mixed',
-              description: `Tấm Gộp #${newPlateIndex + 1}`, 
+              description: `Tấm Gộp #${newPlateIndex + 1}`,
               layers: [{
                 layerIndexInPlate: 0,
                 rectangles: [newRect]
@@ -1049,24 +1049,24 @@ export const PackingProvider = ({ children }) => {
 
         // Cập nhật lại description và đánh số lại
         finalPlates.forEach((plate, idx) => {
-          plate.plateIndex = idx; 
+          plate.plateIndex = idx;
           plate.layers.forEach(layer => {
             layer.rectangles.forEach(rect => {
-              rect.plateIndex = idx; 
+              rect.plateIndex = idx;
             });
           });
           if (newConsolidatedPlates.find(p => p.plateIndex === idx)) {
-              plate.description = `Tấm Gộp #${idx + 1} `;
+            plate.description = `Tấm Gộp #${idx + 1} `;
           }
         });
-        
+
         dispatch({
-            type: 'SET_WARNING',
-            payload: {
-              type: 'optimization',
-              message: `✅ Đã gộp ${singleLayerPlates.length} tấm 1-lớp thành ${newConsolidatedPlates.length} tấm mới (Tiết kiệm ${singleLayerPlates.length - newConsolidatedPlates.length} tấm).`
-            }
-          });
+          type: 'SET_WARNING',
+          payload: {
+            type: 'optimization',
+            message: `✅ Đã gộp ${singleLayerPlates.length} tấm 1-lớp thành ${newConsolidatedPlates.length} tấm mới (Tiết kiệm ${singleLayerPlates.length - newConsolidatedPlates.length} tấm).`
+          }
+        });
 
       } else {
         console.log(`[DEBUG CONSOLIDATION] Chỉ có ${singleLayerPlates.length} tấm 1-lớp, không cần gộp.`);
@@ -1078,27 +1078,27 @@ export const PackingProvider = ({ children }) => {
       console.log("[DEBUG] Chạy RE-MERGE sau khi gộp...");
       // Lấy TẤT CẢ các piece từ các tấm MỚI (bao gồm cả tấm gộp)
       const piecesToReMerge = finalPlates.flatMap(p => p.layers.flatMap(l => l.rectangles));
-      
+
       // Chạy lại Giai đoạn 3 (Merge)
       // Biến 'mergedRects' (đang ở scope 'startOptimization') sẽ được cập nhật
-      mergedRects = runMergePhase(piecesToReMerge); 
-      
+      mergedRects = runMergePhase(piecesToReMerge);
+
       // ============================================================
       // ✅ GIAI ĐOẠN 5.6: RE-REBUILD (Chạy lại REBUILD)
       // ============================================================
       // Chạy lại Giai đoạn 4 (Rebuild), 
       // dùng 'finalPlates' làm metadata, bắt đầu ID lại từ 1 (an toàn)
       finalPlates = runRebuildPhase(mergedRects, finalPlates, 1);
-      
+
       console.log(`[DEBUG] RE-MERGE hoàn tất. Số tấm cuối cùng: ${finalPlates.length}`);
 
       // ========== GIAI ĐOẠN 6 : SUMMARY - Tổng kết ==========
       const totalRequested = selectedTypes.reduce((s, t) => s + (state.quantities[t.id] || 0), 0);
-      
+
       // Đếm số lượng rectangles GỐC đã được place
       let placedOriginalsCount = 0;
       const processedPairs = new Set();
-      
+
       for (const rect of mergedRects) {
         if (rect.pairId != null) {
           if (!processedPairs.has(rect.pairId)) {
@@ -1114,7 +1114,7 @@ export const PackingProvider = ({ children }) => {
           placedOriginalsCount += 1;
         }
       }
-      
+
       const placedCount = Math.round(placedOriginalsCount);
 
 
@@ -1126,7 +1126,7 @@ export const PackingProvider = ({ children }) => {
 
 
       // Breakdown theo loại
-      
+
       const placedByType = {};
       for (const rect of mergedRects) { // ✅ Tự động dùng 'mergedRects' mới nhất
         const typeId = rect.originalTypeId || rect.typeId;
@@ -1138,13 +1138,13 @@ export const PackingProvider = ({ children }) => {
       }
 
       // Cảnh báo nếu còn pieces trong pool
-      if (pool.length > 0 || placedCount < totalRequested) {    
+      if (pool.length > 0 || placedCount < totalRequested) {
         const poolByType = {};
         for (const item of pool) {
           const typeId = item.originalTypeId || item.typeId;
           poolByType[typeId] = (poolByType[typeId] || 0) + 0.5;
         }
-        
+
         const poolDetails = Object.entries(poolByType)
           .filter(([_, cnt]) => cnt > 0)
           .map(([id, cnt]) => {
@@ -1152,13 +1152,13 @@ export const PackingProvider = ({ children }) => {
             const rectCount = Math.round(cnt * 10) / 10;
             return `${t ? t.name : `#${id}`}: ${rectCount}`;
           }).join(', ');
-            
+
         if (poolDetails) {
           dispatch({
             type: 'SET_WARNING',
             payload: {
               type: 'optimization',
-              message: `Chỉ sắp được ${placedCount}/${totalRequested} hình (${((placedCount/totalRequested)*100).toFixed(1)}%). Còn lại: ${poolDetails}`
+              message: `Chỉ sắp được ${placedCount}/${totalRequested} hình (${((placedCount / totalRequested) * 100).toFixed(1)}%). Còn lại: ${poolDetails}`
             }
           });
         }
@@ -1170,12 +1170,12 @@ export const PackingProvider = ({ children }) => {
         layersPerPlate: layersPerPlate,
         totalRectanglesCount: totalRequested,
         placedRectanglesCount: placedCount,
-        rectangles: mergedRects, 
-        plates: finalPlates, 
+        rectangles: mergedRects,
+        plates: finalPlates,
         efficiency,
         pureCount: 0,
         hybridCount: 0,
-        mixedCount: finalPlates.length 
+        mixedCount: finalPlates.length
       };
 
 
@@ -1193,35 +1193,35 @@ export const PackingProvider = ({ children }) => {
     }
   };
 
-  const clearErrors = useCallback(() => dispatch({ type: 'CLEAR_ERRORS' }), []);
-  const toggleModbus = useCallback(() => dispatch({ type: 'TOGGLE_MODBUS' }), []);
+  const clearErrors = React.useCallback(() => dispatch({ type: 'CLEAR_ERRORS' }), []);
+  const toggleModbus = React.useCallback(() => dispatch({ type: 'TOGGLE_MODBUS' }), []);
 
-  const addRectangle = useCallback((rectangle) => {
+  const addRectangle = React.useCallback((rectangle) => {
     const newId = getNewRectId();
     const defaultColor = '#3498db';
-    
+
     dispatch({
       type: 'ADD_RECTANGLE',
-      payload: { 
-        ...rectangle, 
-        id: newId, 
-        color: rectangle.color || defaultColor, 
-        typeId: newId 
+      payload: {
+        ...rectangle,
+        id: newId,
+        color: rectangle.color || defaultColor,
+        typeId: newId
       }
     });
   }, [getNewRectId]);
 
-  const updateRectangle = useCallback((_id, _updates) => {}, []);
-  
-  const removeRectangle = useCallback((id) => {
+  const updateRectangle = React.useCallback((_id, _updates) => { }, []);
+
+  const removeRectangle = React.useCallback((id) => {
     dispatch({ type: 'REMOVE_RECTANGLE', payload: id });
   }, []);
-  
-  const selectRectangle = useCallback((id) => dispatch({ type: 'SELECT_RECTANGLE', payload: id }), []);
-  const selectAllRectangles = useCallback(() => dispatch({ type: 'SELECT_ALL_RECTANGLES' }), []);
-  const clearSelection = useCallback(() => dispatch({ type: 'CLEAR_SELECTION' }), []);
-  const setContainer = useCallback((data) => dispatch({ type: 'SET_CONTAINER', payload: data }), []);
-  const setPackingStrategy = useCallback((strategy) => {
+
+  const selectRectangle = React.useCallback((id) => dispatch({ type: 'SELECT_RECTANGLE', payload: id }), []);
+  const selectAllRectangles = React.useCallback(() => dispatch({ type: 'SELECT_ALL_RECTANGLES' }), []);
+  const clearSelection = React.useCallback(() => dispatch({ type: 'CLEAR_SELECTION' }), []);
+  const setContainer = React.useCallback((data) => dispatch({ type: 'SET_CONTAINER', payload: data }), []);
+  const setPackingStrategy = React.useCallback((strategy) => {
     dispatch({ type: 'SET_PACKING_STRATEGY', payload: strategy });
   }, []);
   const value = {
@@ -1248,7 +1248,7 @@ export const PackingProvider = ({ children }) => {
 };
 
 export const usePacking = () => {
-  const ctx = useContext(PackingContext);
+  const ctx = React.useContext(PackingContext);
   if (!ctx) throw new Error('usePacking must be used within a PackingProvider');
   return ctx;
 };

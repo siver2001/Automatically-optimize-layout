@@ -1,10 +1,23 @@
-import React, { useCallback, useState, useRef } from 'react';
+import React from 'react';
 import { usePacking } from '../context/PackingContext.js';
 import ExcelJS from 'exceljs';
 import SplitRestrictionModal from './SplitRestrictionModal';
 import OptimizationLoadingModal from './OptimizationLoadingModal';
 
-// --- Các hàm tiện ích (Phiên bản ExcelJS) ---
+// --- Icons ---
+const CheckIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+  </svg>
+);
+
+const ChevronRightIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+  </svg>
+);
+
+// --- Helpers ---
 const generateRandomColor = () => {
   const randomHue = Math.floor(Math.random() * 360);
   return `hsl(${randomHue}, 70%, 60%)`;
@@ -20,8 +33,10 @@ const findHeaderLocation = (worksheet) => {
       const cell2 = (row.getCell(c + 1).value || '').toString().toLowerCase().trim();
       const cell3 = (row.getCell(c + 2).value || '').toString().toLowerCase().trim();
       const cell4 = (row.getCell(c + 3).value || '').toString().toLowerCase().trim();
-      if (cell1.includes(headerKeywords[0]) && cell2.includes(headerKeywords[1]) &&
-        cell3.includes(headerKeywords[2]) && cell4.includes(headerKeywords[3])) {
+      if (cell1.includes(headerKeywords[0]) &&
+        cell2.includes(headerKeywords[1]) &&
+        cell3.includes(headerKeywords[2]) &&
+        cell4.includes(headerKeywords[3])) {
         return { headerRowIndex: r, dataColStart: c };
       }
     }
@@ -36,21 +51,7 @@ const parseCell = (cellValue) => {
   }
   return cellValue;
 };
-// --- Kết thúc hàm tiện ích ---
 
-// 👇 Component Icon Check Xanh
-const CheckIcon = () => (
-  <svg className="w-4 h-4 text-green-500 ml-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
-    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-  </svg>
-);
-
-// 👇 Component Mũi tên phải (cho sub-menu)
-const ChevronRightIcon = () => (
-  <svg className="w-4 h-4 text-gray-400 ml-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-  </svg>
-);
 
 const RectangleList = () => {
   const {
@@ -73,12 +74,45 @@ const RectangleList = () => {
   } = usePacking();
 
   // --- State mới cho trình tải lên Excel ---
-  const [isParsing, setIsParsing] = useState(false);
-  const [parseMessage, setParseMessage] = useState('');
-  const fileInputRef = useRef(null);
-  const [isSplitModalOpen, setIsSplitModalOpen] = useState(false);
+  const [isParsing, setIsParsing] = React.useState(false);
+  const [parseMessage, setParseMessage] = React.useState('');
+  const fileInputRef = React.useRef(null);
+  const [isSplitModalOpen, setIsSplitModalOpen] = React.useState(false);
 
-  const handleQuantityChange = useCallback((rectId, value) => {
+  // --- Virtual Scrolling State ---
+  const scrollContainerRef = React.useRef(null);
+  const [scrollLeft, setScrollLeft] = React.useState(0);
+  const [containerWidth, setContainerWidth] = React.useState(1000);
+
+  React.useEffect(() => {
+    const handleResize = () => {
+      if (scrollContainerRef.current) {
+        setContainerWidth(scrollContainerRef.current.clientWidth);
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    handleResize(); // Init
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const handleScroll = (e) => {
+    setScrollLeft(e.target.scrollLeft);
+  };
+
+  const ITEM_WIDTH = 180;
+  const BUFFER = 5;
+  const totalItems = rectangles.length + 1; // +1 for Add Button
+  const totalWidth = totalItems * ITEM_WIDTH;
+
+  const startIndex = Math.max(0, Math.floor(scrollLeft / ITEM_WIDTH) - BUFFER);
+  const endIndex = Math.min(totalItems, Math.ceil((scrollLeft + containerWidth) / ITEM_WIDTH) + BUFFER);
+
+  const visibleIndices = [];
+  for (let i = startIndex; i < endIndex; i++) {
+    visibleIndices.push(i);
+  }
+
+  const handleQuantityChange = React.useCallback((rectId, value) => {
     const quantity = Math.max(0, parseInt(value) || 0);
     setQuantity(rectId, quantity);
   }, [setQuantity]);
@@ -202,13 +236,127 @@ const RectangleList = () => {
 
   const isCustomRect = (id) => id > 8;
 
-  // 👇 Helper xác định text hiển thị cho nút chính
   const getCurrentStrategyLabel = () => {
     if (packingStrategy === 'FULL_SIZE') return 'Size Nguyên';
     if (packingStrategy === 'AREA_OPTIMIZED_HORIZONTAL') return 'Tối ưu: Ngang';
     if (unsplitableRectIds.length > 0) return 'Tối ưu: Tuỳ chỉnh';
     return 'Tối ưu: Dọc';
   }
+
+  const renderItem = (index) => {
+    if (index === 0) {
+      return (
+        <div
+          key="add-btn"
+          className={`
+              bg-gray-100 rounded-lg p-3 flex-shrink-0 w-40 relative transition-all duration-300 
+              border-2 border-dashed border-gray-400 flex flex-col items-center justify-center
+              ${isOptimizing || isParsing
+              ? 'opacity-50 cursor-not-allowed'
+              : 'cursor-pointer hover:bg-gray-200 hover:shadow-lg'
+            }
+            `}
+          onClick={() => {
+            if (!isOptimizing && !isParsing) {
+              setParseMessage('');
+              fileInputRef.current.click();
+            }
+          }}
+          style={{
+            position: 'absolute',
+            left: index * ITEM_WIDTH,
+            top: 0,
+            height: '100%',
+            width: '160px',
+            marginRight: '10px'
+          }}
+        >
+          {isParsing ? (
+            <>
+              <div className="text-4xl text-gray-600 animate-spin">🔄</div>
+              <div className="text-sm font-semibold text-gray-600 mt-1 text-center">Đang đọc file...</div>
+            </>
+          ) : (
+            <>
+              <div className="text-4xl text-gray-600">+</div>
+              <div className="text-sm font-semibold text-gray-600 mt-1 text-center">Tải lên Excel</div>
+            </>
+          )}
+        </div>
+      );
+    }
+
+    const rect = rectangles[index - 1];
+    if (!rect) return null;
+
+    return (
+      <div
+        key={rect.id}
+        className={`bg-white rounded-lg p-3 w-40 cursor-pointer relative transition-all duration-300 hover:shadow-lg border-2 flex flex-col justify-between box-border ${selectedRectangles.includes(rect.id)
+          ? 'border-primary-500 shadow-md scale-105 z-10'
+          : 'border-gray-200 hover:border-primary-300'
+          } ${isOptimizing || isParsing ? 'opacity-70 pointer-events-none' : ''}`}
+        onClick={() => selectRectangle(rect.id)}
+        style={{
+          position: 'absolute',
+          left: index * ITEM_WIDTH,
+          top: 0,
+          height: '100%',
+          width: '170px' // Slightly less than 180 for gap
+        }}
+      >
+        {isCustomRect(rect.id) && (
+          <button
+            onClick={(e) => handleRemoveRectangle(e, rect.id)}
+            className="absolute top-1 right-1 text-red-500 hover:text-red-700 bg-white rounded-full p-1 leading-none shadow-md transition-colors z-20"
+            title="Xóa size tùy chỉnh này"
+            disabled={isOptimizing || isParsing}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+            </svg>
+          </button>
+        )}
+        <div className="flex justify-center mb-3">
+          <div
+            className="rounded shadow-md flex items-center justify-center text-white font-bold text-xs drop-shadow-lg"
+            style={getRectangleStyle(rect)}
+          >
+            <div className="text-center">
+              <div className="text-xs leading-tight">
+                {rect.width}×{rect.length}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="text-center">
+          <div className="h-10 flex flex-col justify-center">
+            <div className="font-semibold text-gray-800 mb-1 text-sm truncate" title={rect.name}>
+              {rect.name}
+            </div>
+            <div className="text-xs text-gray-600">
+              {rect.width}×{rect.length}mm
+            </div>
+          </div>
+
+          <div className="flex items-center justify-center gap-2 mt-3">
+            <span className="text-xs text-gray-500">SL:</span>
+            <input
+              type="number"
+              min="0"
+              max="999"
+              value={quantities[rect.id] || 0}
+              onChange={(e) => handleQuantityChange(rect.id, e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              className="w-14 px-1 py-1 text-xs border border-gray-300 rounded text-center focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-200"
+              disabled={isOptimizing || isParsing}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="mb-2 card p-2">
@@ -273,7 +421,6 @@ const RectangleList = () => {
             {/* Menu chính */}
             <div className="absolute left-0 top-full mb-1 w-max min-w-full bg-white border border-gray-200 rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 transform origin-bottom z-50">
               <div className="py-1">
-
                 {/* Option 1: Tối ưu diện tích (ĐƯA LÊN ĐẦU) */}
                 <div className="relative group/nested px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 cursor-pointer flex items-center justify-between">
                   <div className="flex items-center w-full" onClick={() => setPackingStrategy('AREA_OPTIMIZED')}>
@@ -369,98 +516,17 @@ const RectangleList = () => {
       />
 
       <div className="rounded-xl p-4 border border-gray-200">
-        <div className="flex space-x-[1vw] pb-[1vw] overflow-x-auto custom-scrollbar">
+        <div
+          ref={scrollContainerRef}
+          className="overflow-x-auto custom-scrollbar"
+          style={{ height: '14.5rem', width: '100%', overflowY: 'hidden', position: 'relative' }}
+          onScroll={handleScroll}
+        >
+          {/* Scroll Spacer to check total width */}
+          <div style={{ width: `${totalWidth}px`, height: '1px' }}></div>
 
-          <div
-            className={`
-              bg-gray-100 rounded-lg p-3 flex-shrink-0 w-40 relative transition-all duration-300 
-              border-2 border-dashed border-gray-400 flex flex-col items-center justify-center
-              ${isOptimizing || isParsing
-                ? 'opacity-50 cursor-not-allowed'
-                : 'cursor-pointer hover:bg-gray-200 hover:shadow-lg'
-              }
-            `}
-            onClick={() => {
-              if (!isOptimizing && !isParsing) {
-                setParseMessage('');
-                fileInputRef.current.click();
-              }
-            }}
-            style={{ minHeight: '140px' }}
-          >
-            {isParsing ? (
-              <>
-                <div className="text-4xl text-gray-600 animate-spin">🔄</div>
-                <div className="text-sm font-semibold text-gray-600 mt-1 text-center">Đang đọc file...</div>
-              </>
-            ) : (
-              <>
-                <div className="text-4xl text-gray-600">+</div>
-                <div className="text-sm font-semibold text-gray-600 mt-1 text-center">Tải lên Excel</div>
-              </>
-            )}
-          </div>
-
-          {rectangles.map(rect => (
-            <div
-              key={rect.id}
-              className={`bg-white rounded-lg p-3 flex-shrink-0 w-40 cursor-pointer relative transition-all duration-300 hover:shadow-lg border-2 h-[12rem] flex flex-col justify-between ${selectedRectangles.includes(rect.id)
-                ? 'border-primary-500 shadow-md scale-105'
-                : 'border-gray-200 hover:border-primary-300'
-                } ${isOptimizing || isParsing ? 'opacity-70 pointer-events-none' : ''}`}
-              onClick={() => selectRectangle(rect.id)}
-            >
-              {isCustomRect(rect.id) && (
-                <button
-                  onClick={(e) => handleRemoveRectangle(e, rect.id)}
-                  className="absolute top-1 right-1 text-red-500 hover:text-red-700 bg-white rounded-full p-1 leading-none shadow-md transition-colors z-10"
-                  title="Xóa size tùy chỉnh này"
-                  disabled={isOptimizing || isParsing}
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                  </svg>
-                </button>
-              )}
-              <div className="flex justify-center mb-3">
-                <div
-                  className="rounded shadow-md flex items-center justify-center text-white font-bold text-xs drop-shadow-lg"
-                  style={getRectangleStyle(rect)}
-                >
-                  <div className="text-center">
-                    <div className="text-xs leading-tight">
-                      {rect.width}×{rect.length}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="text-center">
-                <div className="h-10 flex flex-col justify-center">
-                  <div className="font-semibold text-gray-800 mb-1 text-sm truncate" title={rect.name}>
-                    {rect.name}
-                  </div>
-                  <div className="text-xs text-gray-600">
-                    {rect.width}×{rect.length}mm
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-center gap-2 mt-3">
-                  <span className="text-xs text-gray-500">SL:</span>
-                  <input
-                    type="number"
-                    min="0"
-                    max="999"
-                    value={quantities[rect.id] || 0}
-                    onChange={(e) => handleQuantityChange(rect.id, e.target.value)}
-                    onClick={(e) => e.stopPropagation()}
-                    className="w-14 px-1 py-1 text-xs border border-gray-300 rounded text-center focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-200"
-                    disabled={isOptimizing || isParsing}
-                  />
-                </div>
-              </div>
-            </div>
-          ))}
+          {/* Visible Items */}
+          {visibleIndices.map(index => renderItem(index))}
         </div>
       </div>
 
@@ -481,5 +547,4 @@ const RectangleList = () => {
     </div>
   );
 };
-
 export default RectangleList;

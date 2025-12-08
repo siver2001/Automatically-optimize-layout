@@ -1,5 +1,6 @@
 // client/src/components/PackingResult.js
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React from 'react';
+import { Stage, Layer, Rect as KonvaRect, Text as KonvaText, Line as KonvaLine } from 'react-konva';
 import { usePacking } from '../context/PackingContext.js';
 import DraggableRectangle from './DraggableRectangle.js';
 import EditModeControls from './EditModeControls.js';
@@ -85,47 +86,47 @@ const GroupedInventoryItem = ({ item, onPickUp, isDisabled }) => {
 const PackingResult = () => {
   const { packingResult, isOptimizing, container, rectangles } = usePacking();
 
-  const [selectedPlate, setSelectedPlate] = useState(0);
-  const [placedRectDetails, setPlacedRectDetails] = useState({});
-  const [visualScale, setVisualScale] = useState(1);
+  const [selectedPlate, setSelectedPlate] = React.useState(0);
+  const [placedRectDetails, setPlacedRectDetails] = React.useState({});
+  const [visualScale, setVisualScale] = React.useState(1);
 
   // Edit Mode States
-  const [isEditMode, setIsEditMode] = useState(false);
-  const [editedRectangles, setEditedRectangles] = useState([]);
-  const [selectedRectIds, setSelectedRectIds] = useState([]);
-  const [snapEnabled, setSnapEnabled] = useState(true);
-  const [snapThreshold, setSnapThreshold] = useState(10);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [originalRectangles, setOriginalRectangles] = useState([]);
-  const [sessionUnplacedRects, setSessionUnplacedRects] = useState([]);
+  const [isEditMode, setIsEditMode] = React.useState(false);
+  const [editedRectangles, setEditedRectangles] = React.useState([]);
+  const [selectedRectIds, setSelectedRectIds] = React.useState([]);
+  const [snapEnabled, setSnapEnabled] = React.useState(true);
+  const [snapThreshold, setSnapThreshold] = React.useState(10);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = React.useState(false);
+  const [originalRectangles, setOriginalRectangles] = React.useState([]);
+  const [sessionUnplacedRects, setSessionUnplacedRects] = React.useState([]);
 
-  const [globalInventory, setGlobalInventory] = useState(new Map());
-  const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
+  const [globalInventory, setGlobalInventory] = React.useState(new Map());
+  const [isHelpModalOpen, setIsHelpModalOpen] = React.useState(false);
 
-  const [isExporting, setIsExporting] = useState(false);
-  const [exportError, setExportError] = useState(null);
+  const [isExporting, setIsExporting] = React.useState(false);
+  const [exportError, setExportError] = React.useState(null);
 
-  const containerRef = useRef(null);
-  const mainAreaRef = useRef(null);
+  const containerRef = React.useRef(null);
+  const mainAreaRef = React.useRef(null);
 
-  const [pickedUpRect, setPickedUpRect] = useState(null);
-  const [originalPickedUpState, setOriginalPickedUpState] = useState(null); // Store original state for cancel
-  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
-  const [snapGuides, setSnapGuides] = useState({ x: [], y: [] });
-  const [ghostRectPosition_data, setGhostRectPosition_data] = useState(null);
-  const [contextMenu, setContextMenu] = useState({
+  const [pickedUpRect, setPickedUpRect] = React.useState(null);
+  const [originalPickedUpState, setOriginalPickedUpState] = React.useState(null); // Store original state for cancel
+  const [mousePos, setMousePos] = React.useState({ x: 0, y: 0 });
+  const [snapGuides, setSnapGuides] = React.useState({ x: [], y: [] });
+  const [ghostRectPosition_data, setGhostRectPosition_data] = React.useState(null);
+  const [contextMenu, setContextMenu] = React.useState({
     visible: false,
     x: 0,
     y: 0,
     targetRect: null
   });
 
-  const [isUnplacedPanelOpen, setIsUnplacedPanelOpen] = useState(true);
-  const [pickUpOrigin, setPickUpOrigin] = useState(null);
-  const [editablePlates, setEditablePlates] = useState([]);
+  const [isUnplacedPanelOpen, setIsUnplacedPanelOpen] = React.useState(true);
+  const [pickUpOrigin, setPickUpOrigin] = React.useState(null);
+  const [editablePlates, setEditablePlates] = React.useState([]);
 
   // Sync packingResult to editablePlates
-  useEffect(() => {
+  React.useEffect(() => {
     if (packingResult?.plates) {
       const deepCopiedPlates = packingResult.plates.map((plate, index) => ({
         ...plate,
@@ -153,7 +154,7 @@ const PackingResult = () => {
   const gridWidth = isLandscape ? container.width : container.length;
   const gridLength = isLandscape ? container.length : container.width;
 
-  useEffect(() => {
+  React.useEffect(() => {
     const updateScale = () => {
       if (!vizWidth || !vizLength) return;
 
@@ -193,7 +194,7 @@ const PackingResult = () => {
     }
   }, [container.width, container.length, vizWidth, vizLength, isEditMode, isUnplacedPanelOpen]);
 
-  useEffect(() => {
+  React.useEffect(() => {
     const details = rectangles.reduce((acc, rect) => {
       acc[rect.id] = { name: rect.name, color: rect.color, width: rect.width, length: rect.length };
       return acc;
@@ -201,13 +202,13 @@ const PackingResult = () => {
     setPlacedRectDetails(details);
   }, [rectangles]);
 
-  useEffect(() => {
+  React.useEffect(() => {
     if (packingResult?.plates?.length > 0 && selectedPlate >= packingResult.plates.length) {
       setSelectedPlate(0);
     }
   }, [packingResult, selectedPlate]);
 
-  const categorizedPlates = useMemo(() => {
+  const categorizedPlates = React.useMemo(() => {
     if (!packingResult?.plates) return [];
     const pure = [];
     const mixed = [];
@@ -230,7 +231,7 @@ const PackingResult = () => {
   const currentPlateLayers = currentPlateData?.layers || [];
   const currentLayerCount = currentPlateLayers.length > 0 ? currentPlateLayers.length : 1;
 
-  useEffect(() => {
+  React.useEffect(() => {
     if (editablePlates.length > 0 && categorizedPlates.length > 0) {
       if (currentPlateData && currentPlateData.layers) {
         const layer0 = currentPlateData.layers.find(l => l.layerIndexInPlate === 0);
@@ -266,7 +267,7 @@ const PackingResult = () => {
   }, [editablePlates, selectedPlate, categorizedPlates]);
 
   // Snap calculation
-  const calculateSnapPosition = useCallback((idealDataX, idealDataY, rectToSnap, allRects, container, snapEnabled, snapThreshold) => {
+  const calculateSnapPosition = React.useCallback((idealDataX, idealDataY, rectToSnap, allRects, container, snapEnabled, snapThreshold) => {
     let newX = idealDataX;
     let newY = idealDataY;
     const guidesX = [];
@@ -316,7 +317,7 @@ const PackingResult = () => {
     return { snappedX: newX, snappedY: newY, guidesX, guidesY };
   }, []);
 
-  useEffect(() => {
+  React.useEffect(() => {
     const handleMouseMove = (e) => {
       if (!pickedUpRect || !containerRef.current) return;
 
@@ -346,7 +347,7 @@ const PackingResult = () => {
   }, [pickedUpRect, visualScale, isLandscape, calculateSnapPosition, editedRectangles, container, snapEnabled, snapThreshold]);
 
   // --- XÓA size (DỰA TRÊN SỐ LỚP) ---
-  const handleDeleteSelected = useCallback((id = null) => {
+  const handleDeleteSelected = React.useCallback((id = null) => {
 
     if (pickedUpRect && id === null) {
       if (window.confirm(`Bạn có chắc muốn gỡ size đang cầm? (Sẽ trả ${currentLayerCount} đơn vị về kho)`)) {
@@ -395,7 +396,7 @@ const PackingResult = () => {
   }, [selectedRectIds, editedRectangles, pickedUpRect, currentLayerCount]);
 
   // Keyboard
-  useEffect(() => {
+  React.useEffect(() => {
     const handleKeyDown = (e) => {
       if (!isEditMode) return;
 
@@ -454,7 +455,7 @@ const PackingResult = () => {
     return () => { window.removeEventListener('keydown', handleKeyDown); };
   }, [isEditMode, pickedUpRect, selectedRectIds, pickUpOrigin, handleDeleteSelected, placedRectDetails, currentLayerCount, ghostRectPosition_data, originalPickedUpState]);
 
-  const handleToggleEditMode = useCallback(() => {
+  const handleToggleEditMode = React.useCallback(() => {
     if (isEditMode && hasUnsavedChanges) {
       if (window.confirm('Bạn có thay đổi chưa lưu. Bạn có muốn thoát không?')) {
         setEditedRectangles([...originalRectangles]);
@@ -474,7 +475,7 @@ const PackingResult = () => {
     }
   }, [isEditMode, hasUnsavedChanges, originalRectangles]);
 
-  const handlePickUpRect = useCallback((clickedRect) => {
+  const handlePickUpRect = React.useCallback((clickedRect) => {
     if (!isEditMode || pickedUpRect) return;
 
     const rectToPickUp = editedRectangles.find(r => r.id === clickedRect.id);
@@ -489,7 +490,7 @@ const PackingResult = () => {
     }
   }, [isEditMode, pickedUpRect, editedRectangles]);
 
-  const handleContainerClick = useCallback((e) => {
+  const handleContainerClick = React.useCallback((e) => {
     if (!isEditMode || !containerRef.current) return;
     if (contextMenu.visible) { setContextMenu({ visible: false }); return; }
 
@@ -526,7 +527,7 @@ const PackingResult = () => {
     }
   }, [isEditMode, pickedUpRect, contextMenu.visible, visualScale, snapEnabled, snapThreshold, editedRectangles, container, isLandscape, calculateSnapPosition]);
 
-  const handleRotateSelected = useCallback((id = null) => {
+  const handleRotateSelected = React.useCallback((id = null) => {
     const finalId = (typeof id === 'object' && id !== null) ? null : id;
     const idsToRotate = finalId ? [finalId] : selectedRectIds;
     if (idsToRotate.length === 0) return;
@@ -540,7 +541,7 @@ const PackingResult = () => {
   }, [selectedRectIds]);
 
   // --- HỢP NHẤT (MERGE) ---
-  const handleMerge = useCallback(() => {
+  const handleMerge = React.useCallback(() => {
     if (!isEditMode) return;
 
     setEditedRectangles(prevRects => {
@@ -662,7 +663,7 @@ const PackingResult = () => {
 
 
   // --- LƯU THAY ĐỔI & CẬP NHẬT DIỆN TÍCH ---
-  const handleSaveChanges = useCallback(() => {
+  const handleSaveChanges = React.useCallback(() => {
     setOriginalRectangles([...editedRectangles]);
 
     // Gộp kho TẠM vào GLOBAL
@@ -745,7 +746,7 @@ const PackingResult = () => {
 
   }, [editedRectangles, sessionUnplacedRects, placedRectDetails, selectedPlate, categorizedPlates, container.width, container.length]);
 
-  const handleCancelEdit = useCallback(() => {
+  const handleCancelEdit = React.useCallback(() => {
     if (hasUnsavedChanges) {
       if (window.confirm('Bạn có thay đổi chưa lưu. Bạn có muốn hủy không?')) {
         setEditedRectangles([...originalRectangles]);
@@ -773,7 +774,7 @@ const PackingResult = () => {
   };
 
   // --- NHẤC TỪ KHO TẠM ---
-  const handlePickUpFromSession = useCallback((clickedRect) => {
+  const handlePickUpFromSession = React.useCallback((clickedRect) => {
     if (!isEditMode || pickedUpRect) return;
 
     const availableItems = sessionUnplacedRects.filter(r => r.typeId === clickedRect.typeId);
@@ -798,7 +799,7 @@ const PackingResult = () => {
   }, [isEditMode, pickedUpRect, sessionUnplacedRects, currentLayerCount]);
 
   // --- NHẤC TỪ KHO GLOBAL (FIX BUG TRỪ ĐÔI) ---
-  const handlePickUpFromGlobal = useCallback((typeId) => {
+  const handlePickUpFromGlobal = React.useCallback((typeId) => {
     if (!isEditMode || pickedUpRect) return;
 
     const inventoryItem = globalInventory.get(typeId);
@@ -869,7 +870,7 @@ const PackingResult = () => {
   // Vì layout xếp giống nhau cho mọi lớp, nên hiệu suất 1 lớp cũng là hiệu suất cả tấm.
   const plateEfficiency = singleLayerArea > 0 ? (currentPlateUsedArea / singleLayerArea * 100).toFixed(1) : 0;
 
-  const dynamicTotalStats = useMemo(() => {
+  const dynamicTotalStats = React.useMemo(() => {
     let totalUsedArea = 0;
     let totalArea = 0;
     let totalLayers = 0;
@@ -1067,78 +1068,133 @@ const PackingResult = () => {
                 }}
                 onClick={handleContainerClick}
               >
-                <div className="absolute inset-0 opacity-20">
-                  {Array.from({ length: Math.floor(gridWidth / 100) }).map((_, i) => (
-                    <div key={`v-${i}`} className="absolute top-0 bottom-0 w-px bg-gray-400" style={{ left: `${(i + 1) * 100 * scale}px` }}></div>
-                  ))}
-                  {Array.from({ length: Math.floor(gridLength / 100) }).map((_, i) => (
-                    <div key={`h-${i}`} className="absolute left-0 right-0 h-px bg-gray-400" style={{ top: `${(i + 1) * 100 * scale}px` }}></div>
-                  ))}
-                </div>
-
-                {displayRectangles.map((rect) => {
-                  if (!rect || typeof rect.width !== 'number' || typeof rect.length !== 'number') return null;
-                  if (isEditMode) {
-                    return (
-                      <DraggableRectangle
-                        key={rect.id}
-                        rect={rect}
-                        scale={scale}
-                        isLandscape={isLandscape}
-                        isSelected={selectedRectIds.includes(rect.id)}
-                        onPickUp={handlePickUpRect}
-                        onContextMenu={handleContextMenu}
-                      />
-                    );
-                  }
-                  const rectWidth = rect.width * scale;
-                  const rectLength = rect.length * scale;
-                  const rectX = isLandscape ? rect.x * scale : rect.y * scale;
-                  const rectY = isLandscape ? rect.y * scale : rect.x * scale;
-                  const finalWidth = isLandscape ? rectWidth : rectLength;
-                  const finalLength = isLandscape ? rectLength : rectWidth;
-                  const minDim = Math.min(finalWidth, finalLength);
-                  const fontSize = Math.max(8, Math.min(16, minDim * 0.15));
-                  const originalRect = placedRectDetails[rect.typeId] || {};
-                  const originalDims = (originalRect.width && originalRect.length) ? `${originalRect.width}×${originalRect.length}mm` : 'Kích thước gốc không xác định';
-                  const rectName = originalRect.name || `ID ${rect.typeId}`;
-
-                  const maxLayers = Math.max(1, ...displayRectangles.map(r => r.layer + 1));
-                  const opacity = 1 - (rect.layer / maxLayers) * 0.4;
-                  const zIndex = 10 + (maxLayers - rect.layer);
-
-                  return (
-                    <div
-                      key={rect.id}
-                      className="absolute border border-white shadow-xl flex items-center justify-center text-white font-bold transition-all duration-300 hover:scale-[1.03] hover:z-20 cursor-help"
-                      style={{
-                        left: `${rectX}px`,
-                        top: `${rectY}px`,
-                        width: `${finalWidth}px`,
-                        height: `${finalLength}px`,
-                        backgroundColor: rect.color || (placedRectDetails[rect.typeId]?.color),
-                        fontSize: `${fontSize}px`,
-                        minWidth: '20px',
-                        minHeight: '15px',
-                        overflow: 'hidden',
-                        opacity: opacity,
-                        zIndex: zIndex
-                      }}
-                      title={`[Tấm ${rect.plateIndex + 1}, Lớp ${rect.layer + 1}] ${rectName} (${originalDims}) tại X:${rect.x} Y:${rect.y} ${rect.rotated ? '(Xoay 90°)' : ''}`}
-                    >
-                      <div
-                        className="text-[0.65em] md:text-xs whitespace-nowrap font-bold"
-                        style={{
-                          transform: (finalLength > finalWidth && finalWidth < 60)
-                            ? 'rotate(-90deg)'
-                            : 'none',
-                        }}
-                      >
-                        {rect.width}×{rect.length}
-                      </div>
+                {/* MODE 1: EDIT MODE (Interactive DOM) */}
+                {isEditMode ? (
+                  <>
+                    <div className="absolute inset-0 opacity-20 pointer-events-none">
+                      {Array.from({ length: Math.floor(gridWidth / 100) }).map((_, i) => (
+                        <div key={`v-${i}`} className="absolute top-0 bottom-0 w-px bg-gray-400" style={{ left: `${(i + 1) * 100 * scale}px` }}></div>
+                      ))}
+                      {Array.from({ length: Math.floor(gridLength / 100) }).map((_, i) => (
+                        <div key={`h-${i}`} className="absolute left-0 right-0 h-px bg-gray-400" style={{ top: `${(i + 1) * 100 * scale}px` }}></div>
+                      ))}
                     </div>
-                  );
-                })}
+                    {displayRectangles.map((rect) => {
+                      if (!rect || typeof rect.width !== 'number' || typeof rect.length !== 'number') return null;
+                      return (
+                        <DraggableRectangle
+                          key={rect.id}
+                          rect={rect}
+                          scale={scale}
+                          isLandscape={isLandscape}
+                          isSelected={selectedRectIds.includes(rect.id)}
+                          onPickUp={handlePickUpRect}
+                          onContextMenu={handleContextMenu}
+                        />
+                      );
+                    })}
+                  </>
+                ) : (
+                  /* MODE 2: VIEW MODE (High Performance Canvas) */
+                  <Stage width={displayWidth} height={displayLength}>
+                    <Layer>
+                      {/* Grid Lines */}
+                      {Array.from({ length: Math.floor(gridWidth / 100) }).map((_, i) => (
+                        <KonvaLine
+                          key={`v-${i}`}
+                          points={[(i + 1) * 100 * scale, 0, (i + 1) * 100 * scale, displayLength]}
+                          stroke="gray"
+                          strokeWidth={1}
+                          opacity={0.2}
+                        />
+                      ))}
+                      {Array.from({ length: Math.floor(gridLength / 100) }).map((_, i) => (
+                        <KonvaLine
+                          key={`h-${i}`}
+                          points={[0, (i + 1) * 100 * scale, displayWidth, (i + 1) * 100 * scale]}
+                          stroke="gray"
+                          strokeWidth={1}
+                          opacity={0.2}
+                        />
+                      ))}
+
+                      {/* Rectangles */}
+                      {displayRectangles.map((rect) => {
+                        if (!rect || typeof rect.width !== 'number' || typeof rect.length !== 'number') return null;
+
+                        const rectWidth = rect.width * scale;
+                        const rectLength = rect.length * scale;
+                        const rectX = isLandscape ? rect.x * scale : rect.y * scale;
+                        const rectY = isLandscape ? rect.y * scale : rect.x * scale;
+                        const finalWidth = isLandscape ? rectWidth : rectLength;
+                        const finalLength = isLandscape ? rectLength : rectWidth;
+
+                        const minDim = Math.min(finalWidth, finalLength);
+                        // Normal text size logic: try to be legible (12px) but shrink if very small
+                        const fontSize = Math.max(10, Math.min(14, minDim * 0.3));
+
+                        const color = rect.color || (placedRectDetails[rect.typeId]?.color) || '#ccc';
+
+                        // Text Label Logic: Only dimensions
+                        const textLabel = `${rect.width}x${rect.length}`;
+                        const isRotatedText = (finalLength > finalWidth && finalWidth < 60);
+
+                        return (
+                          <React.Fragment key={rect.id}>
+                            <KonvaRect
+                              x={rectX}
+                              y={rectY}
+                              width={finalWidth}
+                              height={finalLength}
+                              fill={color}
+                              stroke="white"
+                              strokeWidth={1}
+                              shadowBlur={2}
+                              shadowOpacity={0.2}
+                            />
+                            {/* Re-implementing text rotation properly for Konva is tricky. 
+                                   Let's refine:
+                                   If rotated, we center the text at the center of the rect.
+                               */}
+                            {isRotatedText ? (
+                              <KonvaText
+                                x={rectX + finalWidth / 2}
+                                y={rectY + finalLength / 2}
+                                text={textLabel}
+                                fontSize={fontSize}
+                                fill="white"
+                                fontStyle="bold"
+                                align="center"
+                                verticalAlign="middle"
+                                rotation={-90}
+                                // Default Konva Text centering:
+                                width={finalLength} // Swap dim for text area
+                                height={finalWidth}
+                                offsetX={finalLength / 2}
+                                offsetY={finalWidth / 2}
+                              />
+                            ) : (
+                              <KonvaText
+                                x={rectX}
+                                y={rectY}
+                                width={finalWidth}
+                                height={finalLength}
+                                text={textLabel}
+                                fontSize={fontSize}
+                                fill="white"
+                                fontStyle="bold"
+                                align="center"
+                                verticalAlign="middle"
+                              />
+                            )}
+
+
+                          </React.Fragment>
+                        );
+                      })}
+                    </Layer>
+                  </Stage>
+                )}
 
                 {pickedUpRect && (() => {
                   const pickedDisplayWidth = pickedUpRect.width * scale;

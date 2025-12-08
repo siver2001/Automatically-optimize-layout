@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import ExcelJS from 'exceljs'; // <-- Đã thay đổi
 import { usePacking } from '../context/PackingContext.js';
 
@@ -11,24 +11,23 @@ const generateRandomColor = () => {
 // Hàm tìm tiêu đề (Phiên bản cho ExcelJS)
 const findHeaderLocation = (worksheet) => {
   const headerKeywords = ['size', 'chiều dài', 'chiều rộng', 'số lượng'];
-  
+
   // ExcelJS row và cell được đánh số từ 1
   for (let r = 1; r <= worksheet.rowCount; r++) {
     const row = worksheet.getRow(r);
     // Tối đa số cột có thể kiểm tra
-    const maxCol = row.cellCount > 3 ? row.cellCount - 3 : row.cellCount; 
+    const maxCol = row.cellCount > 3 ? row.cellCount - 3 : row.cellCount;
 
     for (let c = 1; c <= maxCol; c++) {
       const cell1 = (row.getCell(c).value || '').toString().toLowerCase().trim();
       const cell2 = (row.getCell(c + 1).value || '').toString().toLowerCase().trim();
       const cell3 = (row.getCell(c + 2).value || '').toString().toLowerCase().trim();
       const cell4 = (row.getCell(c + 3).value || '').toString().toLowerCase().trim();
-      
+
       if (cell1.includes(headerKeywords[0]) &&
-          cell2.includes(headerKeywords[1]) &&
-          cell3.includes(headerKeywords[2]) &&
-          cell4.includes(headerKeywords[3])) 
-      {
+        cell2.includes(headerKeywords[1]) &&
+        cell3.includes(headerKeywords[2]) &&
+        cell4.includes(headerKeywords[3])) {
         // Đã tìm thấy! Trả về chỉ số (1-based)
         return { headerRowIndex: r, dataColStart: c };
       }
@@ -49,8 +48,8 @@ const parseCell = (cellValue) => {
 
 const ExcelUploader = () => {
   const { addRectanglesFromExcel } = usePacking();
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState('');
+  const [loading, setLoading] = React.useState(false);
+  const [message, setMessage] = React.useState('');
 
   const handleFileChange = (e) => {
     setLoading(true);
@@ -76,7 +75,7 @@ const ExcelUploader = () => {
         // Duyệt qua tất cả các sheet
         for (const worksheet of workbook.worksheets) {
           const location = findHeaderLocation(worksheet);
-          
+
           if (location) {
             sheetFound = true;
             const { headerRowIndex, dataColStart } = location;
@@ -84,7 +83,7 @@ const ExcelUploader = () => {
             // Lặp từ hàng ngay sau header (chỉ số 1-based)
             for (let r = headerRowIndex + 1; r <= worksheet.rowCount; r++) {
               const row = worksheet.getRow(r);
-              
+
               // Lấy giá trị cell bằng API của ExcelJS
               const name = row.getCell(dataColStart).value;
               const length = row.getCell(dataColStart + 1).value;
@@ -105,10 +104,10 @@ const ExcelUploader = () => {
                 const rectQuantity = parseInt(pQuantity, 10);
 
                 // Kiểm tra dữ liệu sau khi chuyển đổi
-                if (rectName && 
-                    !isNaN(rectLength) && rectLength > 0 &&
-                    !isNaN(rectWidth) && rectWidth > 0 &&
-                    !isNaN(rectQuantity) && rectQuantity >= 0) // Chấp nhận số lượng 0
+                if (rectName &&
+                  !isNaN(rectLength) && rectLength > 0 &&
+                  !isNaN(rectWidth) && rectWidth > 0 &&
+                  !isNaN(rectQuantity) && rectQuantity >= 0) // Chấp nhận số lượng 0
                 {
                   parsedData.push({
                     rect: {
@@ -142,9 +141,9 @@ const ExcelUploader = () => {
       }
       setLoading(false);
       // Reset input để có thể tải lại cùng 1 file
-      e.target.value = null; 
+      e.target.value = null;
     };
-    
+
     // Đọc file thành ArrayBuffer (ExcelJS cần cái này)
     reader.readAsArrayBuffer(file);
   };
@@ -152,8 +151,8 @@ const ExcelUploader = () => {
   // Phần JSX render giữ nguyên
   return (
     <div className="my-4 p-4 border rounded-lg bg-gray-50">
-      <label 
-        htmlFor="excel-upload" 
+      <label
+        htmlFor="excel-upload"
         className={`
           cursor-pointer px-4 py-2 bg-green-600 text-white 
           font-semibold rounded-lg shadow-md

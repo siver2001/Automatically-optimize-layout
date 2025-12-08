@@ -1,16 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { usePacking } from '../context/PackingContext.js';
 
 const ContainerInput = () => {
   const { container, setContainer, errors, clearErrors } = usePacking();
-  const [localContainer, setLocalContainer] = useState(container);
-  const [showSuccess, setShowSuccess] = useState(false); 
+  const [localContainer, setLocalContainer] = React.useState(container);
+  const [showSuccess, setShowSuccess] = React.useState(false);
 
-  useEffect(() => {
+  React.useEffect(() => {
     if (showSuccess) {
       const timer = setTimeout(() => {
         setShowSuccess(false);
-      }, 3000); 
+      }, 3000);
       return () => clearTimeout(timer);
     }
   }, [showSuccess]);
@@ -27,9 +27,9 @@ const ContainerInput = () => {
     e.preventDefault();
     clearErrors();
     setContainer({
-        width: parseFloat(localContainer.width) || 0,
-        length: parseFloat(localContainer.length) || 0,
-        layers: parseInt(localContainer.layers) || 1
+      width: parseFloat(localContainer.width) || 0,
+      length: parseFloat(localContainer.length) || 0,
+      layers: parseInt(localContainer.layers) || 1
     });
     setShowSuccess(true);
   };
@@ -38,9 +38,9 @@ const ContainerInput = () => {
 
   const getContainerPreviewStyle = () => {
     if (!localContainer.width || !localContainer.length || localContainer.width <= 0 || localContainer.length <= 0) {
-      return { width: '200px', height: '120px' }; 
+      return { width: '200px', height: '120px' };
     }
-    
+
     const effectiveWidth = Math.max(localContainer.width, localContainer.length);
     const effectiveLength = Math.min(localContainer.width, localContainer.length);
 
@@ -48,7 +48,7 @@ const ContainerInput = () => {
     const maxWidth = Math.min(window.innerWidth * 0.15, 350);
     const maxLength = Math.min(window.innerHeight * 0.8, 200);
     const aspectRatio = effectiveWidth / effectiveLength;
-    
+
     let displayWidth, displayLength;
 
     if (aspectRatio > 1) {
@@ -58,10 +58,10 @@ const ContainerInput = () => {
       displayLength = maxLength;
       displayWidth = Math.min(maxWidth, displayLength * aspectRatio);
     }
-    
-    displayWidth = Math.max(180, displayWidth); 
+
+    displayWidth = Math.max(180, displayWidth);
     displayLength = Math.max(100, displayLength);
-    
+
     return {
       width: `${displayWidth}px`,
       height: `${displayLength}px`,
@@ -76,7 +76,7 @@ const ContainerInput = () => {
         <h2 className="text-gray-800 text-base md:text-lg lg:text-l font-semibold flex items-center gap-2">
           📐 Thiết kế tấm liệu
         </h2>
-        
+
         {showSuccess && containerErrors.length === 0 && (
           <div className="bg-green-100 border-l-2 border-green-500 px-2 py-1 rounded text-xs md:text-sm text-green-800 transition-opacity duration-500 flex-shrink-0">
             <div className="flex items-center gap-1 font-medium">
@@ -85,7 +85,7 @@ const ContainerInput = () => {
           </div>
         )}
       </div>
-      
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-5 lg:gap-6">
         {/* Input Form */}
         <div className="space-y-3 md:space-y-4">
@@ -108,7 +108,7 @@ const ContainerInput = () => {
                   required
                 />
               </div>
-              
+
               <div className="flex flex-col">
                 <label htmlFor="length" className="label text-sm md:text-base">
                   Chiều dài (mm)
@@ -127,9 +127,9 @@ const ContainerInput = () => {
                 />
               </div>
             </div>
-            
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-3 md:gap-4"> 
-              <div className="flex flex-col flex-1"> 
+
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-3 md:gap-4">
+              <div className="flex flex-col flex-1">
                 <label htmlFor="layers" className="label text-sm md:text-base">
                   📚 Số lớp
                 </label>
@@ -146,17 +146,17 @@ const ContainerInput = () => {
                   required
                 />
               </div>
-              
-              <button 
-                type="submit" 
-                className="btn-primary text-sm md:text-base py-2 md:py-2.5 sm:flex-0.5 sm:min-w-[150px]" 
+
+              <button
+                type="submit"
+                className="btn-primary text-sm md:text-base py-2 md:py-2.5 sm:flex-0.5 sm:min-w-[150px]"
                 disabled={!localContainer.width || !localContainer.length || localContainer.width <= 0 || localContainer.length <= 0}
               >
                 Thiết kế tấm liệu
               </button>
             </div>
           </form>
-          
+
           {containerErrors.length > 0 && (
             <div className="bg-red-100 border-l-4 border-red-500 p-1 rounded text-sm text-red-800">
               <div className="flex items-center gap-2 mb-1 font-semibold">
@@ -165,11 +165,11 @@ const ContainerInput = () => {
             </div>
           )}
         </div>
-        
+
         {/* Container Preview */}
         <div className="bg-white rounded-lg p-3 md:p-4 border border-gray-200 flex flex-col items-center justify-center">
           <div className="flex flex-col items-center">
-            <div 
+            <div
               className="bg-blue-100 border-2 border-primary-500 rounded-lg shadow-xl flex items-center justify-center relative"
               style={getContainerPreviewStyle()}
             >

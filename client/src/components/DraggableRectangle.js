@@ -1,4 +1,4 @@
-import React, { memo } from 'react';
+import React from 'react';
 
 const DraggableRectangle = ({
   rect,
@@ -84,4 +84,4 @@ function arePropsEqual(prevProps, nextProps) {
   );
 }
 
-export default memo(DraggableRectangle, arePropsEqual);
+export default React.memo(DraggableRectangle, arePropsEqual);
