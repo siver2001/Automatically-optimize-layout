@@ -104,7 +104,7 @@ class HybridStrategy extends BaseStrategy {
         // [ADAPTIVE EXECUTION]
         // Nếu ít hơn 1500 items -> Chạy đơn luồng (Single Thread) để tránh overhead tạo worker
         // Nếu nhiều hơn -> Chạy đa luồng (Multi Thread) để tận dụng CPU
-        if (rawRects.length < 1500) {
+        if (rawRects.length < 1500 || !WorkerPool) {
             // --- SINGLE THREAD MODE ---
             for (const task of tasks) {
                 // Gọi trực tiếp method của class cha (BaseStrategy)
@@ -327,84 +327,83 @@ class HybridStrategy extends BaseStrategy {
             return bestResult;
         }
 
-        // 2. Deep Search (Parallelized with Racing)
-        const promises = [];
-        for (let i = 0; i < PARALLEL_TASKS; i++) {
-            promises.push(
-                WorkerPool.executeTask({
-                    strategyName: `Final_DeepSearch_Task_${i}`,
-                    container: this.container,
-                    rectangles: rawRects, // Send raw rects
-                    method: 'executeFinalSheet_Worker', // Special method we added to worker
-                    params: [rawRects, iterationsPerTask]
-                }).catch(err => {
-                    console.error("Deep search task failed:", err);
-                    return null;
-                })
-            );
-        }
+        // 2. Deep Search
+        if (WorkerPool) {
+            // Parallelized with Racing (Main Thread)
+            const promises = [];
+            for (let i = 0; i < PARALLEL_TASKS; i++) {
+                promises.push(
+                    WorkerPool.executeTask({
+                        strategyName: `Final_DeepSearch_Task_${i}`,
+                        container: this.container,
+                        rectangles: rawRects, // Send raw rects
+                        method: 'executeFinalSheet_Worker', // Special method we added to worker
+                        params: [rawRects, iterationsPerTask]
+                    }).catch(err => {
+                        console.error("Deep search task failed:", err);
+                        return null;
+                    })
+                );
+            }
 
-        // Custom Race Logic for Final Sheet
-        // Exit if we find a result that packs ALL items with very high density (e.g. maxX < 50% of container)
-        // Note: The worker returns { placed, remaining, ... }
-        const isGoodEnoughFinal = (res) => {
-            if (!res || !res.placed) return false;
-            // Check if all items placed
-            if (res.remaining && res.remaining.length > 0) return false;
+            // Custom Race Logic for Final Sheet
+            // Exit if we find a result that packs ALL items with very high density (e.g. maxX < 50% of container)
+            // Note: The worker returns { placed, remaining, ... }
+            const isGoodEnoughFinal = (res) => {
+                if (!res || !res.placed) return false;
+                // Check if all items placed
+                if (res.remaining && res.remaining.length > 0) return false;
 
-            // Check compactness
-            let maxX = 0;
-            res.placed.forEach(r => maxX = Math.max(maxX, r.x + r.width));
+                // Check compactness
+                let maxX = 0;
+                res.placed.forEach(r => maxX = Math.max(maxX, r.x + r.width));
 
-            // If we packed everything into less than 40% of the container width (arbitrary "good" threshold for last sheet)
-            // Or just if we packed everything, maybe that's good enough to stop?
-            // Let's be aggressive: If we packed EVERYTHING, that's already great.
-            // But we want the BEST packing. 
-            // Let's stick to: Packed everything AND very compact.
-            return maxX < this.container.width * 0.45;
-        };
+                // If we packed everything into less than 40% of the container width (arbitrary "good" threshold for last sheet)
+                // Let's stick to: Packed everything AND very compact.
+                return maxX < this.container.width * 0.45;
+            };
 
-        const raceToSuccessFinal = (promises) => {
-            return new Promise((resolve) => {
-                let completedCount = 0;
-                const results = [];
-                let resolved = false;
+            const raceToSuccessFinal = (promises) => {
+                return new Promise((resolve) => {
+                    let completedCount = 0;
+                    const results = [];
+                    let resolved = false;
 
-                promises.forEach(p => {
-                    p.then(res => {
-                        if (resolved) return;
+                    promises.forEach(p => {
+                        p.then(res => {
+                            if (resolved) return;
 
-                        // Worker returns 'result' inside the wrapper, but here executeTask returns the result directly?
-                        // Wait, WorkerPool.executeTask returns the data sent from worker.
-                        // In strategyWorker, we send { strategyName, result }.
-                        // So 'res' here is { strategyName, result: { placed, remaining... } }
+                            results.push(res);
+                            completedCount++;
 
-                        // Wait, for 'executeFinalSheet_Worker', the worker returns 'batchResult' directly as 'result'.
-                        // So res is { strategyName, result: batchResult }
-
-                        results.push(res);
-                        completedCount++;
-
-                        if (res && res.result && isGoodEnoughFinal(res.result)) {
-                            resolved = true;
-                            resolve([res]);
-                        } else if (completedCount === promises.length) {
-                            resolved = true;
-                            resolve(results);
-                        }
+                            if (res && res.result && isGoodEnoughFinal(res.result)) {
+                                resolved = true;
+                                resolve([res]);
+                            } else if (completedCount === promises.length) {
+                                resolved = true;
+                                resolve(results);
+                            }
+                        });
                     });
                 });
+            };
+
+            const results = await raceToSuccessFinal(promises);
+            results.forEach(taskRes => {
+                if (taskRes && taskRes.result) {
+                    updateBest(taskRes.result);
+                }
             });
-        };
 
-        const results = await raceToSuccessFinal(promises);
-
-        // 3. Aggregate Results
-        results.forEach(taskRes => {
-            if (taskRes && taskRes.result) {
-                updateBest(taskRes.result);
+        } else {
+            // Synchronous Deep Search (Worker Thread)
+            // Since we are already in a worker, we can just run the batch logic locally.
+            // We run ONE batch with the full iteration count (or slightly reduced if needed)
+            const batchResult = this._runDeepSearchBatch(rawRects, TOTAL_ITERATIONS);
+            if (batchResult) {
+                updateBest({ ...batchResult, strategyName: 'Final_DeepSearch_Sync' });
             }
-        });
+        }
 
         return bestResult;
     }
