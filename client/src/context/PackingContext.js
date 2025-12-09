@@ -382,10 +382,14 @@ export const PackingProvider = ({ children }) => {
 
       const layersPerPlate = state.container.layers;
 
+      // ✅ FIX: Chỉ gửi những size ĐƯỢC CHỌN (selectedRectangles) xuống backend
+      // Logic cũ gửi tất cả state.rectangles nên có thể bị dính các size không chọn nhưng vẫn còn số lượng cũ
+      const activeRectangles = state.rectangles.filter(r => state.selectedRectangles.includes(r.id));
+
       // START STREAMING
       const stream = packingService.optimizeBatch(
         state.container,
-        state.rectangles,
+        activeRectangles, // Gửi danh sách đã lọc
         state.quantities,
         state.packingStrategy,
         state.unsplitableRectIds,

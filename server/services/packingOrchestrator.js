@@ -316,10 +316,23 @@ class PackingOrchestrator {
         allItems.sort((a, b) => {
             const hA = Math.min(a.width, a.length);
             const hB = Math.min(b.width, b.length);
-            if (Math.abs(hB - hA) > 1) return hB - hA;
+            // 1. Prioritize Height (Main Axis - Descending)
+            if (Math.abs(hB - hA) > 1.0) return hB - hA;
+
             const wA = Math.max(a.width, a.length);
             const wB = Math.max(b.width, b.length);
-            return wB - wA;
+            // 2. Prioritize Width (Secondary Axis - Descending)
+            if (Math.abs(wB - wA) > 1.0) return wB - wA;
+
+            // 3. Prioritize Pair (Keep halves together)
+            const pairA = a.pairId || '';
+            const pairB = b.pairId || '';
+            if (pairA !== pairB) return pairA.localeCompare(pairB);
+
+            // 4. Prioritize Type (Keep same products together)
+            const typeA = a.typeId || 0;
+            const typeB = b.typeId || 0;
+            return typeA - typeB;
         });
 
         // 3. Pack into Consolidated Plates
@@ -390,7 +403,6 @@ class PackingOrchestrator {
     async optimizeBatch(container, rectangles, quantities, strategy, unsplitableRectIds, layersPerPlate) {
         // 1. Split
         let pool = this._splitRectangles(rectangles, quantities, strategy, unsplitableRectIds);
-        const initialPoolSize = pool.length;
 
         // 2. Loop & Pack
         let finalPlates = [];
@@ -514,28 +526,11 @@ class PackingOrchestrator {
         }
 
         // Flatten all rectangles for Merging
-        let allPlacedRectangles = [];
         finalPlates.forEach(plate => {
-            plate.layers.forEach(layer => {
-                // In pattern matching logic above, I didn't actually push rects into layer.rectangles in the map.
-                // I only pushed placeholders. I need to find the rects.
-                // Wait, I lost the reference to the rects in the loop because I recreated objects.
-                // Actually, I should just collect all 'bestBatchResult' (with updated plateIndex/layer) into a master list.
-                // It's easier than reconstructing the hierarchy inside the loop.
+            plate.layers.forEach(() => {
             });
         });
 
-        // Correction: Better approach used in Context was 'rebuild phase'.
-        // So I should just collect 'allPlacedRects' during the loop.
-        // Let's modify the loop to collect `allPlacedRects`.
-        // BUT I must preserve plate/layer assignment correctly.
-        // In the loop above, I calculated `targetPlateIndex` and `targetLayerIndex` and updated `bestBatchResult`.
-        // So I just need to push `bestBatchResult` items into `allPlacedRectangles`.
-
-        // (Wait, the `mixedPatterns` MAP stores references to `layers`. But I didn't push rects into them.)
-        // Let's refactor: I won't use `mixedPatterns` to store `layers` for final output.
-        // I will use `mixedPatterns` ONLY to track state (current open plate index and layer count).
-        // And I will push the configured rectangles to `allPlacedRectangles` immediately.
     }
 }
 

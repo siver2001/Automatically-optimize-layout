@@ -28,18 +28,18 @@ class BaseStrategy {
   }
 
   sortRectanglesByHeight(rectangles) {
-     return rectangles.slice().sort((a, b) => {
-        if (Math.abs(b.length - a.length) > 0.1) return b.length - a.length;
-        if (Math.abs(b.width - a.width) > 0.1) return b.width - a.width;
-        return 0;
+    return rectangles.slice().sort((a, b) => {
+      if (Math.abs(b.length - a.length) > 0.1) return b.length - a.length;
+      if (Math.abs(b.width - a.width) > 0.1) return b.width - a.width;
+      return 0;
     });
   }
 
   sortRectanglesByWidth(rectangles) {
     return rectangles.slice().sort((a, b) => {
-        if (Math.abs(b.width - a.width) > 0.1) return b.width - a.width;
-        if (Math.abs(b.length - a.length) > 0.1) return b.length - a.length;
-        return 0;
+      if (Math.abs(b.width - a.width) > 0.1) return b.width - a.width;
+      if (Math.abs(b.length - a.length) > 0.1) return b.length - a.length;
+      return 0;
     });
   }
 
@@ -58,10 +58,10 @@ class BaseStrategy {
       if (r.noRotate) return { ...r };
       const isVertical = r.width < r.length;
       if (mode === 'horizontal' && isVertical) {
-         return { ...r, width: r.length, length: r.width, rotated: !r.rotated };
+        return { ...r, width: r.length, length: r.width, rotated: !r.rotated };
       }
       if (mode === 'vertical' && !isVertical) {
-         return { ...r, width: r.length, length: r.width, rotated: !r.rotated };
+        return { ...r, width: r.length, length: r.width, rotated: !r.rotated };
       }
       return { ...r };
     });
@@ -69,47 +69,47 @@ class BaseStrategy {
 
   shuffleArray(array) {
     for (let i = array.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [array[i], array[j]] = [array[j], array[i]];
+      const j = Math.floor(Math.random() * (i + 1));
+      [array[i], array[j]] = [array[j], array[i]];
     }
     return array;
   }
 
   // --- TÍNH ĐIỂM (GIỮ NGUYÊN LOGIC) ---
-  
+
   _calculateAlignmentScore(placedRectangles) {
     let score = 0;
     const rects = placedRectangles;
     const count = rects.length;
-    
+
     // Giữ nguyên logic tối ưu vòng lặp như file gốc
-    const SEARCH_WINDOW = count > 1000 ? 300 : count; 
+    const SEARCH_WINDOW = count > 1000 ? 300 : count;
 
     for (let i = 0; i < count; i++) {
-        if (rects[i].rotated) score -= 2; 
+      if (rects[i].rotated) score -= 2;
 
-        const limit = Math.min(count, i + SEARCH_WINDOW);
-        
-        for (let j = i + 1; j < limit; j++) {
-            if (Math.abs(rects[i].x - rects[j].x) > 3000 || Math.abs(rects[i].y - rects[j].y) > 3000) {
-                continue;
-            }
-            const touchingX = Math.abs((rects[i].x + rects[i].width) - rects[j].x) < 0.1; 
-            const touchingY = Math.abs((rects[i].y + rects[i].length) - rects[j].y) < 0.1; 
-            const sameWidth = Math.abs(rects[i].width - rects[j].width) < 0.1;
-            const sameLength = Math.abs(rects[i].length - rects[j].length) < 0.1;
+      const limit = Math.min(count, i + SEARCH_WINDOW);
 
-            if (touchingX && Math.abs(rects[i].y - rects[j].y) < 0.1) {
-                score += 50; 
-                if (sameLength) score += 200; 
-                if (sameLength && sameWidth) score += 500; 
-            }
-            if (touchingY && Math.abs(rects[i].x - rects[j].x) < 0.1) {
-                score += 50; 
-                if (sameWidth) score += 200; 
-                if (sameWidth && sameLength) score += 500; 
-            }
+      for (let j = i + 1; j < limit; j++) {
+        if (Math.abs(rects[i].x - rects[j].x) > 3000 || Math.abs(rects[i].y - rects[j].y) > 3000) {
+          continue;
         }
+        const touchingX = Math.abs((rects[i].x + rects[i].width) - rects[j].x) < 0.1;
+        const touchingY = Math.abs((rects[i].y + rects[i].length) - rects[j].y) < 0.1;
+        const sameWidth = Math.abs(rects[i].width - rects[j].width) < 0.1;
+        const sameLength = Math.abs(rects[i].length - rects[j].length) < 0.1;
+
+        if (touchingX && Math.abs(rects[i].y - rects[j].y) < 0.1) {
+          score += 50;
+          if (sameLength) score += 200;
+          if (sameLength && sameWidth) score += 500;
+        }
+        if (touchingY && Math.abs(rects[i].x - rects[j].x) < 0.1) {
+          score += 50;
+          if (sameWidth) score += 200;
+          if (sameWidth && sameLength) score += 500;
+        }
+      }
     }
     return score;
   }
@@ -122,20 +122,20 @@ class BaseStrategy {
 
     // 2. Chạm tấm đã xếp (Giữ nguyên logic slice(-50) của file gốc)
     const candidates = placedRectangles.length > 200 ? placedRectangles.slice(-50) : placedRectangles;
-    
+
     for (const p of candidates) {
-        // Chạm cạnh dọc
-        if (p.x === node.x + rectWidth || p.x + p.width === node.x) {
-            if (p.y < node.y + rectLength && p.y + p.length > node.y) {
-                score += Math.min(node.y + rectLength, p.y + p.length) - Math.max(node.y, p.y);
-            }
+      // Chạm cạnh dọc
+      if (p.x === node.x + rectWidth || p.x + p.width === node.x) {
+        if (p.y < node.y + rectLength && p.y + p.length > node.y) {
+          score += Math.min(node.y + rectLength, p.y + p.length) - Math.max(node.y, p.y);
         }
-        // Chạm cạnh ngang
-        if (p.y === node.y + rectLength || p.y + p.length === node.y) {
-            if (p.x < node.x + rectWidth && p.x + p.width > node.x) {
-                score += Math.min(node.x + rectWidth, p.x + p.width) - Math.max(node.x, p.x);
-            }
+      }
+      // Chạm cạnh ngang
+      if (p.y === node.y + rectLength || p.y + p.length === node.y) {
+        if (p.x < node.x + rectWidth && p.x + p.width > node.x) {
+          score += Math.min(node.x + rectWidth, p.x + p.width) - Math.max(node.x, p.x);
         }
+      }
     }
     return score;
   }
@@ -155,22 +155,38 @@ class BaseStrategy {
     };
     const rectContains = (a, b) => a.x <= b.x && a.y <= b.y && (a.x + a.width) >= (b.x + b.width) && (a.y + a.length) >= (b.y + b.length);
     const pruneFreeList = (nodes) => {
-      for (let i = nodes.length - 1; i >= 0; i--) {
-        if (!nodes[i]) continue;
-        for (let j = nodes.length - 1; j >= 0; j--) {
-          if (i === j || !nodes[j]) continue;
-          if (rectContains(nodes[j], nodes[i])) {
-            nodes.splice(i, 1);
+      const count = nodes.length;
+      if (count === 0) return;
+
+      // Mark & Sweep để đạt hiệu năng O(N^2) thay vì O(N^3)
+      const removeFlags = new Uint8Array(count); // 0 = keep, 1 = remove
+
+      for (let i = 0; i < count; i++) {
+        const nodeI = nodes[i];
+        for (let j = 0; j < count; j++) {
+          if (i === j) continue;
+          const nodeJ = nodes[j];
+          if (rectContains(nodeJ, nodeI)) {
+            removeFlags[i] = 1;
             break;
           }
         }
       }
+
+      // In-place removal (giữ reference array cũ)
+      let activeIndex = 0;
+      for (let i = 0; i < count; i++) {
+        if (removeFlags[i] === 0) {
+          nodes[activeIndex++] = nodes[i];
+        }
+      }
+      nodes.length = activeIndex;
     };
     return { fitsIn, splitFreeNode, pruneFreeList };
   }
 
   // =================================================================================
-  // [CORE] HÀM MAXRECTS TỔNG QUÁT (ĐÃ UPDATE ĐỂ CHÍNH XÁC 100%)
+  // [CORE] HÀM MAXRECTS TỔNG QUÁT 
   // =================================================================================
   _maxRectsGeneric(rectanglesToPack, scoreFn, invertScore = false) {
     const { fitsIn, splitFreeNode, pruneFreeList } = this._maxRectsCommonHelpers();
@@ -182,7 +198,7 @@ class BaseStrategy {
       if (usedRectIds.has(rect.id)) continue;
 
       let bestNode = null;
-      let bestScore = invertScore ? -1 : Infinity; 
+      let bestScore = invertScore ? -1 : Infinity;
       let bestWasRotated = false;
       let bestIndex = -1;
 
@@ -191,20 +207,20 @@ class BaseStrategy {
 
         // 1. Thử hướng thường
         if (fitsIn(rect.width, rect.length, node)) {
-            const score = scoreFn(rect.width, rect.length, node, false, placedRectangles);
-            const isBetter = invertScore ? (score > bestScore) : (score < bestScore);
-            if (isBetter) {
-                bestScore = score; bestNode = node; bestIndex = i; bestWasRotated = false;
-            }
+          const score = scoreFn(rect.width, rect.length, node, false, placedRectangles);
+          const isBetter = invertScore ? (score > bestScore) : (score < bestScore);
+          if (isBetter) {
+            bestScore = score; bestNode = node; bestIndex = i; bestWasRotated = false;
+          }
         }
 
         // 2. Thử hướng xoay
         if (!rect.noRotate && fitsIn(rect.length, rect.width, node)) {
-            const score = scoreFn(rect.length, rect.width, node, true, placedRectangles);
-            const isBetter = invertScore ? (score > bestScore) : (score < bestScore);
-            if (isBetter) {
-                bestScore = score; bestNode = node; bestIndex = i; bestWasRotated = true;
-            }
+          const score = scoreFn(rect.length, rect.width, node, true, placedRectangles);
+          const isBetter = invertScore ? (score > bestScore) : (score < bestScore);
+          if (isBetter) {
+            bestScore = score; bestNode = node; bestIndex = i; bestWasRotated = true;
+          }
         }
       }
 
@@ -212,9 +228,9 @@ class BaseStrategy {
         const placedWidth = bestWasRotated ? rect.length : rect.width;
         const placedLength = bestWasRotated ? rect.width : rect.length;
 
-        const placed = { 
-            ...rect, x: bestNode.x, y: bestNode.y, width: placedWidth, length: placedLength, rotated: bestWasRotated, layer: 0,
-            originalWidth: rect.originalWidth, originalLength: rect.originalLength, transform: rect.transform, pairId: rect.pairId, pieceIndex: rect.pieceIndex, splitDirection: rect.splitDirection 
+        const placed = {
+          ...rect, x: bestNode.x, y: bestNode.y, width: placedWidth, length: placedLength, rotated: bestWasRotated, layer: 0,
+          originalWidth: rect.originalWidth, originalLength: rect.originalLength, transform: rect.transform, pairId: rect.pairId, pieceIndex: rect.pieceIndex, splitDirection: rect.splitDirection
         };
 
         placedRectangles.push(placed);
@@ -235,78 +251,78 @@ class BaseStrategy {
   // Thuật toán BSSF (Best Short Side Fit)
   _maxRectsBSSF(rectanglesToPack, forceGridPreference = false) {
     return this._maxRectsGeneric(rectanglesToPack, (w, h, node, rotated) => {
-        const dw = node.width - w;
-        const dh = node.length - h;
-        const shortFit = Math.min(dw, dh);
-        const longFit = Math.max(dw, dh);
-        
-        // [UPGRADE]: Tính điểm "Perfect Fit"
-        // Nếu vừa khít (dw hoặc dh gần bằng 0), thưởng điểm cực lớn
-        // Điều này giúp ưu tiên lấp đầy các khe hở do tấm lớn để lại
-        
-        let score = shortFit;
+      const dw = node.width - w;
+      const dh = node.length - h;
+      const shortFit = Math.min(dw, dh);
+      const longFit = Math.max(dw, dh);
 
-        if (dw < 1 || dh < 1) { 
-            // Nếu khớp khít 1 cạnh, coi như score cực thấp (ưu tiên số 1)
-            score -= 1000; 
-        }
+      // [UPGRADE]: Tính điểm "Perfect Fit"
+      // Nếu vừa khít (dw hoặc dh gần bằng 0), thưởng điểm cực lớn
+      // Điều này giúp ưu tiên lấp đầy các khe hở do tấm lớn để lại
 
-        if (forceGridPreference) {
-             // Logic cũ
-            if (dw === 0 || dh === 0) score -= 500; 
-            if (rotated) score += 2000; // Phạt xoay nếu muốn thẳng hàng
-        } else {
-            // [CHAOS MODE]: Nếu không ép Grid (dùng cho Fallback trong FullSizeStrategy)
-            // Thì KHÔNG phạt xoay. Cho phép xoay thoải mái để lọt vừa lỗ.
-        }
+      let score = shortFit;
 
-        // Vẫn giữ công thức trọng số cũ để đảm bảo logic nền
-        return score * 1000000 + longFit;
+      if (dw < 1 || dh < 1) {
+        // Nếu khớp khít 1 cạnh, coi như score cực thấp (ưu tiên số 1)
+        score -= 1000;
+      }
+
+      if (forceGridPreference) {
+        // Logic cũ
+        if (dw === 0 || dh === 0) score -= 500;
+        if (rotated) score += 2000; // Phạt xoay nếu muốn thẳng hàng
+      } else {
+        // [CHAOS MODE]: Nếu không ép Grid (dùng cho Fallback trong FullSizeStrategy)
+        // Thì KHÔNG phạt xoay. Cho phép xoay thoải mái để lọt vừa lỗ.
+      }
+
+      // Vẫn giữ công thức trọng số cũ để đảm bảo logic nền
+      return score * 1000000 + longFit;
     }, false); // false = Tìm Min
   }
 
   // Thuật toán BLSF (Best Long Side Fit)
   _maxRectsBLSF(rectanglesToPack, forceGridPreference = false) {
     return this._maxRectsGeneric(rectanglesToPack, (w, h, node, rotated) => {
-        const dw = node.width - w;
-        const dh = node.length - h;
-        const shortFit = Math.min(dw, dh);
-        const longFit = Math.max(dw, dh);
+      const dw = node.width - w;
+      const dh = node.length - h;
+      const shortFit = Math.min(dw, dh);
+      const longFit = Math.max(dw, dh);
 
-        // BLSF ưu tiên Long Fit trước, Short Fit sau
-        // CÔNG THỨC TRỌNG SỐ: (LongFit * 1Triệu) + ShortFit
-        return longFit * 1000000 + shortFit; 
+      // BLSF ưu tiên Long Fit trước, Short Fit sau
+      // CÔNG THỨC TRỌNG SỐ: (LongFit * 1Triệu) + ShortFit
+      return longFit * 1000000 + shortFit;
     }, false);
   }
 
   // Thuật toán BAF (Best Area Fit)
   _maxRectsBAF(rectanglesToPack, forceGridPreference = false) {
     return this._maxRectsGeneric(rectanglesToPack, (w, h, node, rotated) => {
-        const waste = (node.width * node.length) - (w * h);
-        let score = waste;
-        if (forceGridPreference && rotated) {
-             const nodeArea = node.width * node.length;
-             score += (nodeArea * 5); 
-        }
-        return score;
+      const waste = (node.width * node.length) - (w * h);
+      let score = waste;
+      if (forceGridPreference && rotated) {
+        const nodeArea = node.width * node.length;
+        score += (nodeArea * 5);
+      }
+      return score;
     }, false);
   }
 
   // Thuật toán BL (Bottom Left)
   _maxRectsBL(rectanglesToPack, forceGridPreference = false) {
     return this._maxRectsGeneric(rectanglesToPack, (w, h, node, rotated) => {
-        let score = node.y * this.container.width + node.x;
-        if (forceGridPreference && rotated) {
-             score += (this.container.width * this.container.length * 10);
-        }
-        return score;
+      let score = node.y * this.container.width + node.x;
+      if (forceGridPreference && rotated) {
+        score += (this.container.width * this.container.length * 10);
+      }
+      return score;
     }, false);
   }
 
   // Thuật toán Contact Point
   _maxRectsContactPoint(rectanglesToPack) {
     return this._maxRectsGeneric(rectanglesToPack, (w, h, node, rotated, placed) => {
-        return this._calculateContactScore(node, w, h, placed);
+      return this._calculateContactScore(node, w, h, placed);
     }, true); // true = Tìm Max
   }
 
@@ -319,7 +335,7 @@ class BaseStrategy {
     let currentX = 0;
     let currentY = 0;
     let currentShelfHeight = 0;
-    
+
     for (let i = 0; i < rects.length; i++) {
       const rect = rects[i];
       if (usedRectIds.has(rect.id)) continue;
@@ -330,7 +346,7 @@ class BaseStrategy {
       if (currentX + placedWidth > this.container.width) {
         currentX = 0;
         currentY += currentShelfHeight;
-        currentShelfHeight = 0; 
+        currentShelfHeight = 0;
       }
       if (currentY + placedLength > this.container.length) continue;
 
@@ -350,7 +366,7 @@ class BaseStrategy {
           if (Math.abs(candidate.width - placedWidth) > 0.1) continue;
           if (currentStackY + candidate.length > this.container.length) continue;
           bestStackIndex = j;
-          break; 
+          break;
         }
         if (bestStackIndex !== -1) {
           const stackedRect = rects[bestStackIndex];
@@ -373,17 +389,17 @@ class BaseStrategy {
   _bottomLeftFill(rectanglesToPack) {
     const placedRectangles = [];
     const usedRectIds = new Set();
-    let freeSpaces = [{ x: 0, y: 0, width: this.container.width, length: this.container.length }]; 
+    let freeSpaces = [{ x: 0, y: 0, width: this.container.width, length: this.container.length }];
     for (const rect of rectanglesToPack) {
       if (usedRectIds.has(rect.id)) continue;
       let bestSpaceIndex = -1;
       let bestWaste = Infinity;
       for (let i = 0; i < freeSpaces.length; i++) {
-          const space = freeSpaces[i];
-          if (this.canFitInSpace(rect, space)) {
-              const waste = space.y * this.container.width + space.x; 
-              if (waste < bestWaste) { bestWaste = waste; bestSpaceIndex = i; }
-          }
+        const space = freeSpaces[i];
+        if (this.canFitInSpace(rect, space)) {
+          const waste = space.y * this.container.width + space.x;
+          if (waste < bestWaste) { bestWaste = waste; bestSpaceIndex = i; }
+        }
       }
       if (bestSpaceIndex !== -1) {
         const usedSpace = freeSpaces[bestSpaceIndex];
@@ -400,18 +416,18 @@ class BaseStrategy {
         freeSpaces.splice(bestSpaceIndex, 1);
         freeSpaces.push(...newFreeSpaces);
         freeSpaces.sort((a, b) => a.y - b.y || a.x - b.x);
-       }
-     }
-     const remainingRectangles = rectanglesToPack.filter(rect => !usedRectIds.has(rect.id));
+      }
+    }
+    const remainingRectangles = rectanglesToPack.filter(rect => !usedRectIds.has(rect.id));
     return { placed: placedRectangles, remaining: remainingRectangles };
   }
-  
+
   canFitInSpace(rect, space) {
     return rect.width <= space.width && rect.length <= space.length;
   }
 
   _bestFitDecreasing(rectanglesToPack) {
-    return this._maxRectsBSSF(rectanglesToPack); 
+    return this._maxRectsBSSF(rectanglesToPack);
   }
 
   _nextFitDecreasing(rectanglesToPack) {
@@ -420,43 +436,43 @@ class BaseStrategy {
     let remainingRectangles = [];
     let currentX = 0, currentY = 0, currentLength = 0;
     for (const rect of rectanglesToPack) {
-        if (usedRectIds.has(rect.id)) continue;
-        let width = rect.width, length = rect.length;
-        const checkFit = (x, y, w, h) => (x + w <= this.container.width && y + h <= this.container.length);
-        let fit = checkFit(currentX, currentY, width, length);
-        if (!fit) {
-          currentX = 0; currentY += currentLength; currentLength = 0;
+      if (usedRectIds.has(rect.id)) continue;
+      let width = rect.width, length = rect.length;
+      const checkFit = (x, y, w, h) => (x + w <= this.container.width && y + h <= this.container.length);
+      let fit = checkFit(currentX, currentY, width, length);
+      if (!fit) {
+        currentX = 0; currentY += currentLength; currentLength = 0;
+        fit = checkFit(currentX, currentY, width, length);
+        if (!fit && !rect.noRotate) {
+          [width, length] = [length, width];
           fit = checkFit(currentX, currentY, width, length);
-          if (!fit && !rect.noRotate) { 
-            [width, length] = [length, width];
-            fit = checkFit(currentX, currentY, width, length);
-            if (fit) { rect.rotated = !rect.rotated; }
-          }
-          if (!fit) { remainingRectangles.push(rect); continue; }
+          if (fit) { rect.rotated = !rect.rotated; }
         }
-        const placedRect = { ...rect, width: width, length: length, x: currentX, y: currentY, layer: 0, rotated: rect.rotated };
-        placedRectangles.push(placedRect);
-        usedRectIds.add(rect.id);
-        currentX += width;
-        currentLength = Math.max(currentLength, length);
-        if (currentX >= this.container.width) { currentX = 0; currentY += currentLength; currentLength = 0; }
+        if (!fit) { remainingRectangles.push(rect); continue; }
+      }
+      const placedRect = { ...rect, width: width, length: length, x: currentX, y: currentY, layer: 0, rotated: rect.rotated };
+      placedRectangles.push(placedRect);
+      usedRectIds.add(rect.id);
+      currentX += width;
+      currentLength = Math.max(currentLength, length);
+      if (currentX >= this.container.width) { currentX = 0; currentY += currentLength; currentLength = 0; }
     }
     remainingRectangles = rectanglesToPack.filter(rect => !usedRectIds.has(rect.id));
     return { placed: placedRectangles, remaining: remainingRectangles };
   }
-  
+
   _maxRectsPackLeft(rectanglesToPack, forceGridPreference = false) {
-      return this._maxRectsGeneric(rectanglesToPack, (w, h, node, rotated) => {
-          // Công thức điểm số: Ưu tiên X thấp nhất (bên trái), sau đó đến Y thấp nhất
-          // Hệ số container.length đảm bảo X luôn là ưu tiên số 1
-          let score = node.x * this.container.length + node.y;
-          
-          if (forceGridPreference) {
-              if (rotated) score += (this.container.width * this.container.length); // Phạt xoay nếu muốn thẳng hàng
-          }
-          return score;
-      }, false); // false = Tìm Min (Điểm càng thấp càng tốt)
-    }
+    return this._maxRectsGeneric(rectanglesToPack, (w, h, node, rotated) => {
+      // Công thức điểm số: Ưu tiên X thấp nhất (bên trái), sau đó đến Y thấp nhất
+      // Hệ số container.length đảm bảo X luôn là ưu tiên số 1
+      let score = node.x * this.container.length + node.y;
+
+      if (forceGridPreference) {
+        if (rotated) score += (this.container.width * this.container.length); // Phạt xoay nếu muốn thẳng hàng
+      }
+      return score;
+    }, false); // false = Tìm Min (Điểm càng thấp càng tốt)
+  }
 
   execute(_rectanglesToPack) {
     throw new Error("Method 'execute' must be implemented by subclasses");
