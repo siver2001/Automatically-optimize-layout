@@ -2,7 +2,7 @@
 // server/algorithms/packingAlgorithm.js
 import HybridStrategy from './strategies/HybridStrategy.js';
 import FullSizeStrategy from './strategies/FullSizeStrategy.js';
-import HorizontalStrategy from './strategies/HorizontalStrategy.js';
+// import HorizontalStrategy from './strategies/HorizontalStrategy.js'; // Removed
 import { FastGrid } from './utils/FastGrid.js';
 
 class PackingAlgorithm {
@@ -23,7 +23,7 @@ class PackingAlgorithm {
     return { sheets: [], efficiency: 0, layersUsed: 0 };
   }
 
-  async _runGreedyLayeringPass(container, initialRectangles, maxLayers, strategyProcessor) {
+  async _runGreedyLayeringPass(container, initialRectangles, maxLayers, strategyProcessor, strategyConfig = {}) {
     let unpackedRectangles = initialRectangles.map(r => ({ ...r }));
     let allPlacedRectangles = [];
     let layersUsed = 0;
@@ -65,7 +65,7 @@ class PackingAlgorithm {
       }
 
       // [ASYNC UPDATE] Await the execution result
-      const { placed: placedRaw, remaining: remainingRaw } = await strategyProcessor.execute(unpackedRectangles);
+      const { placed: placedRaw, remaining: remainingRaw } = await strategyProcessor.execute(unpackedRectangles, strategyConfig);
 
       const sanitizeResult = sanitizeLayer(placedRaw, []);
       let placedInLayer = sanitizeResult.accepted;
@@ -110,16 +110,20 @@ class PackingAlgorithm {
       this.checkTimeout(30);
 
       let strategyProcessor;
+      let strategyConfig = { alignmentMode: 'default' };
+
       if (strategyName === 'FULL_SIZE') {
         strategyProcessor = new FullSizeStrategy(container);
       } else if (strategyName === 'AREA_OPTIMIZED_HORIZONTAL') {
-        strategyProcessor = new HorizontalStrategy(container);
+        // [MOD] Use HybridStrategy for Horizontal too, but with horizontal alignment bias
+        strategyProcessor = new HybridStrategy(container);
+        strategyConfig = { alignmentMode: 'horizontal' };
       } else {
         strategyProcessor = new HybridStrategy(container);
       }
 
       // 1. CHẠY THUẬT TOÁN CHÍNH (Lần 1)
-      let bestResult = await this._runGreedyLayeringPass(container, initialRectangles, maxLayers, strategyProcessor);
+      let bestResult = await this._runGreedyLayeringPass(container, initialRectangles, maxLayers, strategyProcessor, strategyConfig);
 
       // =====================================================================
       // [NÂNG CẤP] TỐI ƯU HÓA 2 TẤM CUỐI CÙNG (RE-OPTIMIZE LAST 2 SHEETS)

@@ -77,7 +77,7 @@ class BaseStrategy {
 
   // --- TÍNH ĐIỂM (GIỮ NGUYÊN LOGIC) ---
 
-  _calculateAlignmentScore(placedRectangles) {
+  _calculateAlignmentScore(placedRectangles, alignmentMode = 'default') {
     let score = 0;
     const rects = placedRectangles;
     const count = rects.length;
@@ -99,15 +99,33 @@ class BaseStrategy {
         const sameWidth = Math.abs(rects[i].width - rects[j].width) < 0.1;
         const sameLength = Math.abs(rects[i].length - rects[j].length) < 0.1;
 
-        if (touchingX && Math.abs(rects[i].y - rects[j].y) < 0.1) {
-          score += 50;
-          if (sameLength) score += 200;
-          if (sameLength && sameWidth) score += 500;
+        // HORIZONTAL PRIORITY: Ưu tiên xếp ngang (side-by-side)
+        if (alignmentMode === 'horizontal') {
+          // Xếp cạnh nhau (touchingX) và cùng chiều cao (sameLength) -> Thưởng lớn
+          if (touchingX && Math.abs(rects[i].y - rects[j].y) < 0.1) {
+            score += 100; // Bonus cơ bản (tăng từ 50)
+            if (sameLength) score += 400; // Bonus cùng chiều cao (tăng từ 200) -> Total 500
+            if (sameLength && sameWidth) score += 600; // Bonus giống hệt
+          }
+          // Xếp chồng (touchingY) -> Điểm thấp hơn chút
+          if (touchingY && Math.abs(rects[i].x - rects[j].x) < 0.1) {
+            score += 20;
+            if (sameWidth) score += 100;
+            if (sameWidth && sameLength) score += 300;
+          }
         }
-        if (touchingY && Math.abs(rects[i].x - rects[j].x) < 0.1) {
-          score += 50;
-          if (sameWidth) score += 200;
-          if (sameWidth && sameLength) score += 500;
+        // DEFAULT / VERTICAL PRIORITY
+        else {
+          if (touchingX && Math.abs(rects[i].y - rects[j].y) < 0.1) {
+            score += 50;
+            if (sameLength) score += 200;
+            if (sameLength && sameWidth) score += 500;
+          }
+          if (touchingY && Math.abs(rects[i].x - rects[j].x) < 0.1) {
+            score += 50;
+            if (sameWidth) score += 200;
+            if (sameWidth && sameLength) score += 500;
+          }
         }
       }
     }

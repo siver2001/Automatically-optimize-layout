@@ -736,8 +736,6 @@ const PackingResult = () => {
       return prevPlates;
     });
 
-    // ✅ FIX: Reset trạng thái và thoát Edit Mode ngay lập tức.
-    // Đã xóa alert() để tránh chặn thread trình duyệt.
     setIsEditMode(false);
     setSelectedRectIds([]);
     setPickedUpRect(null);

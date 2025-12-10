@@ -63,8 +63,11 @@ class HybridStrategy extends BaseStrategy {
         return selected;
     }
 
-    async execute(rectanglesToPack) {
+    async execute(rectanglesToPack, strategyConfig = {}) {
         const rawRects = rectanglesToPack.map(r => ({ ...r }));
+
+        // Config defaults
+        const alignmentMode = strategyConfig.alignmentMode || 'default';
 
         // 0. HEURISTIC SELECTION
         const analytics = this._analyzeInput(rawRects);
@@ -193,7 +196,10 @@ class HybridStrategy extends BaseStrategy {
 
             const count = placed.length;
             const usedArea = placed.reduce((sum, rect) => sum + (rect.width * rect.length), 0);
-            const alignmentScore = this._calculateAlignmentScore(placed);
+
+            // [CUSTOM ALIGNMENT SCORE]
+            // Pass the alignmentMode to the BaseStrategy helper
+            const alignmentScore = this._calculateAlignmentScore(placed, alignmentMode);
 
             let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
             if (placed.length > 0) {
