@@ -6,8 +6,6 @@ import { packingService } from '../services/packingService.js';
 // ✅ HELPER 1: Tách Giai đoạn 3 - MERGE
 // (Hàm này nhận vào 1 danh sách pieces, trả về danh sách đã merge)
 // ============================================================
-// Helpers removed (moved to backend)
-
 const PackingContext = React.createContext();
 
 const initialState = {
@@ -258,114 +256,7 @@ export const PackingProvider = ({ children }) => {
     return true;
   }, [state.rectangles, state.selectedRectangles, state.quantities]);
 
-  // ============================================================
-  // CONSTANTS
-  // ============================================================
-  const MIN_SPLIT_WIDTH = 10; // Chiều rộng tối thiểu để chia đôi (mm)
-  const MAX_ITERATIONS = 10000; // Số lần lặp tối đa cho mixed plates
 
-  // ============================================================
-  // HELPER: Tạo chữ ký pattern để phát hiện tấm trùng lặp
-  // ============================================================
-  const createPatternSignature = (placed) => {
-    const layer0Rects = placed.filter(r => r.layer === 0);
-
-    const sorted = [...layer0Rects].sort((a, b) => {
-      if (a.typeId !== b.typeId) return a.typeId - b.typeId;
-      if (a.x !== b.x) return a.x - b.x;
-      return a.y - b.y;
-    });
-
-    return sorted.map(r =>
-      `${r.typeId}:${r.x}:${r.y}:${r.width}:${r.length}:${r.rotated ? 1 : 0}`
-    ).join('|');
-  };
-
-  // ============================================================
-  // HELPER: Tạo mixed plate với multi-strategy
-  // ============================================================
-  const createMixedPlateMultiStrategy = async (pool, layersPerPlate) => {
-    if (pool.length === 0) return null;
-
-    const strategies = [
-      {
-        name: 'Area Descending',
-        sort: (a, b) => (b.width * b.length) - (a.width * a.length)
-      },
-      {
-        name: 'Max Dimension',
-        sort: (a, b) => Math.max(b.width, b.length) - Math.max(a.width, a.length)
-      },
-      {
-        name: 'Perimeter',
-        sort: (a, b) => (2 * (b.width + b.length)) - (2 * (a.width + a.length))
-      },
-      {
-        name: 'Aspect Ratio',
-        sort: (a, b) => {
-          const ratioA = Math.max(a.width, a.length) / Math.min(a.width, a.length);
-          const ratioB = Math.max(b.width, b.length) / Math.min(b.width, b.length);
-          return (ratioA - ratioB) || (a.pairId || '').localeCompare(b.pairId || '');
-        }
-      }
-    ];
-
-    let bestResult = null;
-    let bestArea = 0;
-
-    for (const strategy of strategies) {
-      // Clone và sort pool theo chiến thuật mới
-      const sortedPool = [...pool].sort(strategy.sort);
-
-      // CHỈ CHẠY CHO 1 LỚP - Logic xếp nhiều lớp sẽ được xử lý ở bên ngoài
-      const result = await packingService.optimizePacking(
-        { ...state.container, layers: 1 },
-        sortedPool,
-        1
-      );
-
-      const placed = (result?.result?.rectangles || [])
-        .filter(r => r && r.x !== undefined)
-        .map(r => ({
-          ...r,
-          typeId: r.typeId,
-          originalTypeId: r.originalTypeId,
-          pairId: r.pairId,
-          pieceIndex: r.pieceIndex,
-          splitDirection: r.splitDirection,
-          originalWidth: r.originalWidth,
-          originalLength: r.originalLength,
-          x: r.x,
-          y: r.y,
-          width: r.width,
-          length: r.length,
-          layer: r.layer || 0,
-          rotated: r.rotated || false,
-          color: r.color,
-          name: r.name
-        }));
-
-      const totalArea = placed.reduce((sum, r) => sum + (r.width * r.length), 0);
-
-      if (totalArea > bestArea) {
-        bestArea = totalArea;
-        bestResult = placed;
-      }
-    }
-
-    if (!bestResult || bestResult.length === 0) return null;
-
-
-    const usedTypeIds = new Set(bestResult.map(r => r.typeId));
-    const placedIds = new Set(bestResult.map(r => r.id));
-
-    const typeCount = {};
-    bestResult.forEach(r => {
-      typeCount[r.typeId] = (typeCount[r.typeId] || 0) + 1;
-    });
-
-    return { placed: bestResult, placedIds, usedTypeIds, typeCount };
-  };
 
   // ============================================================
   // MAIN OPTIMIZATION LOGIC

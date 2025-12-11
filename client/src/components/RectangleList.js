@@ -19,8 +19,19 @@ const ChevronRightIcon = () => (
 
 // --- Helpers ---
 const generateRandomColor = () => {
-  const randomHue = Math.floor(Math.random() * 360);
-  return `hsl(${randomHue}, 70%, 60%)`;
+  const h = Math.floor(Math.random() * 360);
+  const s = 70;
+  const l = 60;
+
+  // HSL to Hex Conversion
+  const lDev = l / 100;
+  const a = s * Math.min(lDev, 1 - lDev) / 100;
+  const f = n => {
+    const k = (n + h / 30) % 12;
+    const color = lDev - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+    return Math.round(255 * color).toString(16).padStart(2, '0');
+  };
+  return `#${f(0)}${f(8)}${f(4)}`;
 };
 
 const findHeaderLocation = (worksheet) => {

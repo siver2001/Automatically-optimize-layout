@@ -196,13 +196,42 @@ class PackingService {
           return { success: false, error: 'Lỗi không thể đọc phản hồi từ server.' };
         }
       }
-
       return {
         success: false,
         error: error.response?.data?.error || error.message || 'Không thể xuất file PDF.'
       };
     }
   }
+
+  // Xuất DXF
+  async exportDxf(container, allLayouts) {
+    try {
+      const response = await this.api.post('/packing/export-dxf', {
+        container,
+        allLayouts
+      }, {
+        responseType: 'blob',
+      });
+
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'packing-layouts.dxf');
+      document.body.appendChild(link);
+      link.click();
+
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      return { success: true };
+    } catch (error) {
+      console.error('Lỗi khi xuất DXF:', error);
+      return {
+        success: false,
+        error: error.response?.data?.error || error.message || 'Không thể xuất file DXF.'
+      };
+    }
+  }
 }
+
 
 export const packingService = new PackingService();

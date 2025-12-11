@@ -84,6 +84,7 @@ const EditModeControls = ({
   onTogglePalette,
   pickedUpRect,
   onShowHelp,
+  onExportDxf
 }) => {
 
   const hasSelection = selectedRectangles && selectedRectangles.length > 0;
@@ -106,17 +107,22 @@ const EditModeControls = ({
           </button>
         </div>
 
-        {/* Nút Xuất PDF (CHỈ HIỂN THỊ KHI KHÔNG CHỈNH SỬA) */}
+        {/* Nút Xuất PDF & DXF (CHỈ HIỂN THỊ KHI KHÔNG CHỈNH SỬA) */}
         {!isEditMode && (
-          <div className="flex-shrink-0">
+          <div className="flex-shrink-0 flex gap-2">
             <button
-              onClick={onExportAllPdf} // Dùng prop mới
-              disabled={isExporting || totalPlates === 0} // Dùng prop mới
+              onClick={onExportDxf}
+              disabled={isExporting || totalPlates === 0}
+              className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-md shadow-sm hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+            >
+              {isExporting ? '...' : 'Xuất CNC (DXF)'}
+            </button>
+            <button
+              onClick={onExportAllPdf}
+              disabled={isExporting || totalPlates === 0}
               className="px-4 py-2 bg-green-600 text-white font-semibold rounded-md shadow-sm hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
             >
-              {isExporting
-                ? 'Đang xử lý...'
-                : `Xuất PDF `}
+              {isExporting ? 'Đang xử lý...' : 'Xuất PDF'}
             </button>
           </div>
         )}

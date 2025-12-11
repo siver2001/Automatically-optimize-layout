@@ -37,8 +37,6 @@ const getColorForRectangle = (rect) => {
   return colorMap[closestKey] || colorMap.default;
 };
 
-// POST /api/packing/optimize-batch - Tối ưu toàn bộ (NEW)
-// POST /api/packing/optimize-batch - Tối ưu toàn bộ (NEW)
 router.post('/optimize-batch', async (req, res) => {
   try {
     const { container, rectangles, quantities, strategy, unsplitableRectIds, layers } = req.body;
@@ -205,4 +203,31 @@ router.post('/export-pdf', (req, res) => {
     res.status(500).json({ error: 'Không thể tạo file PDF.' });
   }
 });
+
+// === ROUTE ĐỂ XUẤT DXF (CNC) ===
+router.post('/export-dxf', async (req, res) => {
+  try {
+    const { container, allLayouts } = req.body;
+
+    if (!container || !allLayouts || !Array.isArray(allLayouts) || allLayouts.length === 0) {
+      return res.status(400).json({
+        error: 'Dữ liệu layout không hợp lệ. Cần "container" và mảng "allLayouts".'
+      });
+    }
+
+    const { generateDxf } = await import('../utils/dxfGenerator.js');
+    const dxfContent = generateDxf({ container, allLayouts });
+
+    // Thiết lập header
+    res.setHeader('Content-Type', 'application/dxf');
+    res.setHeader('Content-Disposition', 'attachment; filename=packing-layouts.dxf');
+
+    res.send(dxfContent);
+
+  } catch (error) {
+    console.error('Lỗi khi tạo DXF:', error);
+    res.status(500).json({ error: 'Không thể tạo file DXF.' });
+  }
+});
+
 export default router;

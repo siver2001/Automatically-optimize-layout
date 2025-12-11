@@ -858,6 +858,64 @@ const PackingResult = () => {
     }
   };
 
+  const handleExportDxf = async () => {
+    if (!editablePlates || editablePlates.length === 0) {
+      setExportError('Không có dữ liệu kết quả để xuất.');
+      return;
+    }
+    setIsExporting(true);
+    setExportError(null);
+    try {
+      // Deep clone and inject colors
+      const platesToExport = editablePlates.map(plate => ({
+        ...plate,
+        layers: plate.layers.map(layer => ({
+          ...layer,
+          rectangles: layer.rectangles.map(rect => {
+            // Robust color lookup
+            // Helper to generate consistent color from name
+            const stringToColor = (str) => {
+              if (!str) return '#CCCCCC';
+              let hash = 0;
+              for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
+              const c = (hash & 0x00FFFFFF).toString(16).toUpperCase();
+              return '#' + '00000'.substring(0, 6 - c.length) + c;
+            };
+
+            let injectedColor = rect.color;
+            if (!injectedColor || injectedColor === '#000000' || injectedColor === '#ffffff') {
+              // Try lookup by typeId (both as string and raw)
+              const details = placedRectDetails[rect.typeId] || placedRectDetails[String(rect.typeId)];
+              injectedColor = details?.color || stringToColor(rect.name);
+            }
+
+            return {
+              ...rect,
+              color: injectedColor,
+              // Ensure typeId is preserved just in case
+              typeId: rect.typeId
+            };
+          })
+        }))
+      }));
+
+      // Debug log
+      const firstPlate = platesToExport[0];
+      if (firstPlate && firstPlate.layers[0]?.rectangles[0]) {
+        console.log('[Frontend Export Debug] Sample Rect:', firstPlate.layers[0].rectangles[0]);
+      }
+
+      const response = await packingService.exportDxf(container, platesToExport);
+
+      if (!response.success) setExportError(response.error || 'Lỗi không xác định khi xuất file DXF.');
+    } catch (error) {
+      console.error('Lỗi handleExportDxf:', error);
+      setExportError('Lỗi nghiêm trọng: ' + error.message);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   // --- TÍNH HIỆU SUẤT REAL-TIME (ĐÃ SỬA) ---
   const singleLayerArea = container.width * container.length;
 
@@ -953,6 +1011,7 @@ const PackingResult = () => {
         onCancelEdit={handleCancelEdit}
         hasUnsavedChanges={hasUnsavedChanges}
         onExportAllPdf={handleExportPdf}
+        onExportDxf={handleExportDxf}
         isExporting={isExporting}
         totalPlates={platesNeeded}
         isPaletteOpen={isUnplacedPanelOpen}
