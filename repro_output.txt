@@ -1,0 +1,17 @@
+=== TEST RUN 1: Item A (Qty 5) ===
+Run 1 Result: Item A = 6 (Expected 5)
+ - ID: rect_1, Name: Item A, W: 500, L: 500, Layer: 0
+ - ID: rect_2, Name: Item A, W: 500, L: 500, Layer: 0
+ - ID: rect_4, Name: Item A, W: 500, L: 500, Layer: 0
+ - ID: rect_5, Name: Item A, W: 500, L: 500, Layer: 0
+ - ID: rect_half_3, Name: 1/2 Item A, W: 250, L: 500, Layer: 0
+ - ID: rect_half_6, Name: 1/2 Item A, W: 250, L: 500, Layer: 0
+
+=== TEST RUN 2: Item B (Qty 5) ONLY ===
+Run 2 Result: Item A = 0 (Expected 0), Item B = 6 (Expected 5)
+ - ID: rect_1, Name: Item B, W: 300, L: 300, Layer: 0
+ - ID: rect_3, Name: Item B, W: 300, L: 300, Layer: 0
+ - ID: rect_5, Name: Item B, W: 300, L: 300, Layer: 0
+ - ID: rect_6, Name: Item B, W: 300, L: 300, Layer: 0
+ - ID: rect_half_2, Name: 1/2 Item B, W: 150, L: 300, Layer: 0
+ - ID: rect_half_4, Name: 1/2 Item B, W: 150, L: 300, Layer: 0

@@ -73,7 +73,9 @@ class PackingOrchestrator {
                             originalWidth: rectType.width,
                             originalLength: rectType.length,
                             transform: { ...meta },
+                            transform: { ...meta },
                             name: `1/2 ${rectType.name}`,
+                            originalName: rectType.name,
                             color: rectType.color
                         });
                         pool.push({
@@ -89,7 +91,9 @@ class PackingOrchestrator {
                             originalWidth: rectType.width,
                             originalLength: rectType.length,
                             transform: { ...meta },
+                            transform: { ...meta },
                             name: `1/2 ${rectType.name}`,
+                            originalName: rectType.name,
                             color: rectType.color
                         });
                     } else {
@@ -183,6 +187,8 @@ class PackingOrchestrator {
                         x: minX,
                         y: minY,
                         color: p1.color,
+                        color: p1.color,
+                        name: p1.originalName || p1.name, // Restore original name if available
                         typeId: p1.originalTypeId,
                         originalTypeId: p1.originalTypeId,
                         pairId: null,
@@ -538,6 +544,7 @@ class PackingOrchestrator {
 class PackingOrchestratorFinal extends PackingOrchestrator {
     async optimizeBatch(container, rectangles, quantities, strategy, unsplitableRectIds, layersPerPlate, onProgress) {
         // 1. Split
+
         let pool = this._splitRectangles(rectangles, quantities, strategy, unsplitableRectIds);
 
         let allPlacedRectangles = [];
@@ -568,9 +575,27 @@ class PackingOrchestratorFinal extends PackingOrchestrator {
 
             // --- PARALLEL STRATEGY EXECUTION ---
             const strategies = [
-                { name: 'Area Descending', sort: (a, b) => (b.width * b.length) - (a.width * a.length) },
-                { name: 'Max Dimension', sort: (a, b) => Math.max(b.width, b.length) - Math.max(a.width, a.length) },
-                { name: 'Perimeter', sort: (a, b) => (2 * (b.width + b.length)) - (2 * (a.width + a.length)) },
+                {
+                    name: 'Area Descending', sort: (a, b) => {
+                        const areaDiff = (b.width * b.length) - (a.width * a.length);
+                        if (Math.abs(areaDiff) > 0.1) return areaDiff;
+                        return (a.pairId || '').localeCompare(b.pairId || '');
+                    }
+                },
+                {
+                    name: 'Max Dimension', sort: (a, b) => {
+                        const dimDiff = Math.max(b.width, b.length) - Math.max(a.width, a.length);
+                        if (Math.abs(dimDiff) > 0.1) return dimDiff;
+                        return (a.pairId || '').localeCompare(b.pairId || '');
+                    }
+                },
+                {
+                    name: 'Perimeter', sort: (a, b) => {
+                        const perimDiff = (2 * (b.width + b.length)) - (2 * (a.width + a.length));
+                        if (Math.abs(perimDiff) > 0.1) return perimDiff;
+                        return (a.pairId || '').localeCompare(b.pairId || '');
+                    }
+                },
                 {
                     name: 'Aspect Ratio', sort: (a, b) => {
                         const ra = Math.max(a.width, a.length) / Math.min(a.width, a.length);
