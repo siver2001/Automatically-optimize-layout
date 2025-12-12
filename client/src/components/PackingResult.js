@@ -916,7 +916,7 @@ const PackingResult = () => {
   const singleLayerArea = container.width * container.length;
 
   // Diện tích sử dụng trên 1 layout (1 lớp)
-  const currentPlateUsedArea = (isEditMode ? editedRectangles : originalRectangles).reduce((sum, rect) => sum + (rect.width * rect.length), 0);
+  const currentPlateUsedArea = (isEditMode ? editedRectangles : viewOnlyRects).reduce((sum, rect) => sum + (rect.width * rect.length), 0);
 
   // ✅ Sửa: Chỉ chia cho diện tích của 1 lớp (singleLayerArea). 
   // Vì layout xếp giống nhau cho mọi lớp, nên hiệu suất 1 lớp cũng là hiệu suất cả tấm.
@@ -929,7 +929,7 @@ const PackingResult = () => {
 
     editablePlates.forEach(plate => {
       if (plate.originalIndex === currentPlateMeta?.originalIndex) {
-        const used = (isEditMode ? editedRectangles : originalRectangles).reduce((s, r) => s + (r.width * r.length), 0);
+        const used = (isEditMode ? editedRectangles : viewOnlyRects).reduce((s, r) => s + (r.width * r.length), 0);
         const pLayers = currentLayerCount;
         totalUsedArea += (used * pLayers);
         totalArea += (singleLayerArea * pLayers);
