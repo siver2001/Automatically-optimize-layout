@@ -187,7 +187,6 @@ class PackingOrchestrator {
                         x: minX,
                         y: minY,
                         color: p1.color,
-                        color: p1.color,
                         name: p1.originalName || p1.name, // Restore original name if available
                         typeId: p1.originalTypeId,
                         originalTypeId: p1.originalTypeId,
@@ -206,6 +205,125 @@ class PackingOrchestrator {
             }
         }
         return mergedRects;
+    }
+
+    _checkOverlap(rect, existingRects, tolerance = 0.1) {
+        for (const e of existingRects) {
+            const overlapX = !(rect.x + rect.width <= e.x + tolerance || rect.x >= e.x + e.width - tolerance);
+            const overlapY = !(rect.y + rect.length <= e.y + tolerance || rect.y >= e.y + e.length - tolerance);
+            if (overlapX && overlapY) return true;
+        }
+        return false;
+    }
+
+    _findBestPositionSmart(rect, existingRects, containerWidth, containerLength) {
+        let bestPos = null;
+        let bestScore = Infinity;
+
+        const orientations = [
+            { w: rect.width, l: rect.length, r: rect.rotated || false },
+            { w: rect.length, l: rect.width, r: !(rect.rotated || false) }
+        ];
+
+        const candidates = [{ x: 0, y: 0 }];
+        existingRects.forEach(e => {
+            candidates.push({ x: e.x + e.width, y: e.y });
+            candidates.push({ x: e.x, y: e.y + e.length });
+        });
+
+        for (const ori of orientations) {
+            const { w, l, r } = ori;
+            if (w > containerWidth || l > containerLength) continue;
+
+            for (const p of candidates) {
+                if (p.x + w > containerWidth || p.y + l > containerLength) continue;
+
+                const testRect = { x: p.x, y: p.y, width: w, length: l };
+                if (this._checkOverlap(testRect, existingRects)) continue;
+
+                let score = p.y * containerWidth + p.x;
+                let aligns = false;
+
+                for (const e of existingRects) {
+                    if (Math.abs(e.x + e.width - p.x) < 0.1 && Math.abs(e.length - l) < 0.1 && Math.abs(e.y - p.y) < 0.1) {
+                        score -= 500000; aligns = true;
+                    }
+                    if (Math.abs(e.y + e.length - p.y) < 0.1 && Math.abs(e.width - w) < 0.1 && Math.abs(e.x - p.x) < 0.1) {
+                        score -= 500000; aligns = true;
+                    }
+                }
+
+                if (!aligns && r !== (rect.rotated || false)) score += 1000;
+
+                if (score < bestScore) {
+                    bestScore = score;
+                    bestPos = { x: p.x, y: p.y, width: w, length: l, rotated: r };
+                }
+            }
+        }
+        return bestPos;
+    }
+
+    _repackPlateToCompletePairs(rectsInPlateLayer, container, tolerance = 0.5) {
+        // 1) tách half chưa merge
+        const halfs = rectsInPlateLayer.filter(r => r.pairId && r.originalTypeId && r.originalWidth && r.originalLength);
+
+        // group theo type
+        const byType = new Map();
+        for (const r of halfs) {
+            const key = r.originalTypeId;
+            if (!byType.has(key)) byType.set(key, []);
+            byType.get(key).push(r);
+        }
+
+        // 2) tạo full candidates từ các half pairs
+        const usedHalfIds = new Set();
+        const fullCandidates = [];
+
+        const typeEntries = Array.from(byType.entries()).sort((a, b) => b[1].length - a[1].length);
+        for (const [, arr] of typeEntries) {
+            // ghép theo cặp: 2 half => 1 full
+            // (nếu bạn có rule left/right thì ghép đúng left+right ở đây)
+            for (let i = 0; i + 1 < arr.length; i += 2) {
+                const a = arr[i], b = arr[i + 1];
+                if (usedHalfIds.has(a.id) || usedHalfIds.has(b.id)) continue;
+
+                usedHalfIds.add(a.id); usedHalfIds.add(b.id);
+
+                fullCandidates.push({
+                    id: `full_from_${a.id}_${b.id}`,
+                    width: a.originalWidth,
+                    length: a.originalLength,
+                    typeId: a.originalTypeId,
+                    originalTypeId: a.originalTypeId,
+                    originalName: a.originalName || a.name,
+                    mergedFrom: [a.id, b.id],
+                    // giữ plateIndex/layer để rebuild
+                    plateIndex: a.plateIndex,
+                    layer: a.layer,
+                    pairId: null,
+                });
+            }
+        }
+
+        if (fullCandidates.length === 0) return null;
+
+        // 3) items để repack: bỏ các half đã dùng, thêm fullCandidates
+        const keep = rectsInPlateLayer.filter(r => !usedHalfIds.has(r.id));
+        const items = [...fullCandidates, ...keep].map(r => ({
+            ...r,
+            x: 0, y: 0, rotated: false
+        }));
+
+        // 4) repack lại tấm bằng findBestPositionSmart (giống consolidation)
+        const placed = [];
+        for (const item of items) {
+            const bestPos = this._findBestPositionSmart(item, placed, container.width, container.length);
+            if (!bestPos) return null; // fail => không thay đổi
+            placed.push({ ...item, ...bestPos });
+        }
+
+        return placed; // success => layout mới của tấm
     }
 
     // --- REBUILD LOGIC ---
@@ -257,66 +375,6 @@ class PackingOrchestrator {
 
         const platesToRemove = new Set(singleLayerPlates.map(p => p.plateIndex));
 
-        // Helper: Check Overlap
-        const checkOverlap = (rect, existingRects, tolerance = 0.1) => {
-            for (const existing of existingRects) {
-                const overlapX = !(rect.x + rect.width <= existing.x + tolerance || rect.x >= existing.x + existing.width - tolerance);
-                const overlapY = !(rect.y + rect.length <= existing.y + tolerance || rect.y >= existing.y + existing.length - tolerance);
-                if (overlapX && overlapY) return true;
-            }
-            return false;
-        };
-
-        // Helper: Find Best Position (Smart Shelf)
-        const findBestPositionSmart = (rect, existingRects, containerWidth, containerLength) => {
-            let bestPos = null;
-            let bestScore = Infinity;
-
-            const orientations = [
-                { w: rect.width, l: rect.length, r: rect.rotated || false },
-                { w: rect.length, l: rect.width, r: !(rect.rotated || false) }
-            ];
-
-            const candidates = [{ x: 0, y: 0 }];
-            existingRects.forEach(e => {
-                candidates.push({ x: e.x + e.width, y: e.y }); // Right
-                candidates.push({ x: e.x, y: e.y + e.length }); // Bottom
-            });
-
-            for (const ori of orientations) {
-                const { w, l, r } = ori;
-                if (w > containerWidth || l > containerLength) continue;
-
-                for (const p of candidates) {
-                    if (p.x + w > containerWidth || p.y + l > containerLength) continue;
-
-                    const testRect = { x: p.x, y: p.y, width: w, length: l };
-                    if (checkOverlap(testRect, existingRects)) continue;
-
-                    // Scoring
-                    let score = p.y * containerWidth + p.x;
-                    let aligns = false;
-
-                    for (const e of existingRects) {
-                        if (Math.abs(e.x + e.width - p.x) < 0.1 && Math.abs(e.length - l) < 0.1 && Math.abs(e.y - p.y) < 0.1) {
-                            score -= 500000; aligns = true;
-                        }
-                        if (Math.abs(e.y + e.length - p.y) < 0.1 && Math.abs(e.width - w) < 0.1 && Math.abs(e.x - p.x) < 0.1) {
-                            score -= 500000; aligns = true;
-                        }
-                    }
-
-                    if (!aligns && r !== (rect.rotated || false)) score += 1000;
-
-                    if (score < bestScore) {
-                        bestScore = score;
-                        bestPos = { x: p.x, y: p.y, width: w, length: l, rotated: r };
-                    }
-                }
-            }
-            return bestPos;
-        };
-
         // 2. Gather Items & Sort (Height Priority)
         let allItems = singleLayerPlates.flatMap(p => p.layers[0].rectangles.map(r => ({ ...r })));
         allItems.sort((a, b) => {
@@ -353,7 +411,7 @@ class PackingOrchestrator {
             // Try existing consolidated bins
             for (const bin of newConsolidatedPlates) {
                 const targetRects = bin.layers[0].rectangles;
-                const bestPos = findBestPositionSmart(item, targetRects, cW, cL);
+                const bestPos = this._findBestPositionSmart(item, targetRects, cW, cL);
                 if (bestPos) {
                     targetRects.push({
                         ...item,
@@ -368,7 +426,7 @@ class PackingOrchestrator {
             // New bin
             if (!placed) {
                 const newPlateIndex = newPlateCounter++; // Temp ID
-                const bestPos = findBestPositionSmart(item, [], cW, cL); // Should always succeed for first item
+                const bestPos = this._findBestPositionSmart(item, [], cW, cL); // Should always succeed for first item
                 if (bestPos) {
                     const newBin = {
                         plateIndex: newPlateIndex,
@@ -378,7 +436,7 @@ class PackingOrchestrator {
                             layerIndexInPlate: 0,
                             rectangles: [{
                                 ...item,
-                                x: bestPos.x, y: bestPos.y, width: bestPos.width, length: bestPos.length, rotated: bestPos.rotated,
+                                ...bestPos,
                                 layer: 0, plateIndex: newPlateIndex
                             }]
                         }]
@@ -403,148 +461,13 @@ class PackingOrchestrator {
         return combined;
     }
 
+
+
     // ============================================================
     // CORE ORCHESTRATION
     // ============================================================
-    async optimizeBatch(container, rectangles, quantities, strategy, unsplitableRectIds, layersPerPlate) {
-        // 1. Split
-        let pool = this._splitRectangles(rectangles, quantities, strategy, unsplitableRectIds);
-
-        // 2. Loop & Pack
-        let finalPlates = [];
-        let plateIndexCounter = 0;
-        const MAX_ITERATIONS = 10000;
-        let iterationCount = 0;
-
-        const mixedPatterns = new Map();
-
-        const createPatternSignature = (placed) => {
-            const layer0Rects = placed.filter(r => r.layer === 0);
-            const sorted = [...layer0Rects].sort((a, b) => {
-                if (a.typeId !== b.typeId) return a.typeId - b.typeId;
-                if (a.x !== b.x) return a.x - b.x;
-                return a.y - b.y;
-            });
-            return sorted.map(r => `${r.typeId}:${r.x}:${r.y}:${r.width}:${r.length}:${r.rotated ? 1 : 0}`).join('|');
-        };
-
-        while (pool.length > 0 && iterationCount < MAX_ITERATIONS) {
-            iterationCount++;
-
-            // --- TRY MULTIPLE STRATEGIES ---
-            const strategies = [
-                { name: 'Area Descending', sort: (a, b) => (b.width * b.length) - (a.width * a.length) },
-                { name: 'Max Dimension', sort: (a, b) => Math.max(b.width, b.length) - Math.max(a.width, a.length) },
-                { name: 'Perimeter', sort: (a, b) => (2 * (b.width + b.length)) - (2 * (a.width + a.length)) },
-                {
-                    name: 'Aspect Ratio', sort: (a, b) => {
-                        const ra = Math.max(a.width, a.length) / Math.min(a.width, a.length);
-                        const rb = Math.max(b.width, b.length) / Math.min(b.width, b.length);
-                        return (ra - rb) || (a.pairId || '').localeCompare(b.pairId || '');
-                    }
-                }
-            ];
-
-            let bestBatchResult = null;
-            let bestBatchArea = 0;
-
-            for (const strat of strategies) {
-                const sortedPool = [...pool].sort(strat.sort);
-                // Optimize for 1 SINGLE LAYER
-                const result = await this.packingAlgorithm.optimize({ ...container, layers: 1 }, sortedPool, 1, 'AREA_OPTIMIZED');
-
-                const placed = (result.rectangles || []).filter(r => r.x !== undefined);
-                const totalArea = placed.reduce((sum, r) => sum + (r.width * r.length), 0);
-
-                if (totalArea > bestBatchArea) {
-                    bestBatchArea = totalArea;
-                    bestBatchResult = placed;
-                }
-            }
-
-            if (!bestBatchResult || bestBatchResult.length === 0) break;
-
-            // --- PATTERN MATCHING & PLATE ASSIGNMENT ---
-            // We found a good layout for ONE layer. Now let's see where it fits.
-            const placedRects = bestBatchResult.map(r => ({ ...r, layer: 0 })); // Normalize to layer 0 for signature checks
-            const signature = createPatternSignature(placedRects);
-
-            let targetPlateIndex;
-            let targetLayerIndex;
-
-            if (mixedPatterns.has(signature)) {
-                const patternData = mixedPatterns.get(signature);
-                // Check if plate is full
-                if (patternData.layers.length >= layersPerPlate) {
-                    // Close old plate, start new one with same pattern
-                    finalPlates.push({ ...patternData.plate, layers: patternData.layers });
-
-                    // Start new plate
-                    const newPlateIndex = plateIndexCounter++;
-                    patternData.plate = {
-                        plateIndex: newPlateIndex,
-                        type: 'mixed',
-                        description: `Tấm Hỗn Hợp #${newPlateIndex + 1}`,
-                        patternDescription: patternData.plate.patternDescription,
-                        layers: []
-                    };
-                    patternData.layers = [];
-                }
-                targetPlateIndex = patternData.plate.plateIndex;
-                targetLayerIndex = patternData.layers.length;
-                patternData.layers.push({ layerIndexInPlate: targetLayerIndex, rectangles: [] }); // Placeholder, filled later
-            } else {
-                // New pattern
-                const newPlateIndex = plateIndexCounter++;
-                const newPatternData = {
-                    plate: {
-                        plateIndex: newPlateIndex,
-                        type: 'mixed',
-                        description: `Tấm Hỗn Hợp #${newPlateIndex + 1}`,
-                        patternDescription: `Pattern ${newPlateIndex}`, // Simplified
-                        layers: []
-                    },
-                    layers: []
-                };
-                targetPlateIndex = newPlateIndex;
-                targetLayerIndex = 0;
-                newPatternData.layers.push({ layerIndexInPlate: 0, rectangles: [] });
-                mixedPatterns.set(signature, newPatternData);
-            }
-
-            // Assign Metadata
-            bestBatchResult.forEach(r => {
-                r.plateIndex = targetPlateIndex;
-                r.layer = targetLayerIndex;
-                r.pieceIndex = r.pieceIndex; // Preserve from split
-            });
-
-            // Remove from pool
-            const usedIds = new Set(bestBatchResult.map(r => r.id));
-            pool = pool.filter(r => !usedIds.has(r.id));
-        }
-
-        // Flush remaining open plates
-        for (const patternData of mixedPatterns.values()) {
-            if (patternData.layers.length > 0) {
-                finalPlates.push({ ...patternData.plate, layers: patternData.layers });
-            }
-        }
-
-        // Flatten all rectangles for Merging
-        finalPlates.forEach(plate => {
-            plate.layers.forEach(() => {
-            });
-        });
-
-    }
-}
-
-// Rewriting methods for correctness (simplification)
-class PackingOrchestratorFinal extends PackingOrchestrator {
     async optimizeBatch(container, rectangles, quantities, strategy, unsplitableRectIds, layersPerPlate, onProgress) {
         // 1. Split
-
         let pool = this._splitRectangles(rectangles, quantities, strategy, unsplitableRectIds);
 
         let allPlacedRectangles = [];
@@ -728,15 +651,34 @@ class PackingOrchestratorFinal extends PackingOrchestrator {
 
         // Re-Rebuild
         finalPlates = this._runRebuildPhase(reMergedRects);
+        // ===== 6) FINAL REPACK LAST PLATE TO COMPLETE 1/2 -> FULL =====
+        const lastPlateIndex = Math.max(...finalPlates.map(p => p.plateIndex));
 
+        for (const plate of finalPlates) {
+            if (plate.plateIndex !== lastPlateIndex) continue;
+
+            for (const layer of plate.layers) {
+                const repacked = this._repackPlateToCompletePairs(layer.rectangles, container);
+                if (repacked) {
+                    // giữ đúng metadata
+                    repacked.forEach(r => { r.plateIndex = plate.plateIndex; r.layer = layer.layerIndexInPlate; });
+                    layer.rectangles = repacked;
+                }
+            }
+        }
+
+        // Sau khi repack xong: merge lại lần nữa để UI hiển thị "size nguyên" sạch
+        const afterRepackPieces = finalPlates.flatMap(p => p.layers.flatMap(l => l.rectangles));
+        const afterRepackMerged = this._runMergePhase(afterRepackPieces);
+        finalPlates = this._runRebuildPhase(afterRepackMerged);
         return {
             success: true,
             packingResult: {
                 plates: finalPlates,
-                rectangles: reMergedRects // Update rectangles list
+                rectangles: afterRepackMerged
             }
         };
     }
 }
 
-export default new PackingOrchestratorFinal();
+export default new PackingOrchestrator();

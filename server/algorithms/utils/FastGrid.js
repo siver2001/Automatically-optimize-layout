@@ -10,15 +10,12 @@ export class FastGrid {
         // Grid Head: Points to the first Node index for each cell
         this.heads = new Int32Array(this.gridW * this.gridH).fill(-1);
 
-        // Nodes: Linked list nodes. Each node stores [rectIndex, nextNodeIndex]
-        // We estimate max nodes. A rect can span multiple cells (e.g. avg 4 cells).
-        // Capacity * 9 is a safe upper bound for items not too huge.
         this.maxNodes = capacity * 9;
         this.nodes = new Int32Array(this.maxNodes * 2);
         this.nodeCount = 0;
 
         // Rect Data: [x, y, w, h]
-        this.rects = new Int32Array(capacity * 4);
+        this.rects = new Float64Array(capacity * 4);
         this.rectCount = 0;
     }
 
@@ -42,8 +39,8 @@ export class FastGrid {
                     const cellIdx = y * this.gridW + x;
 
                     // Create new node
+                    if (this.nodeCount >= this.maxNodes) return;
                     const nIdx = this.nodeCount++;
-                    if (nIdx >= this.maxNodes) continue; // Safety break
 
                     this.nodes[nIdx * 2 + 0] = rIdx; // Payload: Rect Index
                     this.nodes[nIdx * 2 + 1] = this.heads[cellIdx]; // Next: Current Head

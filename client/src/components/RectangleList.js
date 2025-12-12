@@ -18,16 +18,18 @@ const ChevronRightIcon = () => (
 );
 
 // --- Helpers ---
-const generateRandomColor = () => {
-  const h = Math.floor(Math.random() * 360);
-  const s = 70;
-  const l = 60;
+const generateDistinctColor = (index, totalExisting = 0) => {
+  // Golden angle approximation to ensure distinct hues
+  const goldenAngle = 137.507764;
+  const hue = ((index + totalExisting) * goldenAngle) % 360;
+  const s = 65 + (index % 3) * 10; // Variate saturation slightly: 65, 75, 85
+  const l = 45 + (index % 2) * 10; // Variate lightness slightly: 45, 55
 
   // HSL to Hex Conversion
   const lDev = l / 100;
   const a = s * Math.min(lDev, 1 - lDev) / 100;
   const f = n => {
-    const k = (n + h / 30) % 12;
+    const k = (n + hue / 30) % 12;
     const color = lDev - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
     return Math.round(255 * color).toString(16).padStart(2, '0');
   };
@@ -182,7 +184,7 @@ const RectangleList = () => {
                       name: rectName,
                       length: rectLength,
                       width: rectWidth,
-                      color: generateRandomColor()
+                      color: generateDistinctColor(parsedData.length, rectangles.length)
                     },
                     quantity: rectQuantity
                   });

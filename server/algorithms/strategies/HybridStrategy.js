@@ -224,7 +224,7 @@ class HybridStrategy extends BaseStrategy {
             };
 
             // [EARLY EXIT]
-            if (remaining.length === 0 && efficiency > 0.96) {
+            if (remaining.length === 0 && efficiency > 0.97) {
                 return currentResult;
             }
 
@@ -233,26 +233,38 @@ class HybridStrategy extends BaseStrategy {
                 continue;
             }
 
+            const EPS = 1e-6;
+
+            // 1) Ưu tiên: dùng diện tích nhiều hơn (giảm số tấm)
+            if ((currentResult.usedArea || 0) > (bestResult.usedArea || 0) + EPS) {
+            bestResult = currentResult;
+            }
+            // 2) Nếu usedArea gần bằng nhau -> ưu tiên đặt được nhiều miếng hơn
+            else if (Math.abs((currentResult.usedArea || 0) - (bestResult.usedArea || 0)) <= EPS) {
+
             if (currentResult.count > bestResult.count) {
                 bestResult = currentResult;
             }
             else if (currentResult.count === bestResult.count) {
+
+                // 3) Tie-break giữ logic bạn đang dùng
                 if (currentResult.rightMostEdge < bestResult.rightMostEdge - 30) {
-                    bestResult = currentResult;
+                bestResult = currentResult;
                 }
                 else if (currentResult.rightMostEdge > bestResult.rightMostEdge + 30) {
-                    continue;
+                // giữ bestResult
                 }
                 else {
-                    if (currentResult.alignmentScore > bestResult.alignmentScore) {
-                        bestResult = currentResult;
-                    }
-                    else if (currentResult.alignmentScore === bestResult.alignmentScore) {
-                        if (currentResult.compactness > bestResult.compactness) {
-                            bestResult = currentResult;
-                        }
+                if (currentResult.alignmentScore > bestResult.alignmentScore) {
+                    bestResult = currentResult;
+                }
+                else if (currentResult.alignmentScore === bestResult.alignmentScore) {
+                    if (currentResult.compactness > bestResult.compactness) {
+                    bestResult = currentResult;
                     }
                 }
+                }
+            }
             }
         }
 
@@ -289,37 +301,39 @@ class HybridStrategy extends BaseStrategy {
 
         // Helper to update best result
         const updateBest = (res) => {
-            if (!res || !res.placed || res.remaining.length > 0) return; // Only consider full packs for now? Or partials?
-            // The original logic allowed partials but preferred full packs.
-            // Let's stick to the original comparison logic.
+            if (!res || !res.placed) return;
 
-            // Re-construct the comparison object
             let maxX = 0;
             let maxY = 0;
             res.placed.forEach(r => {
                 maxX = Math.max(maxX, r.x + r.width);
                 maxY = Math.max(maxY, r.y + r.length);
             });
-            const current = { ...res, count: res.placed.length, maxX, maxY };
 
-            if (!bestResult) {
-                bestResult = current;
-                return;
-            }
+            const area = res.placed.reduce((s, r) => s + (r.width * r.length), 0);
+            const remainingCount = (res.remaining ? res.remaining.length : 0);
 
-            // Comparison logic from original
-            if (current.count > bestResult.count) {
-                bestResult = current;
-            }
-            else if (current.count === bestResult.count) {
-                if (current.maxX < bestResult.maxX - 0.5) {
-                    bestResult = current;
+            const current = { ...res, area, remainingCount, count: res.placed.length, maxX, maxY };
+
+            if (!bestResult) { bestResult = current; return; }
+
+            const bestRemaining = (bestResult.remaining ? bestResult.remaining.length : (bestResult.remainingCount || 0));
+
+            if (remainingCount < bestRemaining) { bestResult = current; return; }
+            if (remainingCount > bestRemaining) return;
+
+            const EPS = 1e-6;
+            if (current.area > (bestResult.area || 0) + EPS) { bestResult = current; return; }
+
+            if (Math.abs(current.area - (bestResult.area || 0)) <= EPS) {
+                if (current.count > (bestResult.count || 0)) { bestResult = current; return; }
+
+                if (current.count === (bestResult.count || 0)) {
+                if (current.maxX < (bestResult.maxX || 0) - 0.5) bestResult = current;
+                else if (Math.abs(current.maxX - (bestResult.maxX || 0)) <= 0.5 && current.maxY < (bestResult.maxY || 0)) bestResult = current;
                 }
-                else if (Math.abs(current.maxX - bestResult.maxX) <= 0.5 && current.maxY < bestResult.maxY) {
-                    bestResult = current;
-                }
             }
-        };
+            };
 
         // Run heuristics locally first
         for (let i = 0; i < initialCandidates.length; i++) {
@@ -428,22 +442,21 @@ class HybridStrategy extends BaseStrategy {
                 maxX = Math.max(maxX, r.x + r.width);
                 maxY = Math.max(maxY, r.y + r.length);
             });
-            const current = { placed, remaining, count: placed.length, maxX, maxY, strategyName };
+            const area = placed.reduce((s, r) => s + (r.width * r.length), 0);
+            const current = { placed, remaining, area, count: placed.length, maxX, maxY, strategyName };
 
-            if (!bestLocal) {
-                bestLocal = current;
-                return;
-            }
+            if (!bestLocal) { bestLocal = current; return; }
 
+            const EPS = 1e-6;
+
+            if (current.area > bestLocal.area + EPS) {
+            bestLocal = current;
+            } else if (Math.abs(current.area - bestLocal.area) <= EPS) {
             if (current.count > bestLocal.count) {
                 bestLocal = current;
-            }
-            else if (current.count === bestLocal.count) {
-                if (current.maxX < bestLocal.maxX - 0.5) {
-                    bestLocal = current;
-                }
-                else if (Math.abs(current.maxX - bestLocal.maxX) <= 0.5 && current.maxY < bestLocal.maxY) {
-                    bestLocal = current;
+                } else if (current.count === bestLocal.count) {
+                    if (current.maxX < bestLocal.maxX - 0.5) bestLocal = current;
+                    else if (Math.abs(current.maxX - bestLocal.maxX) <= 0.5 && current.maxY < bestLocal.maxY) bestLocal = current;
                 }
             }
         };
