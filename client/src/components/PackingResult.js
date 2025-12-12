@@ -231,22 +231,19 @@ const PackingResult = () => {
   const currentPlateLayers = currentPlateData?.layers || [];
   const currentLayerCount = currentPlateLayers.length > 0 ? currentPlateLayers.length : 1;
 
+  // Derive View Data directly to avoid render lag/stale state
+  const viewOnlyRects = React.useMemo(() => {
+    if (currentPlateData && currentPlateData.layers) {
+      const layer0 = currentPlateData.layers.find(l => l.layerIndexInPlate === 0);
+      return layer0 ? layer0.rectangles.filter(Boolean) : (currentPlateData.layers[0]?.rectangles.filter(Boolean) || []);
+    }
+    return [];
+  }, [currentPlateData]);
+
   React.useEffect(() => {
     if (editablePlates.length > 0 && categorizedPlates.length > 0) {
-      if (currentPlateData && currentPlateData.layers) {
-        const layer0 = currentPlateData.layers.find(l => l.layerIndexInPlate === 0);
-        const rects = layer0 ? layer0.rectangles.filter(Boolean) : [];
-
-        const finalRects = rects.length > 0
-          ? rects
-          : (currentPlateData.layers[0]?.rectangles.filter(Boolean) || []);
-
-        setEditedRectangles(finalRects.map(r => ({ ...r })));
-        setOriginalRectangles(finalRects.map(r => ({ ...r })));
-      } else {
-        setEditedRectangles([]);
-        setOriginalRectangles([]);
-      }
+      // Sync Edit State only matches current view
+      setEditedRectangles(viewOnlyRects.map(r => ({ ...r })));
 
       // CHỈ reset các biến tạm, KHÔNG reset isEditMode ở đây để tránh xung đột vòng lặp update
       setSessionUnplacedRects([]);
@@ -261,7 +258,6 @@ const PackingResult = () => {
 
     } else {
       setEditedRectangles([]);
-      setOriginalRectangles([]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editablePlates, selectedPlate, categorizedPlates]);
@@ -955,7 +951,7 @@ const PackingResult = () => {
   }, [editablePlates, editedRectangles, originalRectangles, currentPlateMeta, currentLayerCount, singleLayerArea, isEditMode]);
 
   // --- Display ---
-  const displayRectangles = isEditMode ? editedRectangles : originalRectangles;
+  const displayRectangles = isEditMode ? editedRectangles : viewOnlyRects;
   let plateDescription = currentPlateData?.description || `Tấm #${currentPlateMeta?.displayIndex || 1}`;
   if (plateDescription) plateDescription = plateDescription.replace(/\|.*?\)/, ')');
   const platesNeeded = categorizedPlates.length;
@@ -1153,7 +1149,7 @@ const PackingResult = () => {
                   </>
                 ) : (
                   /* MODE 2: VIEW MODE (High Performance Canvas) */
-                  <Stage width={displayWidth} height={displayLength}>
+                  <Stage width={displayWidth} height={displayLength} key={selectedPlate}>
                     <Layer>
                       {/* Grid Lines */}
                       {Array.from({ length: Math.floor(gridWidth / 100) }).map((_, i) => (
