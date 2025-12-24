@@ -162,6 +162,20 @@ const packingReducer = (state, action) => {
         errors: [],
         warnings: []
       };
+    case 'IMPORT_DXF_DATA':
+      return {
+        ...state,
+        container: action.payload.container,
+        rectangles: action.payload.rectangles,
+        quantities: action.payload.quantities,
+        selectedRectangles: action.payload.rectangles.map(r => r.id),
+        packingResult: { plates: action.payload.plates },
+        isOptimizing: false,
+        optimizationProgress: 100,
+        errors: [],
+        warnings: []
+      };
+
     case 'SET_PACKING_STRATEGY':
       return { ...state, packingStrategy: action.payload };
     case 'SET_UNSPLITABLE_IDS':
@@ -361,6 +375,7 @@ export const PackingProvider = ({ children }) => {
     addRectanglesFromExcel,
     setPackingStrategy,
     setUnsplitableRectIds,
+    importDxfData: (data) => dispatch({ type: 'IMPORT_DXF_DATA', payload: data }),
   };
 
   return <PackingContext.Provider value={value}>{children}</PackingContext.Provider>;
