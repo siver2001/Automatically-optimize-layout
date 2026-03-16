@@ -1,0 +1,797 @@
+/**
+ * DieCutLayout.js - Trang chính cho Nesting Hàng Die-Cut
+ *
+ * Luồng sử dụng (Nesting thường):
+ * 1. Import DXF biên dạng (DieCutDxfUploader) → nhận shapes
+ * 2. Import Excel đơn hàng (DieCutExcelUploader) → nhận quantities
+ * 3. Merge shapes + quantities → sizeList để xếp
+ * 4. Cấu hình tấm PU, khoảng cách, tùy chọn xoay
+ * 5. Bấm "Chạy Nesting" → gọi /api/diecut/nest
+ * 6. Hiển thị kết quả trên DieCutNestingBoard (SVG path thực tế)
+ *
+ * Luồng sử dụng (Test Mode):
+ * 1. Import DXF biên dạng → nhận shapes
+ * 2. (Bỏ qua bước nhập số lượng)
+ * 3. Cấu hình tấm PU
+ * 4. Bấm "Test Capacity" → gọi /api/diecut/test-capacity
+ * 5. Xem số lượng tối đa từng size có thể xếp trên 1 tấm PU
+ */
+import React, { useState, useMemo, useEffect } from 'react';
+import DieCutDxfUploader from './DieCutDxfUploader.js';
+import DieCutExcelUploader from './DieCutExcelUploader.js';
+import DieCutNestingBoard from './DieCutNestingBoard.js';
+
+// ─────────────────────────────────────────
+// Modal popup cấu hình Sheet PU
+// ─────────────────────────────────────────
+const SheetConfigPanel = ({ config, onChange }) => {
+  return (
+    <div className="bg-white/10 backdrop-blur-md rounded-xl border border-white/20 p-3 space-y-2">
+      <h3 className="text-white font-semibold text-base flex items-center gap-2">
+        <span className="text-xl">⚙️</span> Cấu hình Tấm PU
+      </h3>
+      
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {/* Dimensions */}
+        <div className="bg-white/5 p-3 rounded-xl border border-white/10 space-y-2 col-span-2">
+          <label className="text-white/60 text-xs font-medium flex items-center gap-1.5"><span className="text-blue-400">📏</span> Kích thước mặt cắt PU (mm)</label>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              value={config.sheetWidth}
+              onChange={e => onChange({ ...config, sheetWidth: Number(e.target.value) })}
+              className="w-full bg-black/20 border border-white/10 text-white rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500 transition-colors"
+              placeholder="Rộng (X)"
+            />
+            <span className="text-white/30 text-xs">×</span>
+            <input
+              type="number"
+              value={config.sheetHeight}
+              onChange={e => onChange({ ...config, sheetHeight: Number(e.target.value) })}
+              className="w-full bg-black/20 border border-white/10 text-white rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500 transition-colors"
+              placeholder="Cao (Y)"
+            />
+          </div>
+        </div>
+
+        {/* Spacing & Margins */}
+        <div className="bg-white/5 p-3 rounded-xl border border-white/10 space-y-2 col-span-2">
+          <label className="text-white/60 text-xs font-medium flex items-center gap-1.5"><span className="text-green-400">↔️</span> Lề & Khoảng cách</label>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="flex items-center gap-1.5 bg-black/20 rounded-lg px-2 py-1 border border-white/5" title="Khoảng cách từ chi tiết đến mép Vải/Tấm (Trái/Phải)">
+              <span className="text-white/40 text-[10px] uppercase min-w-[32px]">Lề H</span>
+              <input
+                type="number"
+                value={config.marginX}
+                onChange={e => onChange({ ...config, marginX: Number(e.target.value) })}
+                className="w-full bg-transparent text-white text-sm text-right focus:outline-none min-w-[20px]"
+              />
+            </div>
+            <div className="flex items-center gap-1.5 bg-black/20 rounded-lg px-2 py-1 border border-white/5" title="Khoảng cách từ chi tiết đến mép Vải/Tấm (Trên/Dưới)">
+              <span className="text-white/40 text-[10px] uppercase min-w-[32px]">Lề V</span>
+              <input
+                type="number"
+                value={config.marginY}
+                onChange={e => onChange({ ...config, marginY: Number(e.target.value) })}
+                className="w-full bg-transparent text-white text-sm text-right focus:outline-none min-w-[20px]"
+              />
+            </div>
+            <div className="flex items-center gap-1.5 bg-black/20 rounded-lg px-2 py-1 border border-white/5" title="Khoảng cách giữa các chi tiết với nhau">
+              <span className="text-white/40 text-[10px] uppercase min-w-[44px]">K.Cách</span>
+              <input
+                type="number"
+                value={config.spacing}
+                onChange={e => onChange({ ...config, spacing: Number(e.target.value) })}
+                className="w-full bg-transparent text-white text-sm text-right focus:outline-none min-w-[20px]"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-3 pt-2">
+        <div className="flex items-center gap-3">
+          <span className="text-white/60 text-xs font-medium min-w-[100px]">Chiến lược sắp:</span>
+          <div className="flex bg-black/40 p-1 rounded-xl border border-white/10">
+            <button
+              onClick={() => onChange({ ...config, pairingStrategy: 'pair' })}
+              className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                config.pairingStrategy !== 'same-side'
+                  ? 'bg-purple-500 text-white shadow-lg'
+                  : 'text-white/40 hover:text-white/70'
+              }`}
+            >
+              👫 Ghép Cặp (Trái-Phải)
+            </button>
+            <button
+              onClick={() => onChange({ ...config, pairingStrategy: 'same-side' })}
+              className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                config.pairingStrategy === 'same-side'
+                  ? 'bg-amber-500 text-white shadow-lg'
+                  : 'text-white/40 hover:text-white/70'
+              }`}
+            >
+              👟 Ghép Chiếc (Cùng bên)
+            </button>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-6">
+          <label className="flex items-center gap-2 cursor-pointer group">
+            <input
+              type="checkbox"
+              checked={config.allowRotate180}
+              onChange={e => onChange({ ...config, allowRotate180: e.target.checked })}
+              className="w-4 h-4 rounded border-white/20 bg-black/20 text-purple-500 focus:ring-purple-500/50"
+            />
+            <span className="text-white/80 text-sm group-hover:text-white transition-colors">Cho phép xoay ngang/đảo đầu (90°, 180°, 270°)</span>
+          </label>
+
+          <div className="flex items-center gap-2">
+            <span className="text-white/60 text-xs font-medium">Độ phân giải (mm):</span>
+            <select 
+              value={config.gridStep} 
+              onChange={e => onChange({ ...config, gridStep: Number(e.target.value) })}
+              className="bg-black/40 border border-white/10 text-white text-xs rounded px-2 py-1 focus:outline-none"
+            >
+              <option value={1.0}>1.0 mm (Nhanh)</option>
+              <option value={0.5}>0.5 mm (Chính xác)</option>
+              <option value={0.2}>0.2 mm (Rất cao)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────
+// Giao diện mô phỏng Tấm PU
+// ─────────────────────────────────────────
+const SheetVisualizerPanel = ({ config }) => {
+  const w = config.sheetWidth || 1000;
+  const h = config.sheetHeight || 1000;
+  const mx = config.marginX || 0;
+  const my = config.marginY || 0;
+  const viewBoxW = w + 40;
+  const viewBoxH = h + 40;
+
+  return (
+    <div className="bg-white/10 backdrop-blur-md rounded-xl border border-white/20 p-4 space-y-3 h-full flex flex-col">
+      <h3 className="text-white font-semibold text-sm flex items-center gap-2">
+        <span className="text-xl">📏</span> Mô phỏng cấu hình tấm PU ({w} × {h})
+      </h3>
+      <div className="flex-1 bg-black/20 rounded-lg border border-white/10 flex items-center justify-center p-2 min-h-[300px]">
+        <svg 
+          viewBox={`-20 -20 ${viewBoxW} ${viewBoxH}`} 
+          className="w-full h-full max-h-[400px]"
+          preserveAspectRatio="xMidYMid meet"
+        >
+          <defs>
+            <pattern id="pu-grid" width="40" height="40" patternUnits="userSpaceOnUse">
+              <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="1"/>
+            </pattern>
+            <pattern id="margin-hatch" width="20" height="20" patternTransform="rotate(45 0 0)" patternUnits="userSpaceOnUse">
+              <line x1="0" y1="0" x2="0" y2="20" stroke="#f87171" strokeWidth="2" strokeOpacity="0.4" />
+            </pattern>
+          </defs>
+          
+          {/* Tấm gốc */}
+          <rect x="0" y="0" width={w} height={h} fill="rgba(59, 130, 246, 0.1)" stroke="rgba(59, 130, 246, 0.5)" strokeWidth={Math.max(w,h)*0.005} />
+          <rect x="0" y="0" width={w} height={h} fill="url(#pu-grid)" />
+          
+          {/* Vùng lề */}
+          {(mx > 0 || my > 0) && (
+            <>
+              <rect x="0" y="0" width={w} height={h} fill="url(#margin-hatch)" />
+              {/* Vùng sử dụng thật (khấu trừ lề) */}
+              <rect 
+                x={my} y={mx} 
+                width={Math.max(0, w - my * 2)} 
+                height={Math.max(0, h - mx * 2)} 
+                fill="rgba(16, 185, 129, 0.1)" 
+                stroke="rgba(16, 185, 129, 0.8)" 
+                strokeWidth={Math.max(w,h)*0.005} 
+                strokeDasharray={`${Math.max(w,h)*0.02},${Math.max(w,h)*0.01}`}
+              />
+              <text x={w/2} y={h/2} fill="rgba(16, 185, 129, 0.8)" fontSize={Math.max(w,h)*0.06} textAnchor="middle" dominantBaseline="middle">
+                Vùng được cắt
+              </text>
+            </>
+          )}
+        </svg>
+      </div>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────
+// Panel hiển thị kết quả Test Capacity — Layout 2 cột siêu nhỏ gọn
+// ─────────────────────────────────────────────────────────
+const TestCapacityResult = ({ result, config, onClose }) => {
+  const summary = result?.summary || [];
+  const initialSize = result?.defaultSizeName || summary[0]?.sizeName || null;
+  const [selectedSize, setSelectedSize] = useState(initialSize);
+
+  useEffect(() => {
+    setSelectedSize(initialSize);
+  }, [initialSize]);
+
+  if (!result) return null;
+  const { timeMs, sheet, sheetsBySize, efficiency } = result;
+  const selectedSummary = summary.find(s => s.sizeName === selectedSize) || summary[0] || null;
+  const selectedSheet = (sheetsBySize && selectedSize && sheetsBySize[selectedSize]) ? sheetsBySize[selectedSize] : sheet;
+  const totalPairs = selectedSummary?.pairs ?? 0;
+  const totalPieces = selectedSummary?.totalPieces ?? 0;
+  const selectedEfficiency = selectedSummary?.efficiency ?? efficiency ?? 0;
+
+  return (
+    <div className="flex flex-col gap-2">
+
+      {/* ── Header row siêu gọn ── */}
+      <div className="flex items-center justify-between gap-2 flex-wrap mb-1">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 bg-gradient-to-br from-amber-500 to-orange-500 rounded-lg flex items-center justify-center text-sm">🧪</div>
+          <div>
+            <h2 className="text-white font-bold text-sm leading-tight">
+              Kết quả Test Capacity
+              {selectedSummary && (
+                <span className="text-amber-300 ml-2">Size {selectedSummary.sizeName} · Hiệu suất: {selectedEfficiency}%</span>
+              )}
+            </h2>
+            <p className="text-white/50 text-[11px] mt-0.5">
+              Tấm PU: {config.sheetWidth}×{config.sheetHeight} mm &nbsp;·&nbsp;
+              Thời gian: {(timeMs/1000).toFixed(1)}s
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={onClose}
+          className="px-3 py-1 bg-white/10 hover:bg-white/20 text-white/70 rounded-md text-[11px] transition-colors"
+        >
+          ← Trở lại
+        </button>
+      </div>
+
+      {/* ── Body: 2 cột (Trái 260px - Phải auto) ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-3 items-stretch">
+
+        {/* ── CỘT TRÁI: Stats + Bảng size (Scrollable nếu dài) ── */}
+        <div className="flex flex-col gap-2 max-h-[65vh] overflow-y-auto pr-1 custom-scrollbar">
+
+          {/* 3 stat cards siêu nhỏ */}
+          <div className="grid grid-cols-3 gap-1.5">
+            <div className="bg-gradient-to-br from-amber-500/20 to-orange-500/20 border border-amber-400/30 rounded-lg p-1.5 text-center">
+              <div className="text-xl font-bold text-amber-300 leading-tight">{totalPieces}</div>
+              <div className="text-white/60 text-[10px] uppercase tracking-wide">Chiếc</div>
+            </div>
+            <div className="bg-white/10 border border-white/20 rounded-lg p-1.5 text-center">
+              <div className="text-xl font-bold text-emerald-300 leading-tight">{config.mirrorPairs ? totalPairs : '—'}</div>
+              <div className="text-white/60 text-[10px] uppercase tracking-wide">Đôi</div>
+            </div>
+            <div className="bg-white/10 border border-white/20 rounded-lg p-1.5 text-center">
+              <div className="text-xl font-bold text-blue-300 leading-tight">{(timeMs/1000).toFixed(1)}s</div>
+              <div className="text-white/60 text-[10px] uppercase tracking-wide">T.Gian</div>
+            </div>
+          </div>
+
+          {/* Bảng kết quả từng size gọn nhẹ */}
+          <div className="bg-white/5 rounded-lg border border-white/10 overflow-hidden flex-1 flex flex-col">
+            <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-white/10 bg-white/5">
+              <span className="text-white/80 font-medium text-[11px] uppercase tracking-wider">Thống kê Size</span>
+              {config.mirrorPairs && (
+                <span className="text-[9px] bg-green-500/20 text-green-300 border border-green-400/30 rounded px-1.5 py-0.5 ml-auto">
+                  L+R
+                </span>
+              )}
+            </div>
+            <div className="overflow-y-auto flex-1 custom-scrollbar bg-black/20">
+              <table className="w-full text-[11px]">
+                <thead className="sticky top-0 bg-gray-900 border-b border-white/10 z-10">
+                  <tr>
+                    <th className="text-white/50 font-medium text-left py-1 px-2">Size</th>
+                    {config.mirrorPairs && <th className="text-white/50 font-medium text-center py-1 px-1">Đôi</th>}
+                    <th className="text-white/50 font-medium text-center py-1 px-1">Chiếc</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {summary.map((s, i) => (
+                    <tr
+                      key={s.sizeName}
+                      onClick={() => setSelectedSize(s.sizeName)}
+                      className={`border-b border-white/5 cursor-pointer ${
+                        s.sizeName === selectedSize ? 'bg-amber-500/10' : 'hover:bg-white/5'
+                      }`}
+                    >
+                      <td className="py-1 px-2 text-white/80 font-medium">{s.sizeName}</td>
+                      {config.mirrorPairs && (
+                        <td className="py-1 px-1 text-center"><span className="text-emerald-300/90">{s.pairs ?? '—'}</span></td>
+                      )}
+                      <td className="py-1 px-1 text-center"><span className="text-amber-300/90">{s.totalPieces}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Legend nhỏ nhắn */}
+          <div className="flex gap-2 justify-center py-1 bg-black/20 rounded-lg border border-white/5">
+            <div className="flex items-center gap-1">
+              <div className="w-2.5 h-2.5 rounded-sm border border-white/50" />
+              <span className="text-white/40 text-[10px]">L (Trái)</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <div className="w-2.5 h-2.5 rounded-sm border-2 border-yellow-400/70" />
+              <span className="text-white/40 text-[10px]">R (Phải)</span>
+            </div>
+          </div>
+        </div>
+
+        {/* ── CỘT PHẢI: Bố cục SVG tấm PU (tự fit màn hình) ── */}
+        <div className="h-full min-h-[50vh] xl:min-h-[65vh]">
+          {selectedSheet && selectedSheet.placed && selectedSheet.placed.length > 0 && (
+            <DieCutNestingBoard
+              nestingResult={{
+                sheets: [selectedSheet],
+                totalSheets: 1,
+                placedCount: selectedSheet.placedCount,
+                unplacedCount: 0,
+                efficiency: selectedSheet.efficiency ?? selectedEfficiency,
+                timeMs
+              }}
+              sizeList={summary.map(s => ({ sizeName: s.sizeName }))}
+              compactMode
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────
+// Merge Shapes (DXF) + Quantities (Excel) → size list
+// ─────────────────────────────────────────────────────
+function mergeShapesAndQuantities(shapes, quantities) {
+  return shapes.map(shape => {
+    const match = quantities.find(q => q.sizeName === shape.sizeName);
+    return {
+      ...shape,
+      quantity: match ? match.pairQuantity : 0,
+      pairQuantity: match ? match.pairQuantity : 0,
+      pieceQuantity: match ? match.pieceQuantity : 0
+    };
+  });
+}
+
+// ─────────────────────────────────────────
+// MAIN COMPONENT
+// ─────────────────────────────────────────
+const DieCutLayout = () => {
+  const [shapes, setShapes] = useState([]);               // từ DXF
+  const [quantities, setQuantities] = useState([]);        // từ Excel
+  const [nestingResult, setNestingResult] = useState(null);
+  const [isNesting, setIsNesting] = useState(false);
+  const [nestError, setNestError] = useState(null);
+  const [activeStep, setActiveStep] = useState(1);         // 1=DXF, 2=Excel, 3=Config, 4=Result
+  const [isTestMode, setIsTestMode] = useState(false);     // Chế độ Test Capacity
+  const [testResult, setTestResult] = useState(null);      // Kết quả test
+  const [isTestRunning, setIsTestRunning] = useState(false);
+  const [testError, setTestError] = useState(null);
+  const [config, setConfig] = useState({
+    sheetWidth: 1100,
+    sheetHeight: 2000,
+    spacing: 2,
+    marginX: 5,
+    marginY: 5,
+    allowRotate180: true,
+    pairingStrategy: 'pair', // 'pair' hoặc 'same-side'
+    gridStep: 1 
+  });
+
+  // Merge shapes + quantities
+  const sizeList = useMemo(() => {
+    if (shapes.length === 0) return [];
+    if (quantities.length === 0) {
+      return shapes.map(s => ({ ...s, quantity: 0, pairQuantity: 0, pieceQuantity: 0 }));
+    }
+    return mergeShapesAndQuantities(shapes, quantities);
+  }, [shapes, quantities]);
+
+  // Tự động tính số lượng chiếc dựa trên strategy
+  const totalPieces = sizeList.reduce((s, item) => {
+    // Cả 2 strategy đều là sắp xếp theo cặp (2 chiếc lẻ thành 1 đơn vị)
+    return s + item.quantity * 2;
+  }, 0);
+  const hasData = shapes.length > 0;
+
+  // ─── Handler: Chạy Nesting thường ───
+  const handleRunNesting = async () => {
+    if (sizeList.length === 0) return;
+    const hasQty = sizeList.some(s => s.quantity > 0);
+    if (!hasQty) {
+      setNestError('Chưa nhập số lượng. Hãy import Excel hoặc nhập thủ công.');
+      return;
+    }
+
+    setIsNesting(true);
+    setNestError(null);
+
+    try {
+      const payload = { sizeList, ...config };
+      const res = await fetch('/api/diecut/nest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Lỗi server');
+      setNestingResult(data);
+      setActiveStep(4);
+    } catch (err) {
+      setNestError(err.message);
+    } finally {
+      setIsNesting(false);
+    }
+  };
+
+  // ─── Handler: Chạy Test Capacity ───
+  const handleRunTest = async () => {
+    if (shapes.length === 0) return;
+
+    setIsTestRunning(true);
+    setTestError(null);
+    setTestResult(null);
+
+    try {
+      // Chỉ gửi shapes (polygon) + config, không cần quantity
+      const payload = { sizeList: shapes, ...config };
+      const res = await fetch('/api/diecut/test-capacity', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Lỗi server');
+      setTestResult(data);
+      setActiveStep(4);
+    } catch (err) {
+      setTestError(err.message);
+    } finally {
+      setIsTestRunning(false);
+    }
+  };
+
+  const handleQuantityManualChange = (sizeName, value) => {
+    // Cho phép nhập rỗng
+    const valStr = value.replace(/[^0-9]/g, '');
+    const qty = parseInt(valStr) || 0;
+
+    setQuantities(prev => {
+      // Tìm xem size này đã có trong list quantities chưa
+      const existingIdx = prev.findIndex(q => q.sizeName === sizeName);
+      if (existingIdx >= 0) {
+        const nextReq = [...prev];
+        nextReq[existingIdx] = {
+          ...nextReq[existingIdx],
+          _rawInput: valStr,
+          pairQuantity: qty,
+          pieceQuantity: qty * 2
+        };
+        return nextReq;
+      } else {
+        // Chưa có thì push vào
+        return [...prev, {
+          sizeName,
+          _rawInput: valStr,
+          pairQuantity: qty,
+          pieceQuantity: qty * 2
+        }];
+      }
+    });
+  };
+
+  // ─── RENDER ───────────────────────────────────
+  return (
+    <div className="min-h-screen py-4 px-2 md:px-4">
+      <div className="max-w-[1600px] mx-auto">
+
+        {/* Page Header */}
+        <div className="mb-4 flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl flex items-center justify-center text-xl">✂️</div>
+            <div>
+              <h1 className="text-white text-xl font-bold">Nesting Hàng Die-Cut</h1>
+              <p className="text-white/50 text-sm">Sắp xếp biên dạng thực tế (True Shape) cho miếng lót giày</p>
+            </div>
+          </div>
+
+          {/* Toggle Test Mode */}
+          <div className="flex items-center gap-3">
+            <span className="text-white/60 text-sm">Chế độ:</span>
+            <button
+              onClick={() => {
+                setIsTestMode(false);
+                setTestResult(null);
+                setTestError(null);
+                if (activeStep === 4 && testResult) setActiveStep(3);
+              }}
+              className={`px-4 py-1.5 rounded-l-xl text-sm font-medium border transition-all ${
+                !isTestMode
+                  ? 'bg-purple-500 text-white border-purple-400'
+                  : 'bg-white/5 text-white/50 border-white/10 hover:bg-white/10'
+              }`}
+            >
+              🏭 Nesting
+            </button>
+            <button
+              onClick={() => {
+                setIsTestMode(true);
+                setNestingResult(null);
+                setNestError(null);
+                // Nếu đang ở bước 2 (Excel) và chuyển sang test mode → skip lên bước 3
+                if (activeStep === 2) setActiveStep(3);
+              }}
+              className={`px-4 py-1.5 rounded-r-xl text-sm font-medium border transition-all ${
+                isTestMode
+                  ? 'bg-amber-500 text-white border-amber-400'
+                  : 'bg-white/5 text-white/50 border-white/10 hover:bg-white/10'
+              }`}
+            >
+              🧪 Test Capacity
+            </button>
+          </div>
+        </div>
+
+        {/* Test Mode Banner — ẩn khi đang xem kết quả */}
+        {isTestMode && activeStep !== 4 && (
+          <div className="mb-3 bg-amber-500/10 border border-amber-400/30 rounded-lg px-3 py-2 flex items-center gap-2">
+            <span className="text-base">🧪</span>
+            <span className="text-amber-300 text-xs font-medium">Test Capacity</span>
+            <span className="text-white/50 text-xs">— Tính số lượng tối đa / tấm PU. Bỏ qua bước nhập số lượng.</span>
+          </div>
+        )}
+
+        {/* Step tabs */}
+        <div className="flex gap-1 mb-4 flex-wrap">
+          {(isTestMode
+            ? [
+                { n: 1, label: '1. Biên dạng DXF' },
+                { n: 3, label: '2. Cấu hình & Test' },
+                { n: 4, label: '3. Kết quả' }
+              ]
+            : [
+                { n: 1, label: '1. Biên dạng DXF' },
+                { n: 2, label: '2. Số lượng Excel' },
+                { n: 3, label: '3. Cấu hình & Chạy' },
+                { n: 4, label: '4. Kết quả' }
+              ]
+          ).map(step => (
+            <button
+              key={step.n}
+              onClick={() => setActiveStep(step.n)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                activeStep === step.n
+                  ? isTestMode
+                    ? 'bg-amber-500/30 text-amber-200 border border-amber-400/40'
+                    : 'bg-white/20 text-white border border-white/30'
+                  : 'bg-white/5 text-white/60 hover:bg-white/10 border border-white/10'
+              }`}
+            >
+              {step.label}
+            </button>
+          ))}
+        </div>
+
+        {/* ── STEP 1: DXF ── */}
+        {activeStep === 1 && (
+          <div className="space-y-4">
+            {/* Uploader - full width */}
+            <DieCutDxfUploader
+              onShapesLoaded={s => { setShapes(s); }}
+              initialShapes={shapes.length > 0 ? shapes : null}
+            />
+
+            {/* Nút Next - chỉ hiện sau khi tải xong */}
+            {shapes.length > 0 && (
+              <div className="flex justify-end gap-3">
+                {/* Trong test mode, bỏ qua bước 2 */}
+                {isTestMode ? (
+                  <button
+                    onClick={() => setActiveStep(3)}
+                    className="px-6 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-semibold transition-colors shadow-lg"
+                  >
+                    Tiếp theo: Cấu hình Test →
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setActiveStep(2)}
+                    className="px-6 py-2.5 bg-purple-500 hover:bg-purple-600 text-white rounded-xl text-sm font-semibold transition-colors shadow-lg"
+                  >
+                    Tiếp theo: Nhập số lượng →
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── STEP 2: EXCEL (chỉ hiện khi không test mode) ── */}
+        {activeStep === 2 && !isTestMode && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <DieCutExcelUploader onQuantitiesLoaded={setQuantities} />
+
+            {/* Nhập số lượng thủ công nếu không có Excel */}
+            <div className="bg-white/10 backdrop-blur-md rounded-xl border border-white/20 p-4 space-y-3">
+              <h3 className="text-white font-semibold text-sm">✏️ Hoặc nhập thủ công</h3>
+              {shapes.length === 0 ? (
+                <p className="text-white/40 text-sm">Hãy import DXF trước (Bước 1)</p>
+              ) : (
+                <div className="max-h-72 overflow-y-auto space-y-1">
+                  {shapes.map((s, i) => {
+                    const merged = sizeList.find(sl => sl.sizeName === s.sizeName);
+                    return (
+                      <div key={i} className="flex items-center gap-2 bg-white/5 rounded-lg px-3 py-1.5">
+                        <span className="text-white font-medium text-sm w-16">Size {s.sizeName}</span>
+                        <input
+                          type="text"
+                          value={merged?._rawInput !== undefined ? merged._rawInput : (merged?.pairQuantity || 0)}
+                          onChange={e => handleQuantityManualChange(s.sizeName, e.target.value)}
+                          className="w-20 bg-white/10 border border-white/20 text-white rounded px-2 py-0.5 text-sm text-right focus:outline-none focus:border-purple-400"
+                        />
+                        <span className="text-white/50 text-xs">đôi</span>
+                        <span className="text-emerald-300 text-xs ml-auto">= {merged?.pieceQuantity || 0} chiếc</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              <div className="pt-1 border-t border-white/10 flex justify-between text-sm">
+                <span className="text-white/50">Tổng cộng:</span>
+                <span className="text-white font-medium">{totalPieces} chiếc lót</span>
+              </div>
+              <button
+                onClick={() => setActiveStep(3)}
+                disabled={totalPieces === 0}
+                className="w-full py-2 bg-purple-500 hover:bg-purple-600 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors"
+              >
+                Tiếp theo: Cấu hình →
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── STEP 3: CONFIG + RUN ── */}
+        {activeStep === 3 && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            
+            {/* CỘT TRÁI: Cấu hình và Tóm tắt */}
+            <div className="flex flex-col gap-2">
+              <SheetConfigPanel config={config} onChange={setConfig} />
+
+              <div className="bg-white/10 backdrop-blur-md rounded-xl border border-white/20 p-3 space-y-2">
+                <h3 className="text-white font-semibold text-sm">📋 Tóm tắt trước khi chạy</h3>
+                {/* Thu hẹp padding và gap để gọn màn hình */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+                <div className="bg-white/5 p-2 rounded-lg border border-white/10">
+                  <div className="text-white/50 text-xs mb-0.5">Loại biên dạng</div>
+                  <div className="text-white font-medium text-sm">{shapes.length} size</div>
+                </div>
+                <div className="bg-white/5 p-2 rounded-lg border border-white/10">
+                  <div className="text-white/50 text-xs mb-0.5">{isTestMode ? 'Chế độ' : 'Tổng chiếc cắt'}</div>
+                  <div className={`font-medium text-sm ${isTestMode ? 'text-amber-300' : 'text-emerald-300'}`}>
+                    {isTestMode ? '🧪 Test Max' : `${totalPieces} chiếc`}
+                  </div>
+                </div>
+                <div className="bg-white/5 p-2 rounded-lg border border-white/10">
+                  <div className="text-white/50 text-xs mb-0.5">Kích thước tấm PU</div>
+                  <div className="text-white font-medium text-sm">{config.sheetWidth}×{config.sheetHeight} mm</div>
+                </div>
+                <div className="bg-white/5 p-2 rounded-lg border border-white/10">
+                  <div className="text-white/50 text-xs mb-0.5">Cấu hình nesting</div>
+                  <div className="text-white font-medium text-sm">
+                    {config.spacing}mm {(config.allowRotate180 ? <span className="text-green-400">(Xoay)</span> : <span className="text-white/40">(- Xoay)</span>)}
+                  </div>
+                </div>
+              </div>
+
+              {/* Error messages */}
+              {nestError && (
+                <div className="bg-red-500/20 border border-red-400/30 rounded-lg px-3 py-2 text-red-200 text-sm">
+                  {nestError}
+                </div>
+              )}
+              {testError && (
+                <div className="bg-red-500/20 border border-red-400/30 rounded-lg px-3 py-2 text-red-200 text-sm">
+                  {testError}
+                </div>
+              )}
+
+              {/* Nút chạy: hiển thị theo mode */}
+              {isTestMode ? (
+                <>
+                  <button
+                    onClick={handleRunTest}
+                    disabled={isTestRunning || !hasData}
+                    className="w-full py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 disabled:opacity-40 disabled:cursor-not-allowed
+                      text-white font-semibold rounded-xl transition-all shadow-lg text-sm flex items-center justify-center gap-3 mt-2"
+                  >
+                    {isTestRunning ? (
+                      <>
+                        <svg className="animate-spin w-5 h-5" viewBox="0 0 24 24" fill="none">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="white" strokeWidth="4"/>
+                          <path className="opacity-75" fill="white" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                        </svg>
+                        Đang tính số lượng tối đa...
+                      </>
+                    ) : '🧪 Test: Tính số lượng tối đa / tấm PU'}
+                  </button>
+                  <p className="text-amber-300/50 text-xs text-center">
+                    Test sẽ xếp tối đa có thể lên 1 tấm PU — không cần nhập số lượng đơn hàng
+                  </p>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={handleRunNesting}
+                    disabled={isNesting || totalPieces === 0 || !hasData}
+                    className="w-full py-2.5 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 disabled:opacity-40 disabled:cursor-not-allowed
+                      text-white font-semibold rounded-xl transition-all shadow-lg text-sm flex items-center justify-center gap-3 mt-2"
+                  >
+                    {isNesting ? (
+                      <>
+                        <svg className="animate-spin w-5 h-5" viewBox="0 0 24 24" fill="none">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="white" strokeWidth="4"/>
+                          <path className="opacity-75" fill="white" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                        </svg>
+                        Đang tính toán True Shape Nesting...
+                      </>
+                    ) : '✂️ Chạy Nesting True Shape'}
+                  </button>
+                  <p className="text-white/30 text-xs text-center">
+                    Thuật toán True Shape Nesting – lồng biên dạng thực, tối ưu diện tích tối đa
+                  </p>
+                </>
+              )}
+            </div>
+          </div>
+
+            {/* CỘT PHẢI: Mô phỏng PU (trải dài hết chiều cao) */}
+            <SheetVisualizerPanel config={config} />
+          </div>
+        )}
+
+        {/* ── STEP 4: RESULT ── */}
+        {activeStep === 4 && (
+          <div className="space-y-4">
+            {/* Test Mode Result */}
+            {isTestMode && testResult ? (
+              <TestCapacityResult
+                result={testResult}
+                config={config}
+                onClose={() => { setActiveStep(3); setTestResult(null); }}
+              />
+            ) : (
+              /* Normal Nesting Result */
+              <>
+                <div className="flex justify-between items-center">
+                  <h2 className="text-white font-semibold">🎯 Kết quả Nesting</h2>
+                  <button
+                    onClick={() => { setActiveStep(3); setNestingResult(null); }}
+                    className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white/70 rounded-lg text-sm transition-colors"
+                  >
+                    ← Chạy lại
+                  </button>
+                </div>
+                <DieCutNestingBoard nestingResult={nestingResult} sizeList={sizeList} />
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default DieCutLayout;

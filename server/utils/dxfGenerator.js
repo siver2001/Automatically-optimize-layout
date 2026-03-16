@@ -87,7 +87,7 @@ function rgbToTrueColor(rgb) {
     return (rgb[0] << 16) + (rgb[1] << 8) + rgb[2];
 }
 
-class DxfWriter {
+export class DxfWriter {
     constructor() {
         this.content = '';
         this.addHeader();

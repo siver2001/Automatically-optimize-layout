@@ -10,6 +10,7 @@ const __dirname = path.dirname(__filename);
 
 import packingRoutes from './routes/packing.js';
 import modbusRoutes from './routes/modbus.js';
+import diecutRoutes from './routes/diecutRoutes.js';
 
 const app = express();
 const server = http.createServer(app);
@@ -30,6 +31,7 @@ app.use(express.urlencoded({ limit: '100mb', extended: true }));
 // Routes API
 app.use('/api/packing', packingRoutes);
 app.use('/api/modbus', modbusRoutes);
+app.use('/api/diecut', diecutRoutes);
 
 // ✅ THÊM: Serve React build folder
 const buildPath = path.join(__dirname, '../client/build');

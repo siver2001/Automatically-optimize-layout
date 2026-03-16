@@ -7,6 +7,7 @@ import ContainerInput from './components/ContainerInput.js';
 import RectangleList from './components/RectangleList.js';
 import PackingResult from './components/PackingResult.js';
 import ModbusConnection from './components/ModbusConnection.js';
+import DieCutLayout from './components/diecut/DieCutLayout.js';
 
 function App() {
   return (
@@ -25,6 +26,7 @@ function App() {
                   </MainLayout>
                 } />
                 <Route path="/modbus" element={<ModbusConnection />} />
+                <Route path="/diecut" element={<DieCutLayout />} />
               </Routes>
             </div>
           </div>
