@@ -24,7 +24,7 @@ import DieCutNestingBoard from './DieCutNestingBoard.js';
 // ─────────────────────────────────────────
 // Modal popup cấu hình Sheet PU
 // ─────────────────────────────────────────
-const SheetConfigPanel = ({ config, onChange }) => {
+const SheetConfigPanel = ({ config, onChange, isTestMode }) => {
   return (
     <div className="bg-white/10 backdrop-blur-md rounded-xl border border-white/20 p-3 space-y-2">
       <h3 className="text-white font-semibold text-base flex items-center gap-2">
@@ -94,7 +94,11 @@ const SheetConfigPanel = ({ config, onChange }) => {
           <span className="text-white/60 text-xs font-medium min-w-[100px]">Chiến lược sắp:</span>
           <div className="flex bg-black/40 p-1 rounded-xl border border-white/10">
             <button
-              onClick={() => onChange({ ...config, pairingStrategy: 'pair' })}
+              onClick={() => onChange({
+                ...config,
+                pairingStrategy: 'pair',
+                capacityLayoutMode: 'pair-complementary'
+              })}
               className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-medium transition-all ${
                 config.pairingStrategy !== 'same-side'
                   ? 'bg-purple-500 text-white shadow-lg'
@@ -104,7 +108,11 @@ const SheetConfigPanel = ({ config, onChange }) => {
               👫 Ghép Cặp (Trái-Phải)
             </button>
             <button
-              onClick={() => onChange({ ...config, pairingStrategy: 'same-side' })}
+              onClick={() => onChange({
+                ...config,
+                pairingStrategy: 'same-side',
+                capacityLayoutMode: 'same-side-banded'
+              })}
               className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-medium transition-all ${
                 config.pairingStrategy === 'same-side'
                   ? 'bg-amber-500 text-white shadow-lg'
@@ -120,11 +128,11 @@ const SheetConfigPanel = ({ config, onChange }) => {
           <label className="flex items-center gap-2 cursor-pointer group">
             <input
               type="checkbox"
-              checked={config.allowRotate180}
-              onChange={e => onChange({ ...config, allowRotate180: e.target.checked })}
+              checked={config.allowRotate90}
+              onChange={e => onChange({ ...config, allowRotate90: e.target.checked })}
               className="w-4 h-4 rounded border-white/20 bg-black/20 text-purple-500 focus:ring-purple-500/50"
             />
-            <span className="text-white/80 text-sm group-hover:text-white transition-colors">Cho phép xoay ngang/đảo đầu (90°, 180°, 270°)</span>
+            <span className="text-white/80 text-sm group-hover:text-white transition-colors">Cho phép xoay 90° để lấp phần trống</span>
           </label>
 
           <div className="flex items-center gap-2">
@@ -140,6 +148,7 @@ const SheetConfigPanel = ({ config, onChange }) => {
             </select>
           </div>
         </div>
+
       </div>
     </div>
   );
@@ -221,6 +230,7 @@ const TestCapacityResult = ({ result, config, onClose }) => {
   const { timeMs, sheet, sheetsBySize, efficiency } = result;
   const selectedSummary = summary.find(s => s.sizeName === selectedSize) || summary[0] || null;
   const selectedSheet = (sheetsBySize && selectedSize && sheetsBySize[selectedSize]) ? sheetsBySize[selectedSize] : sheet;
+  const patternInfo = selectedSheet?.patternInfo || {};
   const totalPairs = selectedSummary?.pairs ?? 0;
   const totalPieces = selectedSummary?.totalPieces ?? 0;
   const selectedEfficiency = selectedSummary?.efficiency ?? efficiency ?? 0;
@@ -266,7 +276,7 @@ const TestCapacityResult = ({ result, config, onClose }) => {
               <div className="text-white/60 text-[10px] uppercase tracking-wide">Chiếc</div>
             </div>
             <div className="bg-white/10 border border-white/20 rounded-lg p-1.5 text-center">
-              <div className="text-xl font-bold text-emerald-300 leading-tight">{config.mirrorPairs ? totalPairs : '—'}</div>
+              <div className="text-xl font-bold text-emerald-300 leading-tight">{totalPairs > 0 ? totalPairs : '—'}</div>
               <div className="text-white/60 text-[10px] uppercase tracking-wide">Đôi</div>
             </div>
             <div className="bg-white/10 border border-white/20 rounded-lg p-1.5 text-center">
@@ -276,10 +286,51 @@ const TestCapacityResult = ({ result, config, onClose }) => {
           </div>
 
           {/* Bảng kết quả từng size gọn nhẹ */}
+          {false && (
+            <div className="bg-white/5 rounded-lg border border-white/10 p-2 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-white/70 text-[11px] font-medium uppercase tracking-wider">Pattern Info</span>
+                <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-400/20">
+                  {patternInfo.layoutMode}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-1.5 text-[11px]">
+                {patternInfo.layoutMode === 'pair-complementary' ? (
+                  <>
+                    <div className="bg-black/20 rounded px-2 py-1 text-white/70">Family: <span className="text-white">{patternInfo.patternFamily}</span></div>
+                    <div className="bg-black/20 rounded px-2 py-1 text-white/70">Top band: <span className="text-white">{patternInfo.topBandUsed ? `${patternInfo.topBandPairs} pairs` : 'off'}</span></div>
+                    <div className="bg-black/20 rounded px-2 py-1 text-white/70">Row 0 L/R: <span className="text-white">{patternInfo.bodyRow0LeftAngle} / {patternInfo.bodyRow0RightAngle} deg</span></div>
+                    <div className="bg-black/20 rounded px-2 py-1 text-white/70">Row 1 L/R: <span className="text-white">{patternInfo.bodyRow1LeftAngle} / {patternInfo.bodyRow1RightAngle} deg</span></div>
+                    <div className="bg-black/20 rounded px-2 py-1 text-white/70">Top L/R: <span className="text-white">{patternInfo.topBandAngleLeft ?? '-'} / {patternInfo.topBandAngleRight ?? '-'}</span></div>
+                    <div className="bg-black/20 rounded px-2 py-1 text-white/70">Pair dx / dy: <span className="text-white">{patternInfo.pairDxMm} / {patternInfo.pairDyMm}</span></div>
+                    <div className="bg-black/20 rounded px-2 py-1 text-white/70">Stride X / Y: <span className="text-white">{patternInfo.rowStrideXmm} / {patternInfo.rowStrideYmm}</span></div>
+                    <div className="bg-black/20 rounded px-2 py-1 text-white/70">Shift X / Y: <span className="text-white">{patternInfo.rowShiftXmm} / {patternInfo.rowShiftYmm}</span></div>
+                    <div className="bg-black/20 rounded px-2 py-1 text-white/70">Rows / Cols: <span className="text-white">{patternInfo.usedRows} / {patternInfo.usedCols}</span></div>
+                    <div className="bg-black/20 rounded px-2 py-1 text-white/70">Used height: <span className="text-white">{patternInfo.usedHeightMm}</span></div>
+                    <div className="bg-black/20 rounded px-2 py-1 text-white/70 col-span-2">Waste: <span className="text-white">{patternInfo.envelopeWasteMm2}</span></div>
+                  </>
+                ) : (
+                  <>
+                    <div className="bg-black/20 rounded px-2 py-1 text-white/70">Foot: <span className="text-white">{patternInfo.selectedFoot}</span></div>
+                    <div className="bg-black/20 rounded px-2 py-1 text-white/70">Mode: <span className="text-white">{patternInfo.rowMode ?? 'rows'}</span></div>
+                    <div className="bg-black/20 rounded px-2 py-1 text-white/70">Body: <span className="text-white">{patternInfo.bodyPrimaryAngle} / {patternInfo.bodyAlternateAngle} deg</span></div>
+                    <div className="bg-black/20 rounded px-2 py-1 text-white/70">Rows / Cols: <span className="text-white">{patternInfo.bodyRows} / {patternInfo.bodyCols}</span></div>
+                    <div className="bg-black/20 rounded px-2 py-1 text-white/70">Body dx / dy: <span className="text-white">{patternInfo.bodyDxMm} / {patternInfo.bodyDyMm}</span></div>
+                    <div className="bg-black/20 rounded px-2 py-1 text-white/70">Fill 90°: <span className="text-white">{patternInfo.filler90Used ? `${patternInfo.filler90Count} pcs` : 'off'}</span></div>
+                    <div className="bg-black/20 rounded px-2 py-1 text-white/70">Body pcs: <span className="text-white">{patternInfo.bodyCount}</span></div>
+                    <div className="bg-black/20 rounded px-2 py-1 text-white/70">Scan: <span className="text-white">{patternInfo.scanOrder ?? 'left-to-right'}</span></div>
+                    <div className="bg-black/20 rounded px-2 py-1 text-white/70">Used W / H: <span className="text-white">{patternInfo.usedWidthMm} / {patternInfo.usedHeightMm}</span></div>
+                    <div className="bg-black/20 rounded px-2 py-1 text-white/70 col-span-2">Waste: <span className="text-white">{patternInfo.envelopeWasteMm2}</span></div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="bg-white/5 rounded-lg border border-white/10 overflow-hidden flex-1 flex flex-col">
             <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-white/10 bg-white/5">
               <span className="text-white/80 font-medium text-[11px] uppercase tracking-wider">Thống kê Size</span>
-              {config.mirrorPairs && (
+              {config.pairingStrategy === 'pair' && (
                 <span className="text-[9px] bg-green-500/20 text-green-300 border border-green-400/30 rounded px-1.5 py-0.5 ml-auto">
                   L+R
                 </span>
@@ -385,9 +436,10 @@ const DieCutLayout = () => {
     spacing: 2,
     marginX: 5,
     marginY: 5,
-    allowRotate180: true,
+    allowRotate90: true,
     pairingStrategy: 'pair', // 'pair' hoặc 'same-side'
-    gridStep: 1 
+    gridStep: 1,
+    capacityLayoutMode: 'pair-complementary'
   });
 
   // Merge shapes + quantities
@@ -668,7 +720,7 @@ const DieCutLayout = () => {
             
             {/* CỘT TRÁI: Cấu hình và Tóm tắt */}
             <div className="flex flex-col gap-2">
-              <SheetConfigPanel config={config} onChange={setConfig} />
+              <SheetConfigPanel config={config} onChange={setConfig} isTestMode={isTestMode} />
 
               <div className="bg-white/10 backdrop-blur-md rounded-xl border border-white/20 p-3 space-y-2">
                 <h3 className="text-white font-semibold text-sm">📋 Tóm tắt trước khi chạy</h3>
@@ -691,7 +743,7 @@ const DieCutLayout = () => {
                 <div className="bg-white/5 p-2 rounded-lg border border-white/10">
                   <div className="text-white/50 text-xs mb-0.5">Cấu hình nesting</div>
                   <div className="text-white font-medium text-sm">
-                    {config.spacing}mm {(config.allowRotate180 ? <span className="text-green-400">(Xoay)</span> : <span className="text-white/40">(- Xoay)</span>)}
+                    {config.spacing}mm {(config.allowRotate90 ? <span className="text-green-400">(90° On)</span> : <span className="text-white/40">(90° Off)</span>)}
                   </div>
                 </div>
               </div>

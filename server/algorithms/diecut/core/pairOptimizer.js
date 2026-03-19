@@ -16,7 +16,7 @@ export class PairOptimizer {
     this.translationStep = Math.max(0.5, config.translationStep ?? 1);
     this.rotationAngles = Array.isArray(config.rotationAngles) && config.rotationAngles.length
       ? [...new Set(config.rotationAngles)]
-      : [0, 90, 180, 270];
+      : [0, 90, 180];
     this.binaryIterations = Math.max(8, config.binaryIterations ?? 12);
     this.repeatCount = Math.max(3, config.repeatCount ?? 4);
   }
@@ -165,4 +165,3 @@ export class PairOptimizer {
 }
 
 export default PairOptimizer;
-

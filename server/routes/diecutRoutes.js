@@ -17,7 +17,8 @@ import { TrueShapeNesting } from '../algorithms/diecut/TrueShapeNesting.js';
 import { NestingNormalPairing } from '../algorithms/diecut/strategies/normal/NestingNormalPairing.js';
 import { NestingNormalPiece } from '../algorithms/diecut/strategies/normal/NestingNormalPiece.js';
 import { CapacityTestPairing } from '../algorithms/diecut/strategies/capacity/CapacityTestPairing.js';
-import { CapacityTestPiece } from '../algorithms/diecut/strategies/capacity/CapacityTestPiece.js';
+import { CapacityTestSameSidePattern } from '../algorithms/diecut/strategies/capacity/CapacityTestSameSidePattern.js';
+import { CapacityTestComplementaryPattern } from '../algorithms/diecut/strategies/capacity/CapacityTestComplementaryPattern.js';
 
 import { area as polygonArea } from '../algorithms/diecut/core/polygonUtils.js';
 import ExcelJS from 'exceljs';
@@ -225,12 +226,20 @@ router.post('/test-capacity', async (req, res) => {
       allowRotate180,
       gridStep,
       mirrorPairs,
-      pairingStrategy
+      pairingStrategy,
+      capacityLayoutMode
     } = req.body;
 
     if (!sizeList || sizeList.length === 0) {
       return res.status(400).json({ error: 'Danh sách size rỗng' });
     }
+
+    const resolvedPairingStrategy = pairingStrategy || (mirrorPairs !== false ? 'pair' : 'same-side');
+    const resolvedCapacityLayoutMode = capacityLayoutMode === 'legacy-pair'
+      ? 'legacy-pair'
+      : resolvedPairingStrategy === 'pair'
+        ? 'pair-complementary'
+        : 'same-side-banded';
 
     const config = {
       sheetWidth: sheetWidth || 1400,
@@ -241,19 +250,33 @@ router.post('/test-capacity', async (req, res) => {
       allowRotate90: allowRotate90 !== false,
       allowRotate180: allowRotate180 !== false,
       mirrorPairs: mirrorPairs !== false,
-      pairingStrategy: pairingStrategy || (mirrorPairs !== false ? 'pair' : 'same-side'),
+      pairingStrategy: resolvedPairingStrategy,
       gridStep: gridStep || 2,
-      maxTimeMs: 120000
+      maxTimeMs: 120000,
+      capacityLayoutMode: resolvedCapacityLayoutMode
     };
 
     const totalArea = config.sheetWidth * config.sheetHeight;
     const startTime = Date.now();
 
-    const { nestStrategy } = req.body; // 'pair' hoặc 'piece'
     let nester;
 
-    if (nestStrategy === 'piece' || (mirrorPairs === false && pairingStrategy === 'same-side')) {
-      nester = new CapacityTestPiece(config);
+    if (config.pairingStrategy === 'same-side' || config.mirrorPairs === false) {
+      nester = new CapacityTestSameSidePattern({
+        ...config,
+        capacityLayoutMode: 'same-side-banded',
+        pairingStrategy: 'same-side',
+        mirrorPairs: false
+      });
+    } else if (config.capacityLayoutMode === 'legacy-pair') {
+      nester = new CapacityTestPairing(config);
+    } else if (config.pairingStrategy === 'pair' && config.mirrorPairs !== false) {
+      nester = new CapacityTestComplementaryPattern({
+        ...config,
+        capacityLayoutMode: 'pair-complementary',
+        pairingStrategy: 'pair',
+        mirrorPairs: true
+      });
     } else {
       nester = new CapacityTestPairing(config);
     }

@@ -20,12 +20,6 @@ const FILL_PALETTE = [
 ];
 
 // Palette màu viền cho cặp (index pairId % n)
-const PAIR_BORDER_PALETTE = [
-  '#ffffff','#fbbf24','#34d399','#f87171','#c084fc',
-  '#22d3ee','#a3e635','#fb923c','#f472b6','#2dd4bf',
-  '#818cf8','#fde047','#86efac','#fca5a5','#7dd3fc'
-];
-
 function polygonToSVGPath(polygon) {
   if (!polygon || polygon.length < 2) return '';
   const d = polygon.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ');
@@ -40,11 +34,33 @@ function getCentroid(polygon) {
   return { x: sx / polygon.length, y: sy / polygon.length };
 }
 
+function getItemRenderPath(item, renderTemplates) {
+  const template = item.renderKey ? renderTemplates?.[item.renderKey] : null;
+  return template?.path || item.renderPath || polygonToSVGPath(item.polygon);
+}
+
+function getItemLabelPos(item, renderTemplates) {
+  const template = item.renderKey ? renderTemplates?.[item.renderKey] : null;
+  if (template?.labelOffset) {
+    return {
+      x: item.x + template.labelOffset.x,
+      y: item.y + template.labelOffset.y
+    };
+  }
+  return item.labelPos || getCentroid(item.polygon);
+}
+
+function getItemPathTransform(item, renderTemplates) {
+  return item.renderKey && renderTemplates?.[item.renderKey]
+    ? `translate(${item.x}, ${item.y})`
+    : undefined;
+}
+
 // ─────────────────────────────────────────────────────────
 // SheetCanvas: vẽ 1 tấm PU, hỗ trợ Pan & Zoom
 // ─────────────────────────────────────────────────────────
-const SheetCanvas = ({ sheet, sizeColorMap, pairBorderMap, scale, showPairLines, compactMode, isRotated }) => {
-  const { sheetWidth, sheetHeight, placed } = sheet;
+const SheetCanvas = React.memo(({ sheet, sizeColorMap, scale, showPairLines, compactMode, isRotated }) => {
+  const { sheetWidth, sheetHeight, placed, renderTemplates } = sheet;
   const [hovered, setHovered] = useState(null);
 
   // States cho Pan & Zoom
@@ -90,23 +106,42 @@ const SheetCanvas = ({ sheet, sizeColorMap, pairBorderMap, scale, showPairLines,
   }, [scale, compactMode]);
 
   // Tạo đường kết nối giữa L và R của cùng cặp
-  const pairLines = [];
-  if (showPairLines) {
+  const renderedPlaced = React.useMemo(() => (
+    placed.map((item) => ({
+      ...item,
+      svgPath: getItemRenderPath(item, renderTemplates),
+      labelPos: getItemLabelPos(item, renderTemplates),
+      pathTransform: getItemPathTransform(item, renderTemplates),
+      fillColor: sizeColorMap[item.sizeName] || '#888'
+    }))
+  ), [placed, renderTemplates, sizeColorMap]);
+
+  const pairLines = React.useMemo(() => {
+    if (!showPairLines) return [];
+
     const pairGroups = {};
-    for (const item of placed) {
+    for (const item of renderedPlaced) {
       if (item.pairId !== undefined && item.pairId !== null) {
         if (!pairGroups[item.pairId]) pairGroups[item.pairId] = {};
         pairGroups[item.pairId][item.foot] = item;
       }
     }
-    for (const [, grp] of Object.entries(pairGroups)) {
-      if (grp.L && grp.R) {
-        const cL = getCentroid(grp.L.polygon);
-        const cR = getCentroid(grp.R.polygon);
-        pairLines.push({ x1: cL.x, y1: cL.y, x2: cR.x, y2: cR.y });
-      }
-    }
-  }
+
+    return Object.values(pairGroups).flatMap((grp) => {
+      if (!grp.L || !grp.R) return [];
+      return [{
+        x1: grp.L.labelPos.x,
+        y1: grp.L.labelPos.y,
+        x2: grp.R.labelPos.x,
+        y2: grp.R.labelPos.y
+      }];
+    });
+  }, [renderedPlaced, showPairLines]);
+
+  const hoveredItem = React.useMemo(
+    () => renderedPlaced.find((item) => item.id === hovered) || null,
+    [renderedPlaced, hovered]
+  );
 
   // Nếu isRotated = true, đổi viewBox để ngang bằng dọc
   const viewBoxW = isRotated ? sheetHeight : sheetWidth;
@@ -174,10 +209,11 @@ const SheetCanvas = ({ sheet, sizeColorMap, pairBorderMap, scale, showPairLines,
           ))}
 
           {/* Placed items */}
-          {placed.map((item) => {
-            const fillColor  = sizeColorMap[item.sizeName] || '#888';
-            const svgPath    = polygonToSVGPath(item.polygon);
-            const cent       = getCentroid(item.polygon);
+          {renderedPlaced.map((item) => {
+            const fillColor  = item.fillColor;
+            const svgPath    = item.svgPath;
+            const cent       = item.labelPos;
+            const pathTransform = item.pathTransform;
             const isHov      = hovered === item.id;
 
             const strokeColor = item.isFlipped ? '#fbbf24' : 'rgba(255,255,255,0.85)';
@@ -192,11 +228,12 @@ const SheetCanvas = ({ sheet, sizeColorMap, pairBorderMap, scale, showPairLines,
                 style={{ cursor: 'default' }}
               >
                 {isHov && (
-                  <path d={svgPath} fill="white" fillOpacity={0.12}
+                  <path d={svgPath} transform={pathTransform} fill="white" fillOpacity={0.12}
                     stroke="white" strokeWidth={6} strokeOpacity={0.4} />
                 )}
                 <path
                   d={svgPath}
+                  transform={pathTransform}
                   fill={fillColor}
                   fillOpacity={fillOp}
                   stroke={strokeColor}
@@ -233,9 +270,8 @@ const SheetCanvas = ({ sheet, sizeColorMap, pairBorderMap, scale, showPairLines,
       </div>
 
       {/* Hover tooltip không bị scale theo SVG để chữ rõ ràng */}
-      {hovered && (() => {
-        const item = placed.find(p => p.id === hovered);
-        if (!item) return null;
+      {hoveredItem && (() => {
+        const item = hoveredItem;
         return (
           <div className="absolute top-2 left-2 bg-black/80 text-white text-xs rounded-lg px-3 py-2 pointer-events-none border border-white/20 z-10 shadow-lg">
             <div className="font-bold">Size {item.sizeName} — Chân {item.foot === 'L' ? 'Trái (L)' : 'Phải (R)'}</div>
@@ -257,7 +293,7 @@ const SheetCanvas = ({ sheet, sizeColorMap, pairBorderMap, scale, showPairLines,
       )}
     </div>
   );
-};
+});
 
 // ─────────────────────────────────────────────────────────
 // DieCutNestingBoard: component chính
@@ -267,6 +303,13 @@ const DieCutNestingBoard = ({ nestingResult, sizeList, compactMode = false }) =>
   const [scale, setScale] = useState(0.5);
   const [showPairLines, setShowPairLines] = useState(true);
   const [isRotated, setIsRotated] = useState(false);
+  const memoizedSizeColorMap = React.useMemo(() => {
+    const nextMap = {};
+    (sizeList || []).forEach((s, i) => {
+      nextMap[s.sizeName] = FILL_PALETTE[i % FILL_PALETTE.length];
+    });
+    return nextMap;
+  }, [sizeList]);
 
   if (!nestingResult || !nestingResult.sheets || nestingResult.sheets.length === 0) {
     return (
@@ -277,19 +320,9 @@ const DieCutNestingBoard = ({ nestingResult, sizeList, compactMode = false }) =>
   }
 
   // Map sizeName → fill color
-  const sizeColorMap = {};
-  (sizeList || []).forEach((s, i) => {
-    sizeColorMap[s.sizeName] = FILL_PALETTE[i % FILL_PALETTE.length];
-  });
+  const sizeColorMap = memoizedSizeColorMap;
 
   // Map pairId → pair border color
-  const pairBorderMap = {};
-  const allPlaced = nestingResult.sheets.flatMap(sh => sh.placed);
-  const pairIds = [...new Set(allPlaced.map(p => p.pairId).filter(id => id !== undefined && id !== null))];
-  pairIds.forEach((pid, i) => {
-    pairBorderMap[pid] = PAIR_BORDER_PALETTE[i % PAIR_BORDER_PALETTE.length];
-  });
-
   const { sheets, totalSheets, placedCount, unplacedCount, efficiency, timeMs } = nestingResult;
   const currentSheet = sheets[selectedSheet] || sheets[0];
   const pairCount = Math.floor(placedCount / 2);
@@ -354,7 +387,6 @@ const DieCutNestingBoard = ({ nestingResult, sizeList, compactMode = false }) =>
           <SheetCanvas
             sheet={currentSheet}
             sizeColorMap={sizeColorMap}
-            pairBorderMap={pairBorderMap}
             scale={scale}
             showPairLines={showPairLines}
             compactMode={true}
@@ -431,7 +463,6 @@ const DieCutNestingBoard = ({ nestingResult, sizeList, compactMode = false }) =>
         <SheetCanvas
           sheet={currentSheet}
           sizeColorMap={sizeColorMap}
-          pairBorderMap={pairBorderMap}
           scale={scale}
           showPairLines={showPairLines}
           compactMode={false}

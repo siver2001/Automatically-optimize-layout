@@ -33,7 +33,7 @@ export class BaseNesting {
     if (config.allowRotate90 === false && config.allowRotate180 === false) return [0];
     if (config.allowRotate90 === false) return [0, 180];
     if (config.allowRotate180 === false) return [0, 90];
-    return [0, 90, 180, 270];
+    return [0, 90, 180];
   }
 
   _getOrient(item, angle, step, spacing) {
@@ -59,6 +59,39 @@ export class BaseNesting {
       }
     }
     return false;
+  }
+
+  _checkRasterOverlap(r1, r2, dx, dy) {
+    const ys = Math.max(0, -dy);
+    const ye = Math.min(r2.rows, r1.rows - dy);
+    const xs = Math.max(0, -dx);
+    const xe = Math.min(r2.cols, r1.cols - dx);
+    if (ys >= ye || xs >= xe) return false;
+
+    for (let r = ys; r < ye; r++) {
+      const o1 = (r + dy) * r1.cols;
+      const o2 = r * r2.cols;
+      for (let c = xs; c < xe; c++) {
+        if (r2.cells[o2 + c] && r1.cells[o1 + c + dx]) return true;
+      }
+    }
+    return false;
+  }
+
+  _findStride(raster, vertical = false) {
+    let stride = vertical ? raster.rows : raster.cols;
+    const minStride = Math.max(1, Math.floor(stride * 0.15));
+
+    while (stride > minStride) {
+      const testStride = stride - 1;
+      const collision = vertical
+        ? this._checkRasterOverlap(raster, raster, 0, testStride)
+        : this._checkRasterOverlap(raster, raster, testStride, 0);
+      if (collision) break;
+      stride = testStride;
+    }
+
+    return Math.max(1, stride);
   }
 
   _mark(board, bCols, raster, bx, by, val = 1) {

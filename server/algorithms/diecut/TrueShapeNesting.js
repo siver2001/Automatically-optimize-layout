@@ -105,7 +105,7 @@ export class TrueShapeNesting {
     if (config.allowRotate90 === false && config.allowRotate180 === false) return [0];
     if (config.allowRotate90 === false) return [0, 180];
     if (config.allowRotate180 === false) return [0, 90];
-    return [0, 90, 180, 270];
+    return [0, 90, 180];
   }
 
   _getOrient(item, angle, step, spacing) {
