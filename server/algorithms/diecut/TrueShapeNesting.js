@@ -1,7 +1,7 @@
-/**
- * TrueShapeNesting.js - v7 Ultra-Performance Industrial Nesting
- * Optimized for real-time UI & Maximum Yield.
- */
+
+// =========================================================
+// File: TrueShapeNesting.js
+// =========================================================
 
 import {
   getBoundingBox,
@@ -11,19 +11,20 @@ import {
   normalizeToOrigin,
   simplifyPolygon,
   area as polygonArea
-} from './polygonUtils.js';
-import { PairOptimizer } from './pairOptimizer.js';
-
-// ─────────────────────────────────────────────────────────────────────
-// Rasterized Unit: The "Stamp" that makes nesting fast
-// ─────────────────────────────────────────────────────────────────────
+} from './core/polygonUtils.js';
+import { PairOptimizer } from './core/pairOptimizer.js';
 
 function pointInPoly(px, py, polygon) {
   let inside = false;
   const n = polygon.length;
   for (let i = 0, j = n - 1; i < n; j = i++) {
-    const xi = polygon[i].x, yi = polygon[i].y;
-    if ((polygon[i].y > py) !== (polygon[j].y > py) && px < ((polygon[j].x - xi) * (py - yi) / (polygon[j].y - yi)) + xi) inside = !inside;
+    const xi = polygon[i].x;
+    const yi = polygon[i].y;
+    const xj = polygon[j].x;
+    const yj = polygon[j].y;
+    if ((yi > py) !== (yj > py) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) {
+      inside = !inside;
+    }
   }
   return inside;
 }
@@ -35,39 +36,47 @@ function rasterizeToBuffer(polygon, step, spacing, refBB = null) {
   const rows = Math.ceil(bb.height / step) + 2 + pad * 2;
   const cells = new Uint8Array(cols * rows);
 
-  const offX = bb.minX, offY = bb.minY;
+  const offX = bb.minX;
+  const offY = bb.minY;
 
   for (let r = pad; r < rows - pad; r++) {
     const wy = (r - pad) * step + step * 0.5 + offY;
     for (let c = pad; c < cols - pad; c++) {
-      if (pointInPoly((c - pad) * step + step * 0.5 + offX, wy, polygon)) cells[r * cols + c] = 1;
+      const wx = (c - pad) * step + step * 0.5 + offX;
+      if (pointInPoly(wx, wy, polygon)) {
+        cells[r * cols + c] = 1;
+      }
     }
   }
 
-  // Khuyếch đại biên để tạo khoảng cách (Dilation)
   const expanded = new Uint8Array(cols * rows);
-  if (pad > 0) {
-    const h = new Uint8Array(cols * rows);
-    for (let r = 0; r < rows; r++) {
-      const off = r * cols;
-      for (let c = 0; c < cols; c++) {
-        if (!cells[off + c]) continue;
-        for (let cc = Math.max(0, c - pad); cc <= Math.min(cols - 1, c + pad); cc++) h[off + cc] = 1;
-      }
-    }
+  if (pad <= 0) {
+    expanded.set(cells);
+    return { cells: expanded, cols, rows, pad };
+  }
+
+  const horiz = new Uint8Array(cols * rows);
+  for (let r = 0; r < rows; r++) {
+    const off = r * cols;
     for (let c = 0; c < cols; c++) {
-      for (let r = 0; r < rows; r++) {
-        if (!h[r * cols + c]) continue;
-        for (let rr = Math.max(0, r - pad); rr <= Math.min(rows - 1, r + pad); rr++) expanded[rr * cols + c] = 1;
+      if (!cells[off + c]) continue;
+      for (let cc = Math.max(0, c - pad); cc <= Math.min(cols - 1, c + pad); cc++) {
+        horiz[off + cc] = 1;
       }
     }
-  } else expanded.set(cells);
+  }
+
+  for (let c = 0; c < cols; c++) {
+    for (let r = 0; r < rows; r++) {
+      if (!horiz[r * cols + c]) continue;
+      for (let rr = Math.max(0, r - pad); rr <= Math.min(rows - 1, r + pad); rr++) {
+        expanded[rr * cols + c] = 1;
+      }
+    }
+  }
+
   return { cells: expanded, cols, rows, pad };
 }
-
-// ─────────────────────────────────────────────────────────────────────
-// Main Class
-// ─────────────────────────────────────────────────────────────────────
 
 export class TrueShapeNesting {
   constructor(config = {}) {
@@ -77,247 +86,512 @@ export class TrueShapeNesting {
       spacing: 3,
       marginX: 5,
       marginY: 5,
-      pairingStrategy: 'same-side',
-      gridStep: 1.0,
-      rotationAngles: [0, 90, 180, 270],
+      pairingStrategy: 'mirrored',
+      gridStep: 1,
+      allowRotate90: true,
+      allowRotate180: true,
+      rotationAngles: null,
+      maxSheets: 5,
+      localRefine: false,
       ...config
     };
-    this._cache = new Map();
+    this._orientCache = new Map();
+  }
+
+  _getAllowedAngles(config) {
+    if (Array.isArray(config.rotationAngles) && config.rotationAngles.length) {
+      return [...new Set(config.rotationAngles.map(v => ((v % 360) + 360) % 360))];
+    }
+    if (config.allowRotate90 === false && config.allowRotate180 === false) return [0];
+    if (config.allowRotate90 === false) return [0, 180];
+    if (config.allowRotate180 === false) return [0, 90];
+    return [0, 90, 180, 270];
   }
 
   _getOrient(item, angle, step, spacing) {
-    const key = `${item.sizeName}-${item.foot || 'L'}-${angle}-${step}-${spacing}`;
-    if (this._cache.has(key)) return this._cache.get(key);
-    
-    // 1. Tạo Polygon độ phân giải CAO để xuất kết quả cuối cùng
+    const key = `${item.sizeName}-${item.foot || 'X'}-${angle}-${step}-${spacing}`;
+    if (this._orientCache.has(key)) return this._orientCache.get(key);
+
     const highPoly = normalizeToOrigin(rotatePolygon(item.polygon, angle * Math.PI / 180));
-    
-    // 2. Tạo Polygon độ phân giải thấp (đã đơn giản hóa) để tính Raster nhanh
     const bb = getBoundingBox(highPoly);
     const lowPoly = simplifyPolygon(highPoly, 0.4);
-    
-    // RasterizeToBuffer sử dụng BBox của HighPoly để đảm bảo khớp tọa độ khi gán lại
     const raster = rasterizeToBuffer(lowPoly, step, spacing, bb);
-    
     const res = { angle, polygon: highPoly, raster };
-    this._cache.set(key, res);
+    this._orientCache.set(key, res);
     return res;
   }
 
-  _checkCollision(board, bCols, bRows, r, bx, by) {
-    if (bx < 0 || by < 0 || bx + r.cols > bCols || by + r.rows > bRows) return true;
-    for (let i = 0; i < r.rows; i++) {
-        const bOff = (by + i) * bCols + bx, rOff = i * r.cols;
-        for (let j = 0; j < r.cols; j++) if (r.cells[rOff + j] && board[bOff + j]) return true;
+  _checkCollision(board, bCols, bRows, raster, bx, by) {
+    if (bx < 0 || by < 0 || bx + raster.cols > bCols || by + raster.rows > bRows) return true;
+    for (let r = 0; r < raster.rows; r++) {
+      const bOff = (by + r) * bCols + bx;
+      const rOff = r * raster.cols;
+      for (let c = 0; c < raster.cols; c++) {
+        if (raster.cells[rOff + c] && board[bOff + c]) return true;
+      }
     }
     return false;
   }
 
-  _mark(board, bCols, r, bx, by) {
-    for (let i = 0; i < r.rows; i++) {
-        const bOff = (by + i) * bCols + bx, rOff = i * r.cols;
-        for (let j = 0; j < r.cols; j++) if (r.cells[rOff + j]) board[bOff + j] = 1;
+  _mark(board, bCols, raster, bx, by, val = 1) {
+    for (let r = 0; r < raster.rows; r++) {
+      const bOff = (by + r) * bCols + bx;
+      const rOff = r * raster.cols;
+      for (let c = 0; c < raster.cols; c++) {
+        if (raster.cells[rOff + c]) board[bOff + c] = val;
+      }
     }
-  }
-
-  _createUnit(size, config, step) {
-    // Không simplify ở đây để giữ nguyên tọa độ gốc
-    const base = size.polygon;
-    const left = base, right = flipX(base);
-    const opt = new PairOptimizer({ spacing: config.spacing, translationStep: 2 });
-    
-    const scs = (config.pairingStrategy === 'same-side') 
-        ? [{p1:left, p2:left, l1:'L', l2:'L'}, {p1:right, p2:right, l1:'R', l2:'R'}]
-        : [{p1:left, p2:right, l1:'L', l2:'R'}];
-
-    let bestUnit = null, maxYield = -1;
-    for (const sc of scs) {
-        const results = opt.optimize(sc.p1, sc.p2, sc.l1, sc.l2);
-        for (const res of results.slice(0, 5)) {
-            const lo = this._getOrient({ sizeName: size.sizeName, foot: sc.l1, polygon: sc.p1 }, res.angle1, step, config.spacing);
-            const ro = this._getOrient({ sizeName: size.sizeName, foot: sc.l2, polygon: sc.p2 }, res.angle2, step, config.spacing);
-            
-            const dx = Math.round(res.offset.x / step), dy = Math.round(res.offset.y / step);
-            const minX = Math.min(0, dx), minY = Math.min(0, dy);
-            const maxX = Math.max(lo.raster.cols, dx + ro.raster.cols), maxY = Math.max(lo.raster.rows, dy + ro.raster.rows);
-            const unitW = maxX - minX, unitH = maxY - minY;
-
-            // Tạo "Siêu Raster" cho Đơn vị chuẩn (The Stamp)
-            const unitCells = new Uint8Array(unitW * unitH);
-            const r1 = lo.raster, r2 = ro.raster;
-            const ax = -minX, ay = -minY, bx = dx - minX, by = dy - minY;
-            
-            for (let r = 0; r < r1.rows; r++) {
-               const offR = r * r1.cols, offU = (ay + r) * unitW + ax;
-               for (let c = 0; c < r1.cols; c++) if (r1.cells[offR + c]) unitCells[offU + c] = 1;
-            }
-            for (let r = 0; r < r2.rows; r++) {
-               const offR = r * r2.cols, offU = (by + r) * unitW + bx;
-               for (let c = 0; c < r2.cols; c++) if (r2.cells[offR + c]) unitCells[offU + c] = 1;
-            }
-
-            const unitR = { cells: unitCells, cols: unitW, rows: unitH };
-            const sx = this._findStride(unitR, unitR, step), sy = this._findStride(unitR, unitR, step, true);
-            
-            const yieldVal = Math.floor((config.sheetWidth / (sx * step))) * Math.floor((config.sheetHeight / (sy * step))) * 2;
-            if (yieldVal > maxYield) {
-                maxYield = yieldVal;
-                bestUnit = { sizeName: size.sizeName, lOrient: lo, rOrient: ro, unitR, ax, ay, bx, by, sx, sy };
-            }
-        }
-    }
-    return bestUnit;
-  }
-
-  _findStride(r1, r2, step, vertical = false) {
-    let s = vertical ? r1.rows : r1.cols;
-    const min = Math.floor(s * 0.1);
-    while (s > min) {
-        const test = s - 1;
-        const collision = vertical ? this._checkCol(r1, r2, 0, test) : this._checkCol(r1, r2, test, 0);
-        if (collision) break;
-        s = test;
-    }
-    return s;
   }
 
   _checkCol(r1, r2, dx, dy) {
-    const ys = Math.max(0, -dy), ye = Math.min(r2.rows, r1.rows - dy);
-    const xs = Math.max(0, -dx), xe = Math.min(r2.cols, r1.cols - dx);
+    const ys = Math.max(0, -dy);
+    const ye = Math.min(r2.rows, r1.rows - dy);
+    const xs = Math.max(0, -dx);
+    const xe = Math.min(r2.cols, r1.cols - dx);
     if (ys >= ye || xs >= xe) return false;
+
     for (let r = ys; r < ye; r++) {
-        const o1 = (r + dy) * r1.cols, o2 = r * r2.cols;
-        for (let c = xs; c < xe; c++) if (r2.cells[o2 + c] && r1.cells[o1 + c + dx]) return true;
+      const o1 = (r + dy) * r1.cols;
+      const o2 = r * r2.cols;
+      for (let c = xs; c < xe; c++) {
+        if (r2.cells[o2 + c] && r1.cells[o1 + c + dx]) return true;
+      }
     }
     return false;
   }
 
-  _packOneSheet(pairs, config) {
-    const step = config.gridStep || 1.0;
-    const bCols = Math.ceil((config.sheetWidth - 2 * config.marginX) / step);
-    const bRows = Math.ceil((config.sheetHeight - 2 * config.marginY) / step);
-    const board = new Uint8Array(bCols * bRows), placed = [];
-
-    const sizeGroups = new Map();
-    for (const p of pairs) {
-      if (!sizeGroups.has(p.sizeName)) sizeGroups.set(p.sizeName, []);
-      sizeGroups.get(p.sizeName).push(p);
+  _findStride(raster, vertical = false) {
+    let s = vertical ? raster.rows : raster.cols;
+    const min = Math.max(1, Math.floor(s * 0.15));
+    while (s > min) {
+      const test = s - 1;
+      const collision = vertical
+        ? this._checkCol(raster, raster, 0, test)
+        : this._checkCol(raster, raster, test, 0);
+      if (collision) break;
+      s = test;
     }
-
-    const units = Array.from(sizeGroups.entries()).map(([name, g]) => this._createUnit({ sizeName: name, polygon: g[0].left.polygon }, config, step)).filter(u => u);
-
-    for (const u of units) {
-       const g = sizeGroups.get(u.sizeName);
-       let pIdx = 0, y = 0, rIdx = 0;
-       while (pIdx < g.length && y + u.unitR.rows <= bRows) {
-          let x = (rIdx % 2 === 1) ? -Math.floor(u.sx / 2) : 0;
-          rIdx++;
-          // FAST TILING: Nếu hàng sạch, nhét cả loạt
-          while (x <= bCols - u.unitR.cols + 10 && pIdx < g.length) {
-             const ex = Math.max(0, Math.round(x));
-             if (!this._checkCollision(board, bCols, bRows, u.unitR, ex, y)) {
-                this._mark(board, bCols, u.unitR, ex, y);
-                const p = g[pIdx];
-                placed.push(this._build(p.left, u.lOrient, ex + u.ax, y + u.ay, config, step));
-                placed.push(this._build(p.right, u.rOrient, ex + u.bx, y + u.by, config, step));
-                pIdx++; x += u.sx;
-             } else x += 2;
-          }
-          y += u.sy;
-       }
-       sizeGroups.set(u.sizeName, g.slice(pIdx));
-    }
-
-    // LEFT OVER: Nhét nốt hàng đơn vào kẽ hở bằng logic Row-Filling chuẩn
-    const survivors = [];
-    for (const [name, g] of sizeGroups) g.forEach(p => { survivors.push(p.left); survivors.push(p.right); });
-    if (survivors.length > 0) this._fill(board, bCols, bRows, survivors, config, step, placed);
-
-    const ids = new Set(placed.map(i => i.id));
-    return { placed, remaining: pairs.filter(p => !ids.has(p.left.id)) };
+    return Math.max(1, s);
   }
 
-  _fill(board, bCols, bRows, items, config, step, placed) {
-    let idx = 0;
-    let y = 0;
-    const candidateAngles = [0, 90, 180, 270];
+  _buildUnitFromPairResult(sizeName, scenario, result, config, step) {
+    const leftItem = { sizeName, foot: scenario.labelA, polygon: scenario.p1 };
+    const rightItem = { sizeName, foot: scenario.labelB, polygon: scenario.p2 };
 
-    while (y < bRows && idx < items.length) {
-      let rowAngle = null;
+    const aOrient = this._getOrient(leftItem, result.angle1, step, config.spacing);
+    const bOrient = this._getOrient(rightItem, result.angle2, step, config.spacing);
+
+    const dx = Math.round(result.offset.x / step);
+    const dy = Math.round(result.offset.y / step);
+    const minX = Math.min(0, dx);
+    const minY = Math.min(0, dy);
+    const maxX = Math.max(aOrient.raster.cols, dx + bOrient.raster.cols);
+    const maxY = Math.max(aOrient.raster.rows, dy + bOrient.raster.rows);
+    if (maxX <= minX || maxY <= minY) return null;
+
+    const cols = maxX - minX;
+    const rows = maxY - minY;
+    const cells = new Uint8Array(cols * rows);
+    const ax = -minX;
+    const ay = -minY;
+    const bx = dx - minX;
+    const by = dy - minY;
+
+    for (let r = 0; r < aOrient.raster.rows; r++) {
+      const src = r * aOrient.raster.cols;
+      const dst = (ay + r) * cols + ax;
+      for (let c = 0; c < aOrient.raster.cols; c++) {
+        if (aOrient.raster.cells[src + c]) cells[dst + c] = 1;
+      }
+    }
+
+    for (let r = 0; r < bOrient.raster.rows; r++) {
+      const src = r * bOrient.raster.cols;
+      const dst = (by + r) * cols + bx;
+      for (let c = 0; c < bOrient.raster.cols; c++) {
+        if (bOrient.raster.cells[src + c]) cells[dst + c] = 1;
+      }
+    }
+
+    const unitR = { cells, cols, rows };
+    const sx = this._findStride(unitR, false);
+    const sy = this._findStride(unitR, true);
+
+    return {
+      sizeName,
+      pairType: result.type,
+      score: result.totalScore,
+      rowScore: result.rowScore,
+      compactScore: result.compactScore,
+      gapScore: result.gapScore,
+      repeatScore: result.repeatScore,
+      alignmentScore: result.alignmentScore,
+      aOrient,
+      bOrient,
+      unitR,
+      ax,
+      ay,
+      bx,
+      by,
+      sx,
+      sy,
+      widthMm: sx * step,
+      heightMm: sy * step
+    };
+  }
+
+  _selectMastersForSize(sizeName, polygon, config, step) {
+    const left = normalizeToOrigin(polygon);
+    const right = normalizeToOrigin(flipX(polygon));
+    const scenarios = [
+      { p1: left, p2: left, labelA: 'L', labelB: 'L' },
+      { p1: right, p2: right, labelA: 'R', labelB: 'R' }
+    ];
+
+    if (config.pairingStrategy !== 'same-side') {
+      scenarios.push(
+        { p1: left, p2: right, labelA: 'L', labelB: 'R' },
+        { p1: right, p2: left, labelA: 'R', labelB: 'L' }
+      );
+    }
+
+    const opt = new PairOptimizer({
+      spacing: config.spacing,
+      translationStep: config.gridStep <= 0.5 ? 0.5 : 1,
+      rotationAngles: this._getAllowedAngles(config)
+    });
+
+    const allUnits = [];
+    for (const scenario of scenarios) {
+      const candidates = opt.optimize(scenario.p1, scenario.p2, scenario.labelA, scenario.labelB).slice(0, 6);
+      for (const candidate of candidates) {
+        const unit = this._buildUnitFromPairResult(sizeName, scenario, candidate, config, step);
+        if (unit) allUnits.push(unit);
+      }
+    }
+
+    if (!allUnits.length) return null;
+
+    const rowMaster = [...allUnits].sort((a, b) => {
+      if (b.rowScore !== a.rowScore) return b.rowScore - a.rowScore;
+      if (a.heightMm !== b.heightMm) return a.heightMm - b.heightMm;
+      return b.score - a.score;
+    })[0];
+
+    const compactMaster = [...allUnits].sort((a, b) => {
+      if (b.compactScore !== a.compactScore) return b.compactScore - a.compactScore;
+      return b.score - a.score;
+    })[0];
+
+    return {
+      sizeName,
+      rowMaster,
+      compactMaster,
+      allUnits
+    };
+  }
+
+  _buildPlaced(item, orient, x, y, config, step) {
+    const xm = config.marginX + (x - orient.raster.pad) * step;
+    const ym = config.marginY + (y - orient.raster.pad) * step;
+    return {
+      id: item.id,
+      sizeName: item.sizeName,
+      foot: item.foot,
+      x: parseFloat(xm.toFixed(2)),
+      y: parseFloat(ym.toFixed(2)),
+      angle: orient.angle,
+      polygon: translate(orient.polygon, xm, ym)
+    };
+  }
+
+  _tryPlaceUnit(board, bCols, bRows, unit, pair, x, y, config, step, placed) {
+    if (this._checkCollision(board, bCols, bRows, unit.unitR, x, y)) return false;
+
+    this._mark(board, bCols, unit.unitR, x, y, 1);
+    placed.push(this._buildPlaced(pair.left, unit.aOrient, x + unit.ax, y + unit.ay, config, step));
+    placed.push(this._buildPlaced(pair.right, unit.bOrient, x + unit.bx, y + unit.by, config, step));
+    return true;
+  }
+
+  _packRowsFast(board, bCols, bRows, groupedPairs, mastersBySize, config, step, placed) {
+    const sizeOrder = [...groupedPairs.keys()].sort((a, b) => {
+      const ma = mastersBySize.get(a)?.rowMaster;
+      const mb = mastersBySize.get(b)?.rowMaster;
+      const sa = ma ? (100000 / Math.max(1, ma.heightMm)) + ma.score : 0;
+      const sb = mb ? (100000 / Math.max(1, mb.heightMm)) + mb.score : 0;
+      return sb - sa;
+    });
+
+    let y = 0;
+    let rowIndex = 0;
+    while (y < bRows) {
+      let rowPlaced = false;
       let rowHeight = 0;
       let x = 0;
-      let placedAny = false;
 
-      // Chọn góc cho cả hàng
-      for (const ang of candidateAngles) {
-        const o = this._getOrient(items[idx], ang, step, config.spacing);
-        if (x + o.raster.cols > bCols || y + o.raster.rows > bRows) continue;
-        if (!this._checkCollision(board, bCols, bRows, o.raster, x, y)) {
-          rowAngle = ang;
+      while (x < bCols) {
+        let placedHere = false;
+        const widthLeft = bCols - x;
+
+        for (const sizeName of sizeOrder) {
+          const queue = groupedPairs.get(sizeName);
+          if (!queue || !queue.length) continue;
+
+          const masters = mastersBySize.get(sizeName);
+          if (!masters?.rowMaster) continue;
+
+          const unit = x === 0 ? masters.rowMaster : masters.compactMaster || masters.rowMaster;
+          if (!unit) continue;
+          if (unit.unitR.cols > widthLeft || y + unit.unitR.rows > bRows) continue;
+
+          const pair = queue[0];
+          if (!this._tryPlaceUnit(board, bCols, bRows, unit, pair, x, y, config, step, placed)) {
+            continue;
+          }
+
+          queue.shift();
+          rowPlaced = true;
+          rowHeight = Math.max(rowHeight, unit.sy);
+          x += Math.max(1, unit.sx);
+          placedHere = true;
           break;
+        }
+
+        if (!placedHere) x += 1;
+      }
+
+      if (!rowPlaced) {
+        y += 1;
+      } else {
+        const advance = Math.max(1, rowHeight - (rowIndex % 2 === 1 ? Math.floor(rowHeight * 0.05) : 0));
+        y += advance;
+        rowIndex += 1;
+      }
+
+      const anyRemaining = sizeOrder.some(name => groupedPairs.get(name)?.length);
+      if (!anyRemaining) break;
+    }
+  }
+
+  _findFreeRegions(board, bCols, bRows, minCells = 10) {
+    const visited = new Uint8Array(board.length);
+    const regions = [];
+    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
+    for (let y = 0; y < bRows; y++) {
+      for (let x = 0; x < bCols; x++) {
+        const idx = y * bCols + x;
+        if (board[idx] || visited[idx]) continue;
+
+        const stack = [[x, y]];
+        visited[idx] = 1;
+        let minX = x;
+        let minY = y;
+        let maxX = x;
+        let maxY = y;
+        let areaCells = 0;
+
+        while (stack.length) {
+          const [cx, cy] = stack.pop();
+          areaCells += 1;
+          if (cx < minX) minX = cx;
+          if (cy < minY) minY = cy;
+          if (cx > maxX) maxX = cx;
+          if (cy > maxY) maxY = cy;
+
+          for (const [dx, dy] of dirs) {
+            const nx = cx + dx;
+            const ny = cy + dy;
+            if (nx < 0 || ny < 0 || nx >= bCols || ny >= bRows) continue;
+            const ni = ny * bCols + nx;
+            if (board[ni] || visited[ni]) continue;
+            visited[ni] = 1;
+            stack.push([nx, ny]);
+          }
+        }
+
+        if (areaCells >= minCells) {
+          regions.push({
+            minX,
+            minY,
+            maxX,
+            maxY,
+            width: maxX - minX + 1,
+            height: maxY - minY + 1,
+            areaCells
+          });
+        }
+      }
+    }
+
+    return regions.sort((a, b) => b.areaCells - a.areaCells);
+  }
+
+  _fillSinglesInRegion(region, board, bCols, bRows, singles, config, step, placed) {
+    const angles = this._getAllowedAngles(config);
+    let i = 0;
+
+    while (i < singles.length) {
+      const item = singles[i];
+      let best = null;
+
+      for (const angle of angles) {
+        const orient = this._getOrient(item, angle, step, config.spacing);
+        if (orient.raster.cols > region.width || orient.raster.rows > region.height) continue;
+
+        for (let y = region.minY; y <= region.maxY - orient.raster.rows + 1; y++) {
+          for (let x = region.minX; x <= region.maxX - orient.raster.cols + 1; x++) {
+            if (this._checkCollision(board, bCols, bRows, orient.raster, x, y)) continue;
+            const waste = (region.width * region.height) - (orient.raster.cols * orient.raster.rows);
+            const edgeBias = Math.abs(x - region.minX) + Math.abs(y - region.minY);
+            const score = waste * 0.10 + edgeBias * 0.03;
+            if (!best || score < best.score) best = { orient, x, y, score };
+          }
         }
       }
 
-      if (rowAngle === null) {
-        y += 1;
+      if (!best) {
+        i += 1;
         continue;
       }
 
-      while (x < bCols && idx < items.length) {
-        const o = this._getOrient(items[idx], rowAngle, step, config.spacing);
-
-        if (x + o.raster.cols <= bCols &&
-            y + o.raster.rows <= bRows &&
-            !this._checkCollision(board, bCols, bRows, o.raster, x, y)) {
-          this._mark(board, bCols, o.raster, x, y);
-          placed.push(this._build(items[idx], o, x, y, config, step));
-          rowHeight = Math.max(rowHeight, o.raster.rows);
-          x += o.raster.cols;
-          idx++;
-          placedAny = true;
-        } else {
-          x += 1;
-        }
-      }
-
-      y += placedAny ? Math.max(1, rowHeight) : 1;
+      this._mark(board, bCols, best.orient.raster, best.x, best.y, 1);
+      placed.push(this._buildPlaced(item, best.orient, best.x, best.y, config, step));
+      singles.splice(i, 1);
     }
   }
 
-  _build(item, o, x, y, config, step) {
-    const xm = config.marginX + (x - o.raster.pad) * step, ym = config.marginY + (y - o.raster.pad) * step;
-    return { id: item.id, sizeName: item.sizeName, x: parseFloat(xm.toFixed(2)), y: parseFloat(ym.toFixed(2)), angle: o.angle, polygon: translate(o.polygon, xm, ym) };
+  _gapFillLight(board, bCols, bRows, groupedPairs, mastersBySize, singles, config, step, placed) {
+    const regions = this._findFreeRegions(board, bCols, bRows, 12);
+    for (const region of regions) {
+      for (const [sizeName, queue] of groupedPairs.entries()) {
+        if (!queue.length) continue;
+        const unit = mastersBySize.get(sizeName)?.compactMaster;
+        if (!unit) continue;
+        if (unit.unitR.cols > region.width || unit.unitR.rows > region.height) continue;
+
+        let done = false;
+        for (let y = region.minY; y <= region.maxY - unit.unitR.rows + 1 && !done; y++) {
+          for (let x = region.minX; x <= region.maxX - unit.unitR.cols + 1; x++) {
+            if (!this._tryPlaceUnit(board, bCols, bRows, unit, queue[0], x, y, config, step, placed)) continue;
+            queue.shift();
+            done = true;
+            break;
+          }
+        }
+      }
+
+      if (singles.length) {
+        this._fillSinglesInRegion(region, board, bCols, bRows, singles, config, step, placed);
+      }
+    }
+  }
+
+  _packOneSheet(pairs, config) {
+    const step = config.gridStep || 1;
+    const workWidth = config.sheetWidth - 2 * config.marginX;
+    const workHeight = config.sheetHeight - 2 * config.marginY;
+    const bCols = Math.ceil(workWidth / step);
+    const bRows = Math.ceil(workHeight / step);
+    const board = new Uint8Array(bCols * bRows);
+    const placed = [];
+
+    const groupedPairs = new Map();
+    for (const pair of pairs) {
+      if (!groupedPairs.has(pair.sizeName)) groupedPairs.set(pair.sizeName, []);
+      groupedPairs.get(pair.sizeName).push(pair);
+    }
+
+    const mastersBySize = new Map();
+    for (const [sizeName, queue] of groupedPairs.entries()) {
+      if (!queue.length) continue;
+      const master = this._selectMastersForSize(sizeName, queue[0].left.polygon, config, step);
+      if (master) mastersBySize.set(sizeName, master);
+    }
+
+    this._packRowsFast(board, bCols, bRows, groupedPairs, mastersBySize, config, step, placed);
+
+    const singles = [];
+    for (const queue of groupedPairs.values()) {
+      for (const pair of queue) {
+        singles.push(pair.left, pair.right);
+      }
+    }
+
+    if (singles.length) {
+      this._gapFillLight(board, bCols, bRows, groupedPairs, mastersBySize, singles, config, step, placed);
+    }
+
+    const placedIds = new Set(placed.map(p => p.id));
+    const remaining = pairs.filter(pair => !placedIds.has(pair.left.id));
+    return { placed, remaining };
+  }
+
+  buildPairs(sizeList) {
+    const pairs = [];
+    let pairId = 0;
+
+    for (const size of sizeList) {
+      const quantity = size.quantity || 0;
+      const leftPoly = normalizeToOrigin(size.polygon);
+      const rightPoly = normalizeToOrigin(flipX(size.polygon));
+
+      for (let i = 0; i < quantity; i++) {
+        pairs.push({
+          pairId,
+          sizeName: size.sizeName,
+          left: {
+            id: `${size.sizeName}_L_${pairId}`,
+            sizeName: size.sizeName,
+            foot: 'L',
+            polygon: leftPoly
+          },
+          right: {
+            id: `${size.sizeName}_R_${pairId}`,
+            sizeName: size.sizeName,
+            foot: 'R',
+            polygon: rightPoly
+          }
+        });
+        pairId += 1;
+      }
+    }
+
+    return pairs;
   }
 
   async nest(sizeList, overrideConfig = {}) {
     const config = { ...this.config, ...overrideConfig };
-    this._cache.clear();
-    const startTime = Date.now();
-    let remaining = this.buildPairs(sizeList, config);
-    const sheets = [];
-    let sIdx = 0;
-    while (remaining.length > 0 && sIdx < 5) {
-      const res = this._packOneSheet(remaining, config);
-      if (res.placed.length === 0) break;
-      const area = res.placed.reduce((s,i) => s + polygonArea(i.polygon), 0);
-      sheets.push({ sheetIndex: sIdx, placed: res.placed, placedCount: res.placed.length, efficiency: parseFloat(((area / (config.sheetWidth * config.sheetHeight)) * 100).toFixed(1)) });
-      remaining = res.remaining; sIdx++;
-    }
-    return { sheets, totalItems: sizeList.reduce((s,i)=>s+i.quantity,0)*2, placedCount: sheets.reduce((s,sh)=>s+sh.placedCount,0), timeMs: Date.now() - startTime };
-  }
+    this._orientCache.clear();
 
-  buildPairs(sizeList, config) {
-    const pairs = [];
-    let pairId = 0;
-    for (const size of sizeList) {
-      const q = size.quantity || 0;
-      const lp = normalizeToOrigin(size.polygon), rp = normalizeToOrigin(flipX(size.polygon));
-      for (let i = 0; i < q; i++) {
-        pairs.push({ pairId, sizeName: size.sizeName, left: { id: `${size.sizeName}_L_${pairId}`, sizeName: size.sizeName, polygon: lp }, right: { id: `${size.sizeName}_R_${pairId}`, sizeName: size.sizeName, polygon: rp } });
-        pairId++;
-      }
+    const startedAt = Date.now();
+    const sheets = [];
+    let remaining = this.buildPairs(sizeList);
+    let sheetIndex = 0;
+
+    while (remaining.length > 0 && sheetIndex < (config.maxSheets || 5)) {
+      const { placed, remaining: nextRemaining } = this._packOneSheet(remaining, config);
+      if (!placed.length) break;
+
+      const usedArea = placed.reduce((sum, item) => sum + polygonArea(item.polygon), 0);
+      sheets.push({
+        sheetIndex,
+        placed,
+        placedCount: placed.length,
+        efficiency: parseFloat(((usedArea / (config.sheetWidth * config.sheetHeight)) * 100).toFixed(1))
+      });
+
+      remaining = nextRemaining;
+      sheetIndex += 1;
     }
-    return pairs;
+
+    return {
+      sheets,
+      totalItems: sizeList.reduce((sum, size) => sum + (size.quantity || 0), 0) * 2,
+      placedCount: sheets.reduce((sum, sheet) => sum + sheet.placedCount, 0),
+      timeMs: Date.now() - startedAt
+    };
   }
 }
 

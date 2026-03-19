@@ -10,9 +10,16 @@
 
 import express from 'express';
 import multer from 'multer';
-import { parseDxfToPolygons, assignSizesToPolygons } from '../algorithms/diecut/dxfParser.js';
+import { parseDxfToPolygons, assignSizesToPolygons } from '../algorithms/diecut/core/dxfParser.js';
+// Các thuật toán cũ (giữ lại để tương thích nếu cần, hoặc có thể xóa sau)
 import { TrueShapeNesting } from '../algorithms/diecut/TrueShapeNesting.js';
-import { area as polygonArea } from '../algorithms/diecut/polygonUtils.js';
+// Các thuật toán mới tách ra
+import { NestingNormalPairing } from '../algorithms/diecut/strategies/normal/NestingNormalPairing.js';
+import { NestingNormalPiece } from '../algorithms/diecut/strategies/normal/NestingNormalPiece.js';
+import { CapacityTestPairing } from '../algorithms/diecut/strategies/capacity/CapacityTestPairing.js';
+import { CapacityTestPiece } from '../algorithms/diecut/strategies/capacity/CapacityTestPiece.js';
+
+import { area as polygonArea } from '../algorithms/diecut/core/polygonUtils.js';
 import ExcelJS from 'exceljs';
 
 const router = express.Router();
@@ -184,7 +191,15 @@ router.post('/nest', async (req, res) => {
       maxTimeMs: 60000
     };
 
-    const nester = new TrueShapeNesting(config);
+    const { nestStrategy } = req.body; // 'pair' hoặc 'piece'
+    let nester;
+
+    if (nestStrategy === 'piece' || (mirrorPairs === false && pairingStrategy === 'same-side')) {
+      nester = new NestingNormalPiece(config);
+    } else {
+      nester = new NestingNormalPairing(config);
+    }
+
     const result = await nester.nest(sizeList, config);
 
     res.json({ success: true, ...result });
@@ -234,67 +249,20 @@ router.post('/test-capacity', async (req, res) => {
     const totalArea = config.sheetWidth * config.sheetHeight;
     const startTime = Date.now();
 
-    // Test từng size riêng biệt để ra số lượng tối đa cho từng size
-    const nester = new TrueShapeNesting(config);
+    const { nestStrategy } = req.body; // 'pair' hoặc 'piece'
+    let nester;
 
-    const sheetsBySize = {};
-    const summary = [];
-
-    for (const s of sizeList) {
-      const pieceArea = polygonArea(s.polygon) || 10000;
-
-      // Ước lượng số lượng đủ lớn để lấp đầy hoàn toàn 1 tấm (thăng dư 2.5 lần diện tích)
-      const safeQty = Math.ceil((totalArea * 2.5) / pieceArea);
-      const testSizeList = [{
-        ...s,
-        quantity: Math.max(20, safeQty)
-      }];
-
-      const pairs = nester.buildPairs(testSizeList, nester.config);
-      const { placed } = nester._packOneSheet(pairs, nester.config);
-
-      const usedArea = placed.reduce((sum, item) => sum + polygonArea(item.polygon), 0);
-      const efficiency = totalArea > 0
-        ? parseFloat(((usedArea / totalArea) * 100).toFixed(1))
-        : 0;
-
-      const totalPieces = placed.length;
-      const pairsCount = Math.floor(totalPieces / 2);
-
-      const sheet = {
-        sheetIndex: 0,
-        placed,
-        sheetWidth: config.sheetWidth,
-        sheetHeight: config.sheetHeight,
-        placedCount: placed.length,
-        efficiency
-      };
-
-      sheetsBySize[s.sizeName] = sheet;
-      summary.push({
-        sizeName: s.sizeName,
-        sizeValue: s.sizeValue,
-        totalPieces,
-        pairs: pairsCount,
-        placedCount: placed.length,
-        efficiency
-      });
+    if (nestStrategy === 'piece' || (mirrorPairs === false && pairingStrategy === 'same-side')) {
+      nester = new CapacityTestPiece(config);
+    } else {
+      nester = new CapacityTestPairing(config);
     }
 
-    const defaultSizeName = sizeList[0]?.sizeName || null;
-    const defaultSheet = defaultSizeName ? sheetsBySize[defaultSizeName] : null;
+    const result = await nester.testCapacity(sizeList, config);
 
-    res.json({
-      success: true,
-      mode: 'test-capacity',
-      summary,
-      totalPlaced: defaultSheet ? defaultSheet.placedCount : 0,
-      efficiency: defaultSheet ? defaultSheet.efficiency : 0,
-      defaultSizeName,
-      sheet: defaultSheet,
-      sheetsBySize,
-      timeMs: Date.now() - startTime
-    });
+    // Kết quả từ testCapacity đã bao gồm summary và sheetsBySize
+    res.json(result);
+    return; // Kết thúc sớm vì result đã chứa dữ liệu trả về mong muốn
   } catch (err) {
     console.error('[DieCut] test-capacity error:', err);
     res.status(500).json({ error: err.message });
