@@ -65,7 +65,21 @@ function findMinimalContinuousValue(minValue, maxValue, precision, isSafe) {
     }
   }
 
-  return roundMetric(high, 3);
+  const roundedHigh = roundMetric(high, 3);
+  if (isSafe(roundedHigh)) {
+    return roundedHigh;
+  }
+
+  let candidate = roundedHigh;
+  while (candidate <= maxValue + 1e-6) {
+    candidate = roundMetric(candidate + 0.001, 3);
+    if (candidate > maxValue + 1e-6) break;
+    if (isSafe(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
 }
 
 function getPlacementsBottom(placements) {
@@ -435,11 +449,25 @@ export class CapacityTestSameSidePattern extends BaseNesting {
     };
 
     const row = buildRow(false);
-    if (validateLocalPlacements(row, config.spacing).valid) {
-      return row;
-    }
+    const trimmedRow = this._trimToValidRowPrefix(row, config.spacing);
+    if (trimmedRow.length === row.length) return row;
+
     const safeRow = buildRow(true);
-    return validateLocalPlacements(safeRow, config.spacing).valid ? safeRow : [];
+    const trimmedSafeRow = this._trimToValidRowPrefix(safeRow, config.spacing);
+    return trimmedSafeRow.length > trimmedRow.length ? trimmedSafeRow : trimmedRow;
+  }
+
+  _trimToValidRowPrefix(placements, spacing) {
+    if (!placements.length) return [];
+    if (validateLocalPlacements(placements, spacing).valid) {
+      return placements;
+    }
+
+    const trimmed = placements.slice();
+    while (trimmed.length > 0 && !validateLocalPlacements(trimmed, spacing).valid) {
+      trimmed.pop();
+    }
+    return trimmed;
   }
 
   _findSequentialRowPitch(rowPlacements, config, step) {

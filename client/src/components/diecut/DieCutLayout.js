@@ -142,9 +142,9 @@ const SheetConfigPanel = ({ config, onChange, isTestMode }) => {
               onChange={e => onChange({ ...config, gridStep: Number(e.target.value) })}
               className="bg-black/40 border border-white/10 text-white text-xs rounded px-2 py-1 focus:outline-none"
             >
-              <option value={1.0}>1.0 mm (Nhanh)</option>
-              <option value={0.5}>0.5 mm (Chính xác)</option>
-              <option value={0.2}>0.2 mm (Rất cao)</option>
+              <option value={1.0}>1.0 mm (Chính xác)</option>
+              <option value={1.5}>1.5 mm (Cân bằng)</option>
+              <option value={2.0}>2.0 mm (Nhanh)</option>
             </select>
           </div>
         </div>
