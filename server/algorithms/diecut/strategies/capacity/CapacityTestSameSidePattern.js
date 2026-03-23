@@ -1,4 +1,5 @@
 import { BaseNesting } from '../../core/BaseNesting.js';
+import { Worker, isMainThread } from 'worker_threads';
 import {
   flipX,
   normalizeToOrigin,
@@ -9,8 +10,18 @@ import {
   getOrientBounds,
   roundMetric,
   validateLocalPlacements,
-  computeEnvelope
+  computeEnvelope,
+  validatePatternPlacements
 } from './patternCapacityUtils.js';
+import {
+  buildCapacityResultCacheKey,
+  getCachedCapacityResult,
+  setCachedCapacityResult
+} from './capacityResultCache.js';
+import {
+  orderTasksByEstimatedWeight,
+  resolveAdaptiveParallelWorkerCount
+} from './parallelCapacityUtils.js';
 
 function compareAlignedCandidates(nextCandidate, bestCandidate) {
   if (!bestCandidate) return -1;
@@ -22,6 +33,9 @@ function compareAlignedCandidates(nextCandidate, bestCandidate) {
   }
   if (nextCandidate.filler90Count !== bestCandidate.filler90Count) {
     return nextCandidate.filler90Count - bestCandidate.filler90Count;
+  }
+  if ((nextCandidate.fillerPatternPriority ?? 99) !== (bestCandidate.fillerPatternPriority ?? 99)) {
+    return (nextCandidate.fillerPatternPriority ?? 99) - (bestCandidate.fillerPatternPriority ?? 99);
   }
   if (nextCandidate.usedHeightMm !== bestCandidate.usedHeightMm) {
     return nextCandidate.usedHeightMm - bestCandidate.usedHeightMm;
@@ -80,6 +94,14 @@ function getAveragePitchX(placements) {
     total += placements[index].x - placements[index - 1].x;
   }
   return roundMetric(total / (placements.length - 1));
+}
+
+function countAlternatingPieces(row0Placements, row1Placements, rows) {
+  let total = 0;
+  for (let row = 0; row < rows; row++) {
+    total += row % 2 === 0 ? row0Placements.length : row1Placements.length;
+  }
+  return total;
 }
 
 function buildRelativeSvgPath(polygon) {
@@ -166,6 +188,106 @@ function hasCrossPlacementOverlap(firstPlacements, secondPlacements, spacing) {
   return false;
 }
 
+const SAME_SIDE_CAPACITY_WORKER_URL = new URL('../../../workers/diecutCapacitySameSideWorker.js', import.meta.url);
+
+function shouldUseParallelCapacity(sizeList, config) {
+  return isMainThread && config.parallelSizes !== false && sizeList.length > 1;
+}
+
+function estimateSameSideTaskWeight(size, config) {
+  const usableWidth = Math.max(1, (config.sheetWidth || 0) - 2 * (config.marginX || 0));
+  const usableHeight = Math.max(1, (config.sheetHeight || 0) - 2 * (config.marginY || 0));
+  const usableArea = usableWidth * usableHeight;
+  const pieceArea = Math.max(1, polygonArea(size?.polygon) || 1);
+  const pointFactor = 1 + Math.max(0, ((size?.polygon?.length || 0) - 12) / 56);
+  const rotateFactor = config.allowRotate90 === false ? 1 : 1.1;
+  return (usableArea / pieceArea) * pointFactor * rotateFactor;
+}
+
+function resolveParallelWorkerCount(sizeList, config) {
+  return resolveAdaptiveParallelWorkerCount(sizeList, config);
+}
+
+function buildEmptySameSideSummaryItem(size) {
+  return {
+    sizeName: size.sizeName,
+    sizeValue: size.sizeValue,
+    totalPieces: 0,
+    pairs: 0,
+    placedCount: 0,
+    efficiency: 0
+  };
+}
+
+function buildSameSideSummaryItem(size, sheet) {
+  if (!sheet) return buildEmptySameSideSummaryItem(size);
+  return {
+    sizeName: size.sizeName,
+    sizeValue: size.sizeValue,
+    totalPieces: sheet.placedCount,
+    pairs: 0,
+    placedCount: sheet.placedCount,
+    efficiency: sheet.efficiency
+  };
+}
+
+function runWorkerTask(worker, task) {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      worker.off('message', onMessage);
+      worker.off('error', onError);
+    };
+
+    const onMessage = (message) => {
+      cleanup();
+      if (message?.error) {
+        reject(new Error(message.error));
+        return;
+      }
+      resolve(message);
+    };
+
+    const onError = (error) => {
+      cleanup();
+      reject(error);
+    };
+
+    worker.on('message', onMessage);
+    worker.on('error', onError);
+    worker.postMessage(task);
+  });
+}
+
+async function executeCapacityTasksInParallel(tasks, concurrency) {
+  if (!tasks.length) return [];
+
+  const workerCount = Math.min(tasks.length, Math.max(1, concurrency));
+  const results = new Array(tasks.length);
+  let nextTaskIndex = 0;
+
+  const runners = Array.from({ length: workerCount }, async () => {
+    const worker = new Worker(SAME_SIDE_CAPACITY_WORKER_URL, {
+      type: 'module',
+      execArgv: []
+    });
+    try {
+      while (true) {
+        const taskIndex = nextTaskIndex;
+        nextTaskIndex += 1;
+        if (taskIndex >= tasks.length) break;
+        const task = tasks[taskIndex];
+        const resultIndex = task?.index ?? taskIndex;
+        results[resultIndex] = await runWorkerTask(worker, task);
+      }
+    } finally {
+      await worker.terminate();
+    }
+  });
+
+  await Promise.all(runners);
+  return results;
+}
+
 export class CapacityTestSameSidePattern extends BaseNesting {
   constructor(config = {}) {
     super(config);
@@ -218,6 +340,31 @@ export class CapacityTestSameSidePattern extends BaseNesting {
     const sampleCols = 6;
 
     for (let row = 0; row < sampleRows; row++) {
+      for (let col = 0; col < sampleCols; col++) {
+        placements.push({
+          id: `uniform_${row}_${col}`,
+          orient,
+          x: col * dxMm,
+          y: row * dyMm
+        });
+      }
+    }
+
+    return placements;
+  }
+
+  _resolveFillerOrient(primaryOrient, alternateOrient, row) {
+    if (!alternateOrient) return primaryOrient;
+    return row % 2 === 0 ? primaryOrient : alternateOrient;
+  }
+
+  _buildAlternatingUniformNeighborhood(primaryOrient, alternateOrient, dxMm, dyMm) {
+    const placements = [];
+    const sampleRows = 4;
+    const sampleCols = 6;
+
+    for (let row = 0; row < sampleRows; row++) {
+      const orient = this._resolveFillerOrient(primaryOrient, alternateOrient, row);
       for (let col = 0; col < sampleCols; col++) {
         placements.push({
           id: `uniform_${row}_${col}`,
@@ -291,7 +438,8 @@ export class CapacityTestSameSidePattern extends BaseNesting {
     if (validateLocalPlacements(row, config.spacing).valid) {
       return row;
     }
-    return buildRow(true);
+    const safeRow = buildRow(true);
+    return validateLocalPlacements(safeRow, config.spacing).valid ? safeRow : [];
   }
 
   _findSequentialRowPitch(rowPlacements, config, step) {
@@ -389,6 +537,123 @@ export class CapacityTestSameSidePattern extends BaseNesting {
     );
   }
 
+  _findAlternatingUniformDy(primaryOrient, alternateOrient, dxMm, config, step) {
+    if (!alternateOrient) {
+      return this._findUniformDy(primaryOrient, dxMm, config, step);
+    }
+
+    const precision = Math.min(step, 0.05);
+    const upper = buildUpperBound(
+      step,
+      Math.max(primaryOrient.height, alternateOrient.height) * 2 + config.spacing + step * 8
+    );
+    const baseRow = this._buildAlternatingUniformNeighborhood(
+      primaryOrient,
+      alternateOrient,
+      dxMm,
+      Math.max(primaryOrient.height, alternateOrient.height) + config.spacing + step * 2
+    ).filter((item) => item.y === 0);
+    const nextRow = this._buildAlternatingUniformNeighborhood(
+      primaryOrient,
+      alternateOrient,
+      dxMm,
+      Math.max(primaryOrient.height, alternateOrient.height) + config.spacing + step * 2
+    ).filter((item) => item.y > 0 && item.y < Math.max(primaryOrient.height, alternateOrient.height) + config.spacing + step * 3)
+      .map((placement, index) => ({
+        ...placement,
+        id: `uniform_next_${index}`,
+        y: 0
+      }));
+    const reverseBaseRow = nextRow.map((placement, index) => ({
+      ...placement,
+      id: `uniform_alt_base_${index}`
+    }));
+    const reverseNextRow = baseRow.map((placement, index) => ({
+      ...placement,
+      id: `uniform_alt_next_${index}`
+    }));
+
+    return findMinimalContinuousValue(step, upper, precision, (dyMm) =>
+      !hasCrossPlacementOverlap(
+        baseRow,
+        nextRow.map((placement) => ({
+          ...placement,
+          y: roundMetric(dyMm, 3)
+        })),
+        config.spacing
+      ) && !hasCrossPlacementOverlap(
+        reverseBaseRow,
+        reverseNextRow.map((placement) => ({
+          ...placement,
+          y: roundMetric(dyMm, 3)
+        })),
+        config.spacing
+      )
+    );
+  }
+
+  _findAlternatingUniformPitches(primaryOrient, alternateOrient, dxMm, config, step) {
+    if (!alternateOrient) {
+      const uniformDyMm = this._findUniformDy(primaryOrient, dxMm, config, step);
+      return uniformDyMm == null
+        ? null
+        : {
+          primaryToAlternateDyMm: uniformDyMm,
+          alternateToPrimaryDyMm: uniformDyMm
+        };
+    }
+
+    const precision = Math.min(step, 0.05);
+    const upper = buildUpperBound(
+      step,
+      Math.max(primaryOrient.height, alternateOrient.height) * 2 + config.spacing + step * 8
+    );
+    const neighborhood = this._buildAlternatingUniformNeighborhood(
+      primaryOrient,
+      alternateOrient,
+      dxMm,
+      Math.max(primaryOrient.height, alternateOrient.height) + config.spacing + step * 2
+    );
+    const basePrimaryRow = neighborhood.filter((item) => item.y === 0);
+    const baseAlternateRow = neighborhood
+      .filter((item) => item.y > 0 && item.y < Math.max(primaryOrient.height, alternateOrient.height) + config.spacing + step * 3)
+      .map((placement, index) => ({
+        ...placement,
+        id: `uniform_next_${index}`,
+        y: 0
+      }));
+
+    const primaryToAlternateDyMm = findMinimalContinuousValue(step, upper, precision, (dyMm) =>
+      !hasCrossPlacementOverlap(
+        basePrimaryRow,
+        baseAlternateRow.map((placement) => ({
+          ...placement,
+          y: roundMetric(dyMm, 3)
+        })),
+        config.spacing
+      )
+    );
+    if (primaryToAlternateDyMm == null) return null;
+
+    const alternateToPrimaryDyMm = findMinimalContinuousValue(step, upper, precision, (dyMm) =>
+      !hasCrossPlacementOverlap(
+        baseAlternateRow,
+        basePrimaryRow.map((placement, index) => ({
+          ...placement,
+          id: `uniform_alt_next_${index}`,
+          y: roundMetric(dyMm, 3)
+        })),
+        config.spacing
+      )
+    );
+    if (alternateToPrimaryDyMm == null) return null;
+
+    return {
+      primaryToAlternateDyMm,
+      alternateToPrimaryDyMm
+    };
+  }
+
   _countCols(maxWidth, dxMm, workWidth) {
     let cols = 0;
     while (true) {
@@ -409,6 +674,132 @@ export class CapacityTestSameSidePattern extends BaseNesting {
     return rows;
   }
 
+  _countRowsFromPlacements(rowPlacements, rowPitch, workHeight) {
+    if (!rowPlacements.length) return 0;
+    const rowHeight = getPlacementsBottom(rowPlacements) - getPlacementsTop(rowPlacements);
+    let rows = 0;
+    while (true) {
+      const y = rows * rowPitch;
+      if (y + rowHeight > workHeight + 1e-6) break;
+      rows += 1;
+    }
+    return rows;
+  }
+
+  _shiftRowPlacements(rowPlacements, shiftXmm, workWidth, prefix = 'body_row_shift') {
+    if (!rowPlacements.length) return [];
+
+    const shifted = [];
+    for (let index = 0; index < rowPlacements.length; index++) {
+      const placement = rowPlacements[index];
+      const shiftedX = roundMetric(placement.x + shiftXmm, 3);
+      const bb = getOrientBounds(placement.orient);
+      if (shiftedX + bb.minX < -1e-6 || shiftedX + bb.maxX > workWidth + 1e-6) {
+        continue;
+      }
+      shifted.push({
+        id: `${prefix}_${index}`,
+        orient: placement.orient,
+        x: shiftedX,
+        y: placement.y
+      });
+    }
+
+    return shifted;
+  }
+
+  _getAlternatingLastRowStartY(rows, row0ToRow1Dy, row1ToRow0Dy) {
+    if (rows <= 1) return 0;
+
+    let currentY = 0;
+    for (let row = 1; row < rows; row++) {
+      currentY += row % 2 === 1 ? row0ToRow1Dy : row1ToRow0Dy;
+    }
+    return roundMetric(currentY, 3);
+  }
+
+  _buildAlignedRowShiftCandidates(averagePitchX, step) {
+    if (!averagePitchX || averagePitchX <= 0) return [];
+
+    const ratios = Array.isArray(this.config.sameSideAlignedRowShiftRatios) && this.config.sameSideAlignedRowShiftRatios.length
+      ? this.config.sameSideAlignedRowShiftRatios
+      : [0.35];
+    const candidates = [];
+    for (const ratio of ratios) {
+      const value = roundMetric(Math.round((averagePitchX * ratio) / step) * step, 3);
+      if (Math.abs(value) < step) continue;
+      candidates.push(value);
+    }
+
+    return [...new Set(candidates)]
+      .sort((left, right) => Math.abs(left) - Math.abs(right) || left - right);
+  }
+
+  _countAlternatingRowsFromRows(row0Placements, row1Placements, row0ToRow1Dy, row1ToRow0Dy, workHeight) {
+    if (!row0Placements.length) return 0;
+
+    let currentY = 0;
+    let rows = 0;
+    while (true) {
+      const rowPlacements = rows % 2 === 0 ? row0Placements : row1Placements;
+      const rowHeight = getPlacementsBottom(rowPlacements) - getPlacementsTop(rowPlacements);
+      if (currentY + rowHeight > workHeight + 1e-6) break;
+      rows += 1;
+      currentY += rows % 2 === 1 ? row0ToRow1Dy : row1ToRow0Dy;
+    }
+    return rows;
+  }
+
+  _buildAlternatingRepeatedRows(row0Placements, row1Placements, rows, row0ToRow1Dy, row1ToRow0Dy, startY = 0, prefix = 'body_shift') {
+    const placements = [];
+    let currentY = startY;
+
+    for (let row = 0; row < rows; row++) {
+      const sourcePlacements = row % 2 === 0 ? row0Placements : row1Placements;
+      for (let col = 0; col < sourcePlacements.length; col++) {
+        const placement = sourcePlacements[col];
+        placements.push({
+          id: `${prefix}_${row}_${col}`,
+          orient: placement.orient,
+          x: placement.x,
+          y: roundMetric(currentY + placement.y, 3)
+        });
+      }
+      currentY += row % 2 === 0 ? row0ToRow1Dy : row1ToRow0Dy;
+    }
+
+    return placements;
+  }
+
+  _countAlternatingRows(primaryOrient, alternateOrient, rows, primaryToAlternateDyMm, alternateToPrimaryDyMm, workHeight) {
+    if (!primaryOrient) return 0;
+
+    let currentY = 0;
+    let count = 0;
+    while (true) {
+      const orient = this._resolveFillerOrient(primaryOrient, alternateOrient, count);
+      if (currentY + orient.height > workHeight + 1e-6) break;
+      count += 1;
+      currentY += count % 2 === 1 ? primaryToAlternateDyMm : alternateToPrimaryDyMm;
+      if (count >= rows) break;
+    }
+    return count;
+  }
+
+  _countFillerRows(primaryOrient, alternateOrient, fillerPrimaryPitchMm, fillerAlternatePitchMm, workHeight) {
+    if (!primaryOrient) return 0;
+
+    let currentY = 0;
+    let rows = 0;
+    while (true) {
+      const orient = this._resolveFillerOrient(primaryOrient, alternateOrient, rows);
+      if (currentY + orient.height > workHeight + 1e-6) break;
+      rows += 1;
+      currentY += rows % 2 === 1 ? fillerPrimaryPitchMm : fillerAlternatePitchMm;
+    }
+    return rows;
+  }
+
   _buildBodyPlacements(primaryOrient, alternateOrient, rowMode, cols, rows, dxMm, dyMm, startY = 0) {
     const placements = [];
 
@@ -418,8 +809,8 @@ export class CapacityTestSameSidePattern extends BaseNesting {
         placements.push({
           id: `body_${row}_${col}`,
           orient,
-          x: roundMetric(col * dxMm),
-          y: roundMetric(startY + row * dyMm)
+          x: roundMetric(col * dxMm, 3),
+          y: roundMetric(startY + row * dyMm, 3)
         });
       }
     }
@@ -427,43 +818,80 @@ export class CapacityTestSameSidePattern extends BaseNesting {
     return placements;
   }
 
-  _buildUniformPlacements(orient, cols, rows, dxMm, dyMm, startY = 0) {
+  _buildUniformPlacements(primaryOrient, alternateOrient, cols, rows, dxMm, dyMm, startY = 0) {
     const placements = [];
 
     for (let row = 0; row < rows; row++) {
+      const orient = this._resolveFillerOrient(primaryOrient, alternateOrient, row);
       for (let col = 0; col < cols; col++) {
         placements.push({
           id: `fill90_${row}_${col}`,
           orient,
-          x: roundMetric(col * dxMm),
-          y: roundMetric(startY + row * dyMm)
+          x: roundMetric(col * dxMm, 3),
+          y: roundMetric(startY + row * dyMm, 3)
         });
       }
+    }
+
+    return placements;
+  }
+
+  _buildAlternatingPitchPlacements(
+    primaryOrient,
+    alternateOrient,
+    cols,
+    rows,
+    dxMm,
+    primaryToAlternateDyMm,
+    alternateToPrimaryDyMm,
+    startY = 0
+  ) {
+    const placements = [];
+    let currentY = startY;
+
+    for (let row = 0; row < rows; row++) {
+      const orient = this._resolveFillerOrient(primaryOrient, alternateOrient, row);
+      for (let col = 0; col < cols; col++) {
+        placements.push({
+          id: `fill90_${row}_${col}`,
+          orient,
+          x: roundMetric(col * dxMm, 3),
+          y: roundMetric(currentY, 3)
+        });
+      }
+      currentY += row % 2 === 0 ? primaryToAlternateDyMm : alternateToPrimaryDyMm;
     }
 
     return placements;
   }
 
   _findBodyStartOffsetAfterFillerRow(fillerRowPlacements, bodyRowPlacements, config, step) {
-    if (!fillerRowPlacements.length) return 0;
+    return this._findStartOffsetAfterRow(fillerRowPlacements, bodyRowPlacements, config, step);
+  }
+
+  _findStartOffsetAfterRow(baseRowPlacements, nextRowPlacements, config, step) {
+    if (!baseRowPlacements.length || !nextRowPlacements.length) return 0;
 
     const precision = Math.min(step, 0.05);
-    const bodyTop = getPlacementsTop(bodyRowPlacements);
-    const fillerBottom = getPlacementsBottom(fillerRowPlacements);
-    const minDeltaY = 0;
+    const baseBottom = getPlacementsBottom(baseRowPlacements);
+    const nextTop = getPlacementsTop(nextRowPlacements);
+    const nextBottom = getPlacementsBottom(nextRowPlacements);
     const upper = buildUpperBound(
       step,
-      fillerBottom - bodyTop + getPlacementsBottom(bodyRowPlacements) + config.spacing + step * 8
+      baseBottom - nextTop + nextBottom + config.spacing + step * 8
     );
 
-    const deltaY = findMinimalContinuousValue(minDeltaY, upper, precision, (delta) => {
-      const shiftedBodyRow = bodyRowPlacements.map((placement, index) => ({
-        ...placement,
-        id: `body_start_${index}`,
-        y: roundMetric(placement.y + delta, 3)
-      }));
-      return !hasCrossPlacementOverlap(fillerRowPlacements, shiftedBodyRow, config.spacing);
-    });
+    const deltaY = findMinimalContinuousValue(0, upper, precision, (delta) =>
+      !hasCrossPlacementOverlap(
+        baseRowPlacements,
+        nextRowPlacements.map((placement, index) => ({
+          ...placement,
+          id: `body_start_${index}`,
+          y: roundMetric(placement.y + delta, 3)
+        })),
+        config.spacing
+      )
+    );
 
     return deltaY == null ? null : roundMetric(deltaY, 3);
   }
@@ -482,6 +910,92 @@ export class CapacityTestSameSidePattern extends BaseNesting {
       }
     }
     return placements;
+  }
+
+  _buildSequentialBodyVariants(rowPlacements, workWidth, workHeight, config, step, includeShifted = true) {
+    const variants = [];
+    const bodyDyMm = this._findSequentialRowPitch(rowPlacements, config, step);
+    if (bodyDyMm == null) return variants;
+
+    const bodyRows = this._countRowsFromPlacements(rowPlacements, bodyDyMm, workHeight);
+    if (bodyRows > 0) {
+      variants.push({
+        key: 'uniform',
+        row0Placements: rowPlacements,
+        row1Placements: rowPlacements,
+        row0ToRow1Dy: bodyDyMm,
+        row1ToRow0Dy: bodyDyMm,
+        bodyRows,
+        bodyCount: rowPlacements.length * bodyRows,
+        placements: this._buildRepeatedBodyPlacements(rowPlacements, bodyRows, bodyDyMm, 0),
+        lastRowPlacements: rowPlacements,
+        lastRowStartY: roundMetric((bodyRows - 1) * bodyDyMm, 3),
+        bodyDxMm: getAveragePitchX(rowPlacements),
+        bodyDyMm: roundMetric(bodyDyMm),
+        rowShiftXmm: 0,
+        rowShiftYmm: 0,
+        bodyPatternMode: 'aligned-uniform'
+      });
+    }
+
+    const averagePitchX = getAveragePitchX(rowPlacements);
+    if (!includeShifted || rowPlacements.length < 2 || !averagePitchX) return variants;
+
+    const rowShiftCandidates = this._buildAlignedRowShiftCandidates(averagePitchX, step);
+    for (const rowShiftXmm of rowShiftCandidates) {
+      const shiftedRowPlacements = this._shiftRowPlacements(
+        rowPlacements,
+        rowShiftXmm,
+        workWidth,
+        `body_shift_${rowShiftXmm}`
+      );
+      if (shiftedRowPlacements.length < Math.max(1, rowPlacements.length - 1)) continue;
+
+      const row0ToRow1Dy = this._findStartOffsetAfterRow(rowPlacements, shiftedRowPlacements, config, step);
+      const row1ToRow0Dy = this._findStartOffsetAfterRow(shiftedRowPlacements, rowPlacements, config, step);
+      if (row0ToRow1Dy == null || row1ToRow0Dy == null) continue;
+
+      const alternatingRows = this._countAlternatingRowsFromRows(
+        rowPlacements,
+        shiftedRowPlacements,
+        row0ToRow1Dy,
+        row1ToRow0Dy,
+        workHeight
+      );
+      if (!alternatingRows) continue;
+
+      variants.push({
+        key: `shifted_${rowShiftXmm}`,
+        row0Placements: rowPlacements,
+        row1Placements: shiftedRowPlacements,
+        row0ToRow1Dy: roundMetric(row0ToRow1Dy),
+        row1ToRow0Dy: roundMetric(row1ToRow0Dy),
+        bodyRows: alternatingRows,
+        bodyCount: countAlternatingPieces(rowPlacements, shiftedRowPlacements, alternatingRows),
+        placements: this._buildAlternatingRepeatedRows(
+          rowPlacements,
+          shiftedRowPlacements,
+          alternatingRows,
+          row0ToRow1Dy,
+          row1ToRow0Dy,
+          0,
+          `body_shift_${rowShiftXmm}`
+        ),
+        lastRowPlacements: alternatingRows % 2 === 1 ? rowPlacements : shiftedRowPlacements,
+        lastRowStartY: this._getAlternatingLastRowStartY(
+          alternatingRows,
+          row0ToRow1Dy,
+          row1ToRow0Dy
+        ),
+        bodyDxMm: averagePitchX,
+        bodyDyMm: roundMetric((row0ToRow1Dy + row1ToRow0Dy) / 2),
+        rowShiftXmm: roundMetric(rowShiftXmm),
+        rowShiftYmm: 0,
+        bodyPatternMode: 'aligned-shifted'
+      });
+    }
+
+    return variants;
   }
 
   _materializePlacedItems(sizeName, placements, config) {
@@ -540,7 +1054,17 @@ export class CapacityTestSameSidePattern extends BaseNesting {
   _finalizeCandidate(candidate, config) {
     if (!candidate?.placements?.length) return null;
 
-    const bounds = candidate.bounds || computeEnvelope(candidate.placements);
+    const workWidth = config.sheetWidth - 2 * (config.marginX || 0);
+    const workHeight = config.sheetHeight - 2 * (config.marginY || 0);
+    const validation = validatePatternPlacements(
+      candidate.placements,
+      workWidth,
+      workHeight,
+      config.spacing
+    );
+    if (!validation.valid) return null;
+
+    const bounds = validation.bounds || candidate.bounds || computeEnvelope(candidate.placements);
     return {
       ...candidate,
       usedWidthMm: roundMetric(bounds.width),
@@ -561,26 +1085,133 @@ export class CapacityTestSameSidePattern extends BaseNesting {
     const filler90Orient = config.allowRotate90 === false
       ? null
       : this._decorateOrient(sizeName, foot, polygon, 90, config, step);
+    const filler270Orient = config.allowRotate90 === false
+      ? null
+      : this._decorateOrient(sizeName, foot, polygon, 270, config, step);
 
-    let filler90DxMm = null;
-    let filler90DyMm = null;
-    let filler90Cols = 0;
-    let maxFiller90Rows = 0;
+    const fillerStrategies = [
+      {
+        key: 'none',
+        primaryOrient: null,
+        alternateOrient: null,
+        dxMm: null,
+        dyMm: null,
+        cols: 0,
+        maxRows: 0,
+        primaryAngle: null,
+        secondaryAngle: null,
+        priority: 2
+      }
+    ];
 
     if (filler90Orient) {
-      filler90DxMm = this._findUniformDx(filler90Orient, config, step);
+      const filler90DxMm = this._findUniformDx(filler90Orient, config, step);
       if (filler90DxMm != null) {
-        filler90DyMm = this._findUniformDy(filler90Orient, filler90DxMm, config, step);
-        if (filler90DyMm != null) {
-          filler90Cols = this._countCols(filler90Orient.width, filler90DxMm, workWidth);
-          maxFiller90Rows = this._countRows(filler90Orient.height, filler90DyMm, workHeight);
+        const uniform90DyMm = this._findUniformDy(filler90Orient, filler90DxMm, config, step);
+        if (uniform90DyMm != null) {
+          const firstRowPlacements = this._buildAlternatingPitchPlacements(
+            filler90Orient,
+            null,
+            this._countCols(filler90Orient.width, filler90DxMm, workWidth),
+            1,
+            filler90DxMm,
+            uniform90DyMm,
+            uniform90DyMm,
+            0
+          );
+          fillerStrategies.push({
+            key: 'uniform-90',
+            primaryOrient: filler90Orient,
+            alternateOrient: null,
+            dxMm: filler90DxMm,
+            dyMm: uniform90DyMm,
+            cols: this._countCols(filler90Orient.width, filler90DxMm, workWidth),
+            maxRows: this._countRows(filler90Orient.height, uniform90DyMm, workHeight),
+            firstRowPlacements,
+            primaryAngle: 90,
+            secondaryAngle: null,
+            priority: 1
+          });
+        }
+
+        if (filler270Orient) {
+          const alternating90Pitches = this._findAlternatingUniformPitches(
+            filler90Orient,
+            filler270Orient,
+            filler90DxMm,
+            config,
+            step
+          );
+          if (alternating90Pitches != null) {
+            const cols = this._countCols(filler90Orient.width, filler90DxMm, workWidth);
+            const firstRowPlacements = this._buildAlternatingPitchPlacements(
+              filler90Orient,
+              filler270Orient,
+              cols,
+              1,
+              filler90DxMm,
+              alternating90Pitches.primaryToAlternateDyMm,
+              alternating90Pitches.alternateToPrimaryDyMm,
+              0
+            );
+            fillerStrategies.push({
+              key: 'alternate-90-270',
+              primaryOrient: filler90Orient,
+              alternateOrient: filler270Orient,
+              dxMm: filler90DxMm,
+              dyMm: alternating90Pitches.primaryToAlternateDyMm,
+              alternateDyMm: alternating90Pitches.alternateToPrimaryDyMm,
+              cols,
+              maxRows: this._countFillerRows(
+                filler90Orient,
+                filler270Orient,
+                alternating90Pitches.primaryToAlternateDyMm,
+                alternating90Pitches.alternateToPrimaryDyMm,
+                workHeight
+              ),
+              firstRowPlacements,
+              primaryAngle: 90,
+              secondaryAngle: 270,
+              priority: 0
+            });
+          }
         }
       }
     }
 
+    fillerStrategies.sort((left, right) =>
+      (left.priority ?? 99) - (right.priority ?? 99)
+      || (right.maxRows ?? 0) - (left.maxRows ?? 0)
+    );
+
     const bodyModes = ['rows'];
     let bestCandidate = null;
     const candidatePool = [];
+    const fillerUpperBoundCache = new Map();
+
+    const getFillerUpperBound = (strategy, availableHeight) => {
+      if (!strategy.primaryOrient || strategy.cols <= 0 || availableHeight <= 0) {
+        return 0;
+      }
+
+      const cacheKey = `${strategy.key}_${roundMetric(availableHeight, 3)}`;
+      if (fillerUpperBoundCache.has(cacheKey)) {
+        return fillerUpperBoundCache.get(cacheKey);
+      }
+
+      const rows = strategy.alternateOrient
+        ? this._countFillerRows(
+          strategy.primaryOrient,
+          strategy.alternateOrient,
+          strategy.dyMm,
+          strategy.alternateDyMm ?? strategy.dyMm,
+          availableHeight
+        )
+        : this._countRows(strategy.primaryOrient.height, strategy.dyMm, availableHeight);
+      const pieceCount = rows * strategy.cols;
+      fillerUpperBoundCache.set(cacheKey, pieceCount);
+      return pieceCount;
+    };
 
     for (const rowMode of bodyModes) {
       const bodyRowPlacements = this._buildSequentialBodyRow(
@@ -594,99 +1225,126 @@ export class CapacityTestSameSidePattern extends BaseNesting {
       const bodyCols = bodyRowPlacements.length;
       if (!bodyCols) continue;
 
-      const bodyDyMm = this._findSequentialRowPitch(bodyRowPlacements, config, step);
-      if (bodyDyMm == null) continue;
-      const bodyHeightMm = getPlacementsBottom(bodyRowPlacements) - getPlacementsTop(bodyRowPlacements);
-      const bodyDxMm = getAveragePitchX(bodyRowPlacements);
-      const fillerLastRowPlacements = filler90Cols > 0
-        ? this._buildUniformPlacements(filler90Orient, filler90Cols, 1, filler90DxMm, filler90DyMm, 0)
-        : [];
-      const bodyStartOffsetAfterFillerRow = fillerLastRowPlacements.length
-        ? this._findBodyStartOffsetAfterFillerRow(
-          fillerLastRowPlacements,
-          bodyRowPlacements,
-          config,
-          step
-        )
-        : 0;
+      const bodyVariants = this._buildSequentialBodyVariants(
+        bodyRowPlacements,
+        workWidth,
+        workHeight,
+        config,
+        step,
+        bodyCols >= 3
+      );
+      bodyVariants.sort((left, right) =>
+        right.bodyCount - left.bodyCount
+        || Math.abs(right.rowShiftXmm || 0) - Math.abs(left.rowShiftXmm || 0)
+      );
 
-      const fillerRowOptions = filler90Cols > 0 ? maxFiller90Rows : 0;
-      for (let filler90Rows = 0; filler90Rows <= fillerRowOptions; filler90Rows++) {
-        const fillerHeight = filler90Rows > 0
-          ? filler90Orient.height + (filler90Rows - 1) * filler90DyMm
-          : 0;
-        if (fillerHeight > workHeight + 1e-6) continue;
-
-        if (filler90Rows > 0 && bodyStartOffsetAfterFillerRow == null) continue;
-        const lastFillerRowY = filler90Rows > 0
-          ? roundMetric((filler90Rows - 1) * filler90DyMm)
-          : 0;
-        const bodyStartY = filler90Rows > 0
-          ? roundMetric(lastFillerRowY + bodyStartOffsetAfterFillerRow)
-          : 0;
-
-        const bodyRows = this._countRows(
-          bodyHeightMm,
-          bodyDyMm,
-          Math.max(0, workHeight - bodyStartY)
+      for (const bodyVariant of bodyVariants) {
+        const bodyRemainingHeight = Math.max(0, workHeight - bodyVariant.lastRowStartY);
+        const bodyUpperBound = bodyVariant.bodyCount + Math.max(
+          0,
+          ...fillerStrategies.map((strategy) => getFillerUpperBound(strategy, bodyRemainingHeight))
         );
-        const bodyCount = bodyCols * bodyRows;
-        const fillerCount = filler90Cols * filler90Rows;
-        const totalCount = bodyCount + fillerCount;
 
-        if (bestCandidate) {
-          if (totalCount < bestCandidate.placedCount) continue;
-          if (totalCount === bestCandidate.placedCount && bodyCount < bestCandidate.bodyCount) continue;
-          if (
-            totalCount === bestCandidate.placedCount &&
-            bodyCount === bestCandidate.bodyCount &&
-            fillerCount > bestCandidate.filler90Count
-          ) {
-            continue;
-          }
+        if (bestCandidate && bodyUpperBound < bestCandidate.placedCount) {
+          continue;
         }
 
-        const fillerPlacements = filler90Rows > 0
-          ? this._buildUniformPlacements(filler90Orient, filler90Cols, filler90Rows, filler90DxMm, filler90DyMm, 0)
-          : [];
-        const bodyPlacements = bodyRows > 0
-          ? this._buildRepeatedBodyPlacements(bodyRowPlacements, bodyRows, bodyDyMm, bodyStartY)
-          : [];
+        for (const fillerStrategy of fillerStrategies) {
+          const fillerPrimaryOrient = fillerStrategy.primaryOrient;
+          const fillerAlternateOrient = fillerStrategy.alternateOrient;
+          const filler90DxMm = fillerStrategy.dxMm;
+          const filler90DyMm = fillerStrategy.dyMm;
+          const fillerAlternateDyMm = fillerStrategy.alternateDyMm ?? filler90DyMm;
+          const filler90Cols = fillerStrategy.cols;
+          const fillerUpperBound = getFillerUpperBound(fillerStrategy, bodyRemainingHeight);
+          if (bestCandidate && bodyVariant.bodyCount + fillerUpperBound < bestCandidate.placedCount) {
+            continue;
+          }
 
-        const placements = [...fillerPlacements, ...bodyPlacements];
-        const candidate = this._buildCandidate(
-          sizeName,
-          foot,
-          pieceArea,
-          placements,
-          {
-            rowMode,
-            bodyCount,
-            bodyCols,
-            bodyRows,
-            bodyDxMm,
-            bodyDyMm: roundMetric(bodyDyMm),
-            bodyStartY: roundMetric(bodyStartY),
-            bodyPrimaryAngle: 0,
-            bodyAlternateAngle: 180,
-            filler90Used: filler90Rows > 0,
-            filler90Count: fillerCount,
+          const fillerFirstRowPlacements = filler90Cols > 0 && fillerPrimaryOrient
+            ? fillerStrategy.firstRowPlacements || []
+            : [];
+          const fillerStartOffsetAfterBody = fillerFirstRowPlacements.length
+            ? this._findStartOffsetAfterRow(
+            bodyVariant.lastRowPlacements,
+            fillerFirstRowPlacements,
+            config,
+            step
+          )
+          : 0;
+          if (fillerFirstRowPlacements.length && fillerStartOffsetAfterBody == null) continue;
+
+          const fillerStartY = fillerFirstRowPlacements.length
+            ? roundMetric(bodyVariant.lastRowStartY + fillerStartOffsetAfterBody, 3)
+          : 0;
+          const filler90Rows = fillerFirstRowPlacements.length
+            ? this._countFillerRows(
+            fillerPrimaryOrient,
+            fillerAlternateOrient,
+            filler90DyMm,
+            fillerAlternateDyMm,
+            Math.max(0, workHeight - fillerStartY)
+          )
+          : 0;
+          const fillerPlacements = filler90Rows > 0 && fillerPrimaryOrient
+            ? this._buildAlternatingPitchPlacements(
+              fillerPrimaryOrient,
+              fillerAlternateOrient,
             filler90Cols,
             filler90Rows,
-            filler90DxMm: filler90DxMm != null ? roundMetric(filler90DxMm) : null,
-            filler90DyMm: filler90DyMm != null ? roundMetric(filler90DyMm) : null,
-            filler90Angle: filler90Orient ? 90 : null,
-            scanOrder: 'left-to-right-then-down'
-          },
-          workWidth,
-          workHeight,
-          config
-        );
+            filler90DxMm,
+            filler90DyMm,
+            fillerAlternateDyMm,
+              fillerStartY
+            )
+            : [];
+          const fillerCount = filler90Cols * filler90Rows;
+          if (bestCandidate && bodyVariant.bodyCount + fillerCount < bestCandidate.placedCount) {
+            continue;
+          }
 
-        if (candidate) {
-          candidatePool.push(candidate);
-          if (compareAlignedCandidates(candidate, bestCandidate) < 0) {
-            bestCandidate = candidate;
+          const placements = [...bodyVariant.placements, ...fillerPlacements];
+          const candidate = this._buildCandidate(
+            sizeName,
+            foot,
+            pieceArea,
+            placements,
+            {
+              rowMode,
+              bodyCount: bodyVariant.bodyCount,
+              bodyCols: Math.max(bodyVariant.row0Placements.length, bodyVariant.row1Placements.length),
+              bodyRows: bodyVariant.bodyRows,
+              bodyDxMm: bodyVariant.bodyDxMm,
+              bodyDyMm: roundMetric(bodyVariant.bodyDyMm),
+              bodyStartY: 0,
+              bodyPrimaryAngle: 0,
+              bodyAlternateAngle: 180,
+              bodyPatternMode: bodyVariant.bodyPatternMode,
+              rowShiftXmm: bodyVariant.rowShiftXmm,
+              rowShiftYmm: bodyVariant.rowShiftYmm,
+              filler90Used: filler90Rows > 0,
+              filler90Count: fillerCount,
+              filler90Cols,
+              filler90Rows,
+              filler90DxMm: filler90DxMm != null ? roundMetric(filler90DxMm) : null,
+              filler90DyMm: filler90DyMm != null ? roundMetric(filler90DyMm) : null,
+              filler270DyMm: fillerAlternateDyMm != null ? roundMetric(fillerAlternateDyMm) : null,
+              filler90Angle: fillerStrategy.primaryAngle,
+              filler270Angle: fillerStrategy.secondaryAngle,
+              fillerPatternKey: fillerStrategy.key,
+              fillerPatternPriority: fillerStrategy.priority,
+              scanOrder: 'left-to-right-then-down'
+            },
+            workWidth,
+            workHeight,
+            config
+          );
+
+          if (candidate) {
+            candidatePool.push(candidate);
+            if (compareAlignedCandidates(candidate, bestCandidate) < 0) {
+              bestCandidate = candidate;
+            }
           }
         }
       }
@@ -720,16 +1378,7 @@ export class CapacityTestSameSidePattern extends BaseNesting {
     };
   }
 
-  async testCapacity(sizeList, overrideConfig = {}) {
-    const config = {
-      ...this.config,
-      ...overrideConfig,
-      capacityLayoutMode: 'same-side-banded',
-      pairingStrategy: 'same-side',
-      mirrorPairs: false,
-      allowRotate180: true
-    };
-
+  async _testCapacitySequential(sizeList, config) {
     this._orientCache.clear();
     const startTime = Date.now();
     const totalArea = config.sheetWidth * config.sheetHeight;
@@ -740,6 +1389,14 @@ export class CapacityTestSameSidePattern extends BaseNesting {
     const summary = [];
 
     for (const size of sizeList) {
+      const cacheKey = buildCapacityResultCacheKey('same-side-banded', size, config);
+      const cachedResult = getCachedCapacityResult(cacheKey);
+      if (cachedResult) {
+        summary.push(cachedResult.summaryItem);
+        sheetsBySize[size.sizeName] = cachedResult.sheet;
+        continue;
+      }
+
       const basePolygon = normalizeToOrigin(size.polygon);
       const footCandidates = [
         { foot: 'L', polygon: basePolygon },
@@ -764,28 +1421,24 @@ export class CapacityTestSameSidePattern extends BaseNesting {
       }
 
       if (!bestCandidate) {
-        summary.push({
-          sizeName: size.sizeName,
-          sizeValue: size.sizeValue,
-          totalPieces: 0,
-          pairs: 0,
-          placedCount: 0,
-          efficiency: 0
-        });
+        const summaryItem = buildEmptySameSideSummaryItem(size);
+        summary.push(summaryItem);
         sheetsBySize[size.sizeName] = null;
+        setCachedCapacityResult(cacheKey, {
+          summaryItem,
+          sheet: null
+        });
         continue;
       }
 
       const sheet = this._buildSheetFromCandidate(size.sizeName, bestCandidate, config, totalArea);
       sheetsBySize[size.sizeName] = sheet;
 
-      summary.push({
-        sizeName: size.sizeName,
-        sizeValue: size.sizeValue,
-        totalPieces: sheet.placedCount,
-        pairs: 0,
-        placedCount: sheet.placedCount,
-        efficiency: sheet.efficiency
+      const summaryItem = buildSameSideSummaryItem(size, sheet);
+      summary.push(summaryItem);
+      setCachedCapacityResult(cacheKey, {
+        summaryItem,
+        sheet
       });
     }
 
@@ -803,5 +1456,91 @@ export class CapacityTestSameSidePattern extends BaseNesting {
       sheetsBySize,
       timeMs: Date.now() - startTime
     };
+  }
+
+  async _testCapacityParallel(sizeList, config) {
+    const startTime = Date.now();
+    const cachedResults = new Array(sizeList.length).fill(null);
+    const uncachedTasks = [];
+
+    for (let index = 0; index < sizeList.length; index++) {
+      const size = sizeList[index];
+      const cacheKey = buildCapacityResultCacheKey('same-side-banded', size, config);
+      const cachedResult = getCachedCapacityResult(cacheKey);
+      if (cachedResult) {
+        cachedResults[index] = cachedResult;
+        continue;
+      }
+
+      uncachedTasks.push({
+        index,
+        cacheKey,
+        size,
+        config: {
+          ...config,
+          parallelSizes: false
+        }
+      });
+    }
+
+    const workerCount = resolveParallelWorkerCount(uncachedTasks.map((task) => task.size), config);
+    const orderedTasks = orderTasksByEstimatedWeight(uncachedTasks, (task) => estimateSameSideTaskWeight(task.size, task.config));
+    const workerResults = orderedTasks.length
+      ? await executeCapacityTasksInParallel(orderedTasks, workerCount)
+      : [];
+    const sheetsBySize = {};
+    const summary = [];
+
+    for (const task of uncachedTasks) {
+      const workerResult = workerResults[task.index];
+      if (!workerResult?.payload) {
+        throw new Error(`Missing worker payload for size index ${task.index}`);
+      }
+      setCachedCapacityResult(task.cacheKey, workerResult.payload);
+      cachedResults[task.index] = workerResult.payload;
+    }
+
+    for (let index = 0; index < cachedResults.length; index++) {
+      const cachedResult = cachedResults[index];
+      if (!cachedResult) {
+        throw new Error(`Missing cached capacity payload for size index ${index}`);
+      }
+      const { summaryItem, sheet } = cachedResult;
+      summary.push(summaryItem);
+      sheetsBySize[summaryItem.sizeName] = sheet;
+    }
+
+    const defaultSizeName = sizeList[0]?.sizeName || null;
+    const defaultSheet = defaultSizeName ? sheetsBySize[defaultSizeName] : null;
+
+    return {
+      success: true,
+      mode: 'test-capacity-same-side-banded',
+      summary,
+      totalPlaced: defaultSheet?.placedCount || 0,
+      efficiency: defaultSheet?.efficiency || 0,
+      defaultSizeName,
+      sheet: defaultSheet,
+      sheetsBySize,
+      timeMs: Date.now() - startTime
+    };
+  }
+
+  async testCapacity(sizeList, overrideConfig = {}) {
+    const config = {
+      ...this.config,
+      ...overrideConfig,
+      capacityLayoutMode: 'same-side-banded',
+      pairingStrategy: 'same-side',
+      mirrorPairs: false,
+      allowRotate180: true,
+      parallelSizes: overrideConfig.parallelSizes ?? this.config.parallelSizes ?? true
+    };
+
+    if (shouldUseParallelCapacity(sizeList, config)) {
+      return this._testCapacityParallel(sizeList, config);
+    }
+
+    return this._testCapacitySequential(sizeList, config);
   }
 }

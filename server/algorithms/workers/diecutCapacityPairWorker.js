@@ -1,0 +1,51 @@
+import { parentPort } from 'worker_threads';
+import { CapacityTestComplementaryPattern } from '../diecut/strategies/capacity/CapacityTestComplementaryPattern.js';
+
+if (!parentPort) {
+  throw new Error('diecutCapacityPairWorker requires a parent port');
+}
+
+let cachedConfigKey = null;
+let cachedAlgorithm = null;
+
+function getAlgorithm(config) {
+  const configKey = JSON.stringify(config);
+  if (configKey !== cachedConfigKey || !cachedAlgorithm) {
+    cachedConfigKey = configKey;
+    cachedAlgorithm = new CapacityTestComplementaryPattern(config);
+  }
+  return cachedAlgorithm;
+}
+
+parentPort.on('message', async (task) => {
+  const { index, size, config } = task;
+
+  try {
+    const algorithm = getAlgorithm(config);
+    const result = await algorithm.testCapacity([size], {
+      ...config,
+      parallelSizes: false
+    });
+    const summaryItem = result.summary?.[0] || {
+      sizeName: size.sizeName,
+      sizeValue: size.sizeValue,
+      totalPieces: 0,
+      pairs: 0,
+      placedCount: 0,
+      efficiency: 0
+    };
+
+    parentPort.postMessage({
+      index,
+      payload: {
+        summaryItem,
+        sheet: result.sheetsBySize?.[size.sizeName] || null
+      }
+    });
+  } catch (error) {
+    parentPort.postMessage({
+      index,
+      error: error?.message || String(error)
+    });
+  }
+});

@@ -530,7 +530,6 @@ export class TrueShapeNesting {
 
   buildPairs(sizeList) {
     const pairs = [];
-    let pairId = 0;
 
     for (const size of sizeList) {
       const quantity = size.quantity || 0;
@@ -539,22 +538,20 @@ export class TrueShapeNesting {
 
       for (let i = 0; i < quantity; i++) {
         pairs.push({
-          pairId,
           sizeName: size.sizeName,
           left: {
-            id: `${size.sizeName}_L_${pairId}`,
+            id: `${size.sizeName}_L_${i}`,
             sizeName: size.sizeName,
             foot: 'L',
             polygon: leftPoly
           },
           right: {
-            id: `${size.sizeName}_R_${pairId}`,
+            id: `${size.sizeName}_R_${i}`,
             sizeName: size.sizeName,
             foot: 'R',
             polygon: rightPoly
           }
         });
-        pairId += 1;
       }
     }
 

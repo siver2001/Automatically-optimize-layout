@@ -412,7 +412,7 @@ export function parseDxfToPolygons(dxfText) {
   // Post-process: flip y, simplify, normalize, round
   return polygons
     .map(poly => poly.map(p => ({ x: p.x, y: -p.y })))   // flip Y
-    .map(poly => simplifyPolygon(poly, 0.01))            // Ngưỡng siêu nhỏ (0.01mm) để giữ nguyên độ chính xác 100% cho sản xuất
+    .map(poly => simplifyPolygon(poly, 0.25))            // Ngưỡng 0.25mm nén số điểm li ti nhưng ko ảnh hưởng nesting (vì lưới check ≥ 1mm)
     .map(poly => roundPolygon(normalizeToOrigin(poly), 4));
 }
 

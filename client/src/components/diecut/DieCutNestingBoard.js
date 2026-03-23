@@ -59,7 +59,7 @@ function getItemPathTransform(item, renderTemplates) {
 // ─────────────────────────────────────────────────────────
 // SheetCanvas: vẽ 1 tấm PU, hỗ trợ Pan & Zoom
 // ─────────────────────────────────────────────────────────
-const SheetCanvas = React.memo(({ sheet, sizeColorMap, scale, showPairLines, compactMode, isRotated }) => {
+const SheetCanvas = React.memo(({ sheet, sizeColorMap, scale, compactMode, isRotated }) => {
   const { sheetWidth, sheetHeight, placed, renderTemplates } = sheet;
   const [hovered, setHovered] = useState(null);
 
@@ -105,7 +105,6 @@ const SheetCanvas = React.memo(({ sheet, sizeColorMap, scale, showPairLines, com
     if (!compactMode) setZoom(scale);
   }, [scale, compactMode]);
 
-  // Tạo đường kết nối giữa L và R của cùng cặp
   const renderedPlaced = React.useMemo(() => (
     placed.map((item) => ({
       ...item,
@@ -115,28 +114,6 @@ const SheetCanvas = React.memo(({ sheet, sizeColorMap, scale, showPairLines, com
       fillColor: sizeColorMap[item.sizeName] || '#888'
     }))
   ), [placed, renderTemplates, sizeColorMap]);
-
-  const pairLines = React.useMemo(() => {
-    if (!showPairLines) return [];
-
-    const pairGroups = {};
-    for (const item of renderedPlaced) {
-      if (item.pairId !== undefined && item.pairId !== null) {
-        if (!pairGroups[item.pairId]) pairGroups[item.pairId] = {};
-        pairGroups[item.pairId][item.foot] = item;
-      }
-    }
-
-    return Object.values(pairGroups).flatMap((grp) => {
-      if (!grp.L || !grp.R) return [];
-      return [{
-        x1: grp.L.labelPos.x,
-        y1: grp.L.labelPos.y,
-        x2: grp.R.labelPos.x,
-        y2: grp.R.labelPos.y
-      }];
-    });
-  }, [renderedPlaced, showPairLines]);
 
   const hoveredItem = React.useMemo(
     () => renderedPlaced.find((item) => item.id === hovered) || null,
@@ -161,7 +138,7 @@ const SheetCanvas = React.memo(({ sheet, sizeColorMap, scale, showPairLines, com
       ref={containerRef}
       className="rounded-lg bg-gray-900 border border-white/10 relative flex justify-center items-center overflow-hidden"
       style={{
-        ...(compactMode ? { maxHeight: '65vh', height: '100%' } : { height: viewBoxH * scale + 40 }),
+        ...(compactMode ? { maxHeight: '78vh', height: '100%' } : { height: viewBoxH * scale + 40 }),
         cursor: isDragging ? 'grabbing' : 'grab'
       }}
       onMouseDown={handleMouseDown}
@@ -197,16 +174,7 @@ const SheetCanvas = React.memo(({ sheet, sizeColorMap, scale, showPairLines, com
           <rect x={0} y={0} width={sheetWidth} height={sheetHeight}
             fill="none" stroke="rgba(255,255,255,0.25)" strokeWidth={3} />
 
-          {/* Pair connector lines */}
-          {pairLines.map((ln, i) => (
-            <line
-              key={i}
-              x1={ln.x1} y1={ln.y1} x2={ln.x2} y2={ln.y2}
-              stroke="rgba(255,255,255,0.2)"
-              strokeWidth={1.5}
-              strokeDasharray="6,4"
-            />
-          ))}
+
 
           {/* Placed items */}
           {renderedPlaced.map((item) => {
@@ -277,7 +245,7 @@ const SheetCanvas = React.memo(({ sheet, sizeColorMap, scale, showPairLines, com
             <div className="font-bold">Size {item.sizeName} — Chân {item.foot === 'L' ? 'Trái (L)' : 'Phải (R)'}</div>
             <div className="text-white/60">X: {item.x?.toFixed(1)}mm, Y: {item.y?.toFixed(1)}mm</div>
             {item.angle === 180 && <div className="text-yellow-300">Xoay 180°</div>}
-            {item.pairId !== undefined && <div className="text-white/50">Cặp #{item.pairId + 1}</div>}
+
           </div>
         );
       })()}
@@ -301,7 +269,6 @@ const SheetCanvas = React.memo(({ sheet, sizeColorMap, scale, showPairLines, com
 const DieCutNestingBoard = ({ nestingResult, sizeList, compactMode = false }) => {
   const [selectedSheet, setSelectedSheet] = useState(0);
   const [scale, setScale] = useState(0.5);
-  const [showPairLines, setShowPairLines] = useState(true);
   const [isRotated, setIsRotated] = useState(false);
   const memoizedSizeColorMap = React.useMemo(() => {
     const nextMap = {};
@@ -332,33 +299,32 @@ const DieCutNestingBoard = ({ nestingResult, sizeList, compactMode = false }) =>
     return (
       <div className="flex flex-col gap-2 h-full">
         {/* Mini header kèm sheet tabs */}
-        <div className="flex items-center justify-between gap-2 flex-wrap">
-          <span className="text-white/60 text-xs font-medium">
-            🗺️ Bố cục tấm PU
-            {currentSheet && (
-              <span className="text-white/40 ml-2">
-                ({currentSheet.sheetWidth}×{currentSheet.sheetHeight} mm)
-              </span>
-            )}
-          </span>
-          <div className="flex items-center gap-3 ml-auto">
-            <label className="flex items-center gap-1.5 cursor-pointer text-white/50 text-xs hover:text-white transition-colors">
+        <div className="flex items-center justify-between gap-3 bg-white/5 p-2 rounded-xl mb-1 border border-white/5">
+          <div className="flex items-center gap-2">
+            <span className="text-emerald-400 text-sm">💠</span>
+            <span className="text-white/80 text-xs font-semibold uppercase tracking-wider">
+              Bố cục tấm PU
+              {currentSheet && (
+                <span className="text-white/30 ml-2 font-normal lowercase tracking-normal italic">
+                  ({currentSheet.sheetWidth}×{currentSheet.sheetHeight} mm)
+                </span>
+              )}
+            </span>
+          </div>
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 cursor-pointer group">
+              <div className={`w-8 h-4 rounded-full p-0.5 transition-all duration-300 ${isRotated ? 'bg-amber-500' : 'bg-white/10'}`}>
+                <div className={`w-3 h-3 bg-white rounded-full shadow-md transform transition-transform duration-300 ${isRotated ? 'translate-x-4' : 'translate-x-0'}`} />
+              </div>
               <input
                 type="checkbox"
+                hidden
                 checked={isRotated}
                 onChange={e => setIsRotated(e.target.checked)}
-                className="w-3.5 h-3.5 accent-amber-500 rounded bg-white/10 border-white/20"
               />
-              <span className="flex items-center gap-1"><span className="text-sm">🔄</span> Xoay ngang</span>
-            </label>
-            <label className="flex items-center gap-1.5 cursor-pointer text-white/50 text-xs hover:text-white transition-colors">
-              <input
-                type="checkbox"
-                checked={showPairLines}
-                onChange={e => setShowPairLines(e.target.checked)}
-                className="w-3.5 h-3.5 accent-blue-500 rounded bg-white/10 border-white/20"
-              />
-              <span className="flex items-center gap-1">🔗 Kết nối cặp</span>
+              <span className={`text-[11px] font-medium transition-colors ${isRotated ? 'text-amber-400' : 'text-white/40 group-hover:text-white/60'}`}>
+                🔄 Xoay ngang
+              </span>
             </label>
           </div>
         </div>
@@ -388,7 +354,6 @@ const DieCutNestingBoard = ({ nestingResult, sizeList, compactMode = false }) =>
             sheet={currentSheet}
             sizeColorMap={sizeColorMap}
             scale={scale}
-            showPairLines={showPairLines}
             compactMode={true}
             isRotated={isRotated}
           />
@@ -429,15 +394,7 @@ const DieCutNestingBoard = ({ nestingResult, sizeList, compactMode = false }) =>
             </button>
           ))}
         </div>
-        <label className="flex items-center gap-2 cursor-pointer text-white/60 text-xs">
-          <input
-            type="checkbox"
-            checked={showPairLines}
-            onChange={e => setShowPairLines(e.target.checked)}
-            className="w-3.5 h-3.5 accent-blue-400"
-          />
-          Hiển thị đường kết nối cặp
-        </label>
+
         <p className="text-white/40 text-xs">Thời gian tính: {(timeMs / 1000).toFixed(1)}s</p>
       </div>
 
@@ -464,7 +421,6 @@ const DieCutNestingBoard = ({ nestingResult, sizeList, compactMode = false }) =>
           sheet={currentSheet}
           sizeColorMap={sizeColorMap}
           scale={scale}
-          showPairLines={showPairLines}
           compactMode={false}
           isRotated={isRotated}
         />

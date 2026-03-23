@@ -219,19 +219,37 @@ const SheetVisualizerPanel = ({ config }) => {
 // ─────────────────────────────────────────────────────────
 const TestCapacityResult = ({ result, config, onClose }) => {
   const summary = result?.summary || [];
-  const initialSize = result?.defaultSizeName || summary[0]?.sizeName || null;
+  const sheetsBySize = result?.sheetsBySize || null;
+  const initialSize = useMemo(() => {
+    if (!result) return null;
+
+    const resultSummary = result.summary || [];
+    const resultSheetsBySize = result.sheetsBySize || null;
+    const firstSizeWithLayout = resultSummary.find((item) => {
+      const sheetForSize = resultSheetsBySize?.[item.sizeName];
+      return (sheetForSize?.placedCount ?? item.totalPieces ?? 0) > 0;
+    });
+
+    return firstSizeWithLayout?.sizeName || result.defaultSizeName || resultSummary[0]?.sizeName || null;
+  }, [result]);
   const [selectedSize, setSelectedSize] = useState(initialSize);
 
   useEffect(() => {
+    if (!result) return;
     setSelectedSize(initialSize);
-  }, [initialSize]);
+  }, [result, initialSize]);
 
   if (!result) return null;
-  const { timeMs, sheet, sheetsBySize, efficiency } = result;
-  const selectedSummary = summary.find(s => s.sizeName === selectedSize) || summary[0] || null;
-  const selectedSheet = (sheetsBySize && selectedSize && sheetsBySize[selectedSize]) ? sheetsBySize[selectedSize] : sheet;
+  const { timeMs, sheet, efficiency } = result;
+  const selectedSummary = summary.find(s => s.sizeName === selectedSize)
+    || summary.find(s => (s.totalPieces ?? 0) > 0)
+    || summary[0]
+    || null;
+  const selectedSheet = (sheetsBySize && selectedSummary?.sizeName && sheetsBySize[selectedSummary.sizeName])
+    ? sheetsBySize[selectedSummary.sizeName]
+    : sheet;
   const patternInfo = selectedSheet?.patternInfo || {};
-  const totalPairs = selectedSummary?.pairs ?? 0;
+  const totalPairs = selectedSummary?.pairs ?? (selectedSummary?.totalPieces != null ? Math.floor(selectedSummary.totalPieces / 2) : 0);
   const totalPieces = selectedSummary?.totalPieces ?? 0;
   const selectedEfficiency = selectedSummary?.efficiency ?? efficiency ?? 0;
 
@@ -239,27 +257,30 @@ const TestCapacityResult = ({ result, config, onClose }) => {
     <div className="flex flex-col gap-2">
 
       {/* ── Header row siêu gọn ── */}
-      <div className="flex items-center justify-between gap-2 flex-wrap mb-1">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 bg-gradient-to-br from-amber-500 to-orange-500 rounded-lg flex items-center justify-center text-sm">🧪</div>
+      <div className="flex items-center justify-between gap-4 mb-2 bg-white/5 p-2 rounded-xl border border-white/10 shadow-lg">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 bg-gradient-to-br from-amber-500 to-orange-600 rounded-lg flex items-center justify-center text-base shadow-lg shadow-orange-500/20">🧪</div>
           <div>
-            <h2 className="text-white font-bold text-sm leading-tight">
+            <h2 className="text-white font-bold text-sm leading-tight flex items-center gap-2">
               Kết quả Test Capacity
               {selectedSummary && (
-                <span className="text-amber-300 ml-2">Size {selectedSummary.sizeName} · Hiệu suất: {selectedEfficiency}%</span>
+                <span className="text-amber-400 font-medium px-2 py-0 rounded-md bg-amber-400/10 border border-amber-400/20 text-[10px]">
+                  Size {selectedSummary.sizeName} · Hiệu suất: {selectedEfficiency}%
+                </span>
               )}
             </h2>
-            <p className="text-white/50 text-[11px] mt-0.5">
-              Tấm PU: {config.sheetWidth}×{config.sheetHeight} mm &nbsp;·&nbsp;
-              Thời gian: {(timeMs/1000).toFixed(1)}s
-            </p>
+            <div className="flex items-center gap-2 text-white/40 text-[10px] mt-0.5">
+              <span className="flex items-center gap-1"><span className="text-blue-400">📏</span> {config.sheetWidth}×{config.sheetHeight} mm</span>
+              <span className="w-0.5 h-0.5 bg-white/20 rounded-full"></span>
+              <span className="flex items-center gap-1"><span className="text-purple-400">⏱️</span> {(timeMs/1000).toFixed(1)}s</span>
+            </div>
           </div>
         </div>
         <button
           onClick={onClose}
-          className="px-3 py-1 bg-white/10 hover:bg-white/20 text-white/70 rounded-md text-[11px] transition-colors"
+          className="px-3 py-1 bg-white/10 hover:bg-white/20 text-white font-medium rounded-lg text-xs transition-all flex items-center gap-1.5 border border-white/10"
         >
-          ← Trở lại
+          <span>←</span> Trở lại
         </button>
       </div>
 
@@ -267,21 +288,21 @@ const TestCapacityResult = ({ result, config, onClose }) => {
       <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-3 items-stretch">
 
         {/* ── CỘT TRÁI: Stats + Bảng size (Scrollable nếu dài) ── */}
-        <div className="flex flex-col gap-2 max-h-[65vh] overflow-y-auto pr-1 custom-scrollbar">
+        <div className="flex flex-col gap-2 max-h-[78vh] overflow-y-auto pr-1 custom-scrollbar">
 
           {/* 3 stat cards siêu nhỏ */}
           <div className="grid grid-cols-3 gap-1.5">
-            <div className="bg-gradient-to-br from-amber-500/20 to-orange-500/20 border border-amber-400/30 rounded-lg p-1.5 text-center">
-              <div className="text-xl font-bold text-amber-300 leading-tight">{totalPieces}</div>
-              <div className="text-white/60 text-[10px] uppercase tracking-wide">Chiếc</div>
+            <div className="bg-gradient-to-br from-amber-500/20 to-orange-500/20 border border-amber-400/30 rounded-lg p-2 text-center">
+              <div className="text-2xl font-black text-amber-300 leading-none">{totalPieces}</div>
+              <div className="text-white/60 text-[10px] uppercase font-semibold mt-1">Chiếc</div>
             </div>
-            <div className="bg-white/10 border border-white/20 rounded-lg p-1.5 text-center">
-              <div className="text-xl font-bold text-emerald-300 leading-tight">{totalPairs > 0 ? totalPairs : '—'}</div>
-              <div className="text-white/60 text-[10px] uppercase tracking-wide">Đôi</div>
+            <div className="bg-white/10 border border-white/20 rounded-lg p-2 text-center">
+              <div className="text-2xl font-black text-emerald-300 leading-none">{totalPairs}</div>
+              <div className="text-white/60 text-[10px] uppercase font-semibold mt-1">Đôi</div>
             </div>
-            <div className="bg-white/10 border border-white/20 rounded-lg p-1.5 text-center">
-              <div className="text-xl font-bold text-blue-300 leading-tight">{(timeMs/1000).toFixed(1)}s</div>
-              <div className="text-white/60 text-[10px] uppercase tracking-wide">T.Gian</div>
+            <div className="bg-white/10 border border-white/20 rounded-lg p-2 text-center">
+              <div className="text-2xl font-black text-blue-300 leading-none">{(timeMs/1000).toFixed(1)}s</div>
+              <div className="text-white/60 text-[10px] uppercase font-semibold mt-1">Thời gian</div>
             </div>
           </div>
 
@@ -327,12 +348,12 @@ const TestCapacityResult = ({ result, config, onClose }) => {
             </div>
           )}
 
-          <div className="bg-white/5 rounded-lg border border-white/10 overflow-hidden flex-1 flex flex-col">
-            <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-white/10 bg-white/5">
-              <span className="text-white/80 font-medium text-[11px] uppercase tracking-wider">Thống kê Size</span>
+          <div className="bg-white/10 rounded-xl border border-white/20 overflow-hidden flex-1 flex flex-col shadow-xl">
+            <div className="flex items-center gap-1.5 px-3 py-2 border-b border-white/10 bg-white/5">
+              <span className="text-white font-semibold text-[11px] uppercase tracking-wider">Thống kê Size</span>
               {config.pairingStrategy === 'pair' && (
-                <span className="text-[9px] bg-green-500/20 text-green-300 border border-green-400/30 rounded px-1.5 py-0.5 ml-auto">
-                  L+R
+                <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 rounded px-2 py-0.5 ml-auto font-bold">
+                  Dạng Đôi
                 </span>
               )}
             </div>
@@ -380,7 +401,7 @@ const TestCapacityResult = ({ result, config, onClose }) => {
         </div>
 
         {/* ── CỘT PHẢI: Bố cục SVG tấm PU (tự fit màn hình) ── */}
-        <div className="h-full min-h-[50vh] xl:min-h-[65vh]">
+        <div className="h-full min-h-[50vh] xl:min-h-[78vh]">
           {selectedSheet && selectedSheet.placed && selectedSheet.placed.length > 0 && (
             <DieCutNestingBoard
               nestingResult={{
@@ -546,30 +567,29 @@ const DieCutLayout = () => {
 
   // ─── RENDER ───────────────────────────────────
   return (
-    <div className="min-h-screen py-4 px-2 md:px-4">
+    <div className="min-h-screen py-2 px-2 md:px-4">
       <div className="max-w-[1600px] mx-auto">
 
         {/* Page Header */}
-        <div className="mb-4 flex items-center justify-between gap-3 flex-wrap">
+        <div className="mb-2 flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl flex items-center justify-center text-xl">✂️</div>
+            <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center text-base">✂️</div>
             <div>
-              <h1 className="text-white text-xl font-bold">Nesting Hàng Die-Cut</h1>
-              <p className="text-white/50 text-sm">Sắp xếp biên dạng thực tế (True Shape) cho miếng lót giày</p>
+              <h1 className="text-white text-lg font-bold">Nesting Hàng Die-Cut</h1>
+              <p className="text-white/50 text-[11px]">Sắp xếp biên dạng thực tế (True Shape) cho miếng lót giày</p>
             </div>
           </div>
 
           {/* Toggle Test Mode */}
-          <div className="flex items-center gap-3">
-            <span className="text-white/60 text-sm">Chế độ:</span>
+          <div className="flex items-center gap-2">
+            <span className="text-white/60 text-xs">Chế độ:</span>
             <button
               onClick={() => {
                 setIsTestMode(false);
-                setTestResult(null);
                 setTestError(null);
                 if (activeStep === 4 && testResult) setActiveStep(3);
               }}
-              className={`px-4 py-1.5 rounded-l-xl text-sm font-medium border transition-all ${
+              className={`px-3 py-1 rounded-l-lg text-xs font-medium border transition-all ${
                 !isTestMode
                   ? 'bg-purple-500 text-white border-purple-400'
                   : 'bg-white/5 text-white/50 border-white/10 hover:bg-white/10'
@@ -580,12 +600,11 @@ const DieCutLayout = () => {
             <button
               onClick={() => {
                 setIsTestMode(true);
-                setNestingResult(null);
                 setNestError(null);
                 // Nếu đang ở bước 2 (Excel) và chuyển sang test mode → skip lên bước 3
                 if (activeStep === 2) setActiveStep(3);
               }}
-              className={`px-4 py-1.5 rounded-r-xl text-sm font-medium border transition-all ${
+              className={`px-3 py-1 rounded-r-lg text-xs font-medium border transition-all ${
                 isTestMode
                   ? 'bg-amber-500 text-white border-amber-400'
                   : 'bg-white/5 text-white/50 border-white/10 hover:bg-white/10'
@@ -598,15 +617,15 @@ const DieCutLayout = () => {
 
         {/* Test Mode Banner — ẩn khi đang xem kết quả */}
         {isTestMode && activeStep !== 4 && (
-          <div className="mb-3 bg-amber-500/10 border border-amber-400/30 rounded-lg px-3 py-2 flex items-center gap-2">
-            <span className="text-base">🧪</span>
-            <span className="text-amber-300 text-xs font-medium">Test Capacity</span>
-            <span className="text-white/50 text-xs">— Tính số lượng tối đa / tấm PU. Bỏ qua bước nhập số lượng.</span>
+          <div className="mb-2 bg-amber-500/10 border border-amber-400/30 rounded-lg px-2 py-1 flex items-center gap-2">
+            <span className="text-sm">🧪</span>
+            <span className="text-amber-300 text-[11px] font-medium">Test Capacity</span>
+            <span className="text-white/50 text-[10px]">— Tính số lượng tối đa / tấm PU. Bỏ qua bước nhập số lượng.</span>
           </div>
         )}
 
         {/* Step tabs */}
-        <div className="flex gap-1 mb-4 flex-wrap">
+        <div className="flex gap-1 mb-2 flex-wrap">
           {(isTestMode
             ? [
                 { n: 1, label: '1. Biên dạng DXF' },
@@ -623,7 +642,7 @@ const DieCutLayout = () => {
             <button
               key={step.n}
               onClick={() => setActiveStep(step.n)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
                 activeStep === step.n
                   ? isTestMode
                     ? 'bg-amber-500/30 text-amber-200 border border-amber-400/40'
@@ -822,7 +841,7 @@ const DieCutLayout = () => {
               <TestCapacityResult
                 result={testResult}
                 config={config}
-                onClose={() => { setActiveStep(3); setTestResult(null); }}
+                onClose={() => { setActiveStep(3); }}
               />
             ) : (
               /* Normal Nesting Result */

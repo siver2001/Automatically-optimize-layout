@@ -319,11 +319,25 @@ export function polygonsOverlap(polyA, polyB, offsetA = {x:0, y:0}, offsetB = {x
     const a2x = polyA[(i + 1) % nA].x + offsetA.x;
     const a2y = polyA[(i + 1) % nA].y + offsetA.y;
 
+    // Fast Bounding Box cho Đoạn thẳng A (cộng thêm spacing)
+    const minAx = Math.min(a1x, a2x) - spacing;
+    const maxAx = Math.max(a1x, a2x) + spacing;
+    const minAy = Math.min(a1y, a2y) - spacing;
+    const maxAy = Math.max(a1y, a2y) + spacing;
+
     for (let j = 0; j < nB; j++) {
       const b1x = polyB[j].x + offsetB.x;
       const b1y = polyB[j].y + offsetB.y;
       const b2x = polyB[(j + 1) % nB].x + offsetB.x;
       const b2y = polyB[(j + 1) % nB].y + offsetB.y;
+
+      // Culling nhanh: Nếu Bounding Box của 2 đoạn thẳng không thể cắt nhau (kể cả có spacing)
+      if (
+        maxAx < Math.min(b1x, b2x) || minAx > Math.max(b1x, b2x) ||
+        maxAy < Math.min(b1y, b2y) || minAy > Math.max(b1y, b2y)
+      ) {
+        continue;
+      }
 
       // 1. Phân cắt thẳng? (Intersection)
       if (segmentsIntersect(a1x, a1y, a2x, a2y, b1x, b1y, b2x, b2y)) return true;

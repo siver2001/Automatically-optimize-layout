@@ -24,27 +24,34 @@ export class PairOptimizer {
   optimize(poly1, poly2, label1 = 'L', label2 = 'R') {
     const base1 = normalizeToOrigin(poly1);
     const base2 = normalizeToOrigin(poly2);
+    
+    // Lưu Cache góc xoay để loại bỏ phép biến đổi ma trận thừa
+    const cachedP1 = this.rotationAngles.map(angle => {
+      const p = normalizeToOrigin(rotatePolygon(base1, angle * Math.PI / 180));
+      return { angle, poly: p, bb: getBoundingBox(p) };
+    });
+    
+    const cachedP2 = this.rotationAngles.map(angle => {
+      const p = normalizeToOrigin(rotatePolygon(base2, angle * Math.PI / 180));
+      return { angle, poly: p, bb: getBoundingBox(p) };
+    });
+
     const results = [];
 
-    for (const angle1 of this.rotationAngles) {
-      const p1 = normalizeToOrigin(rotatePolygon(base1, angle1 * Math.PI / 180));
-      const bb1 = getBoundingBox(p1);
-
-      for (const angle2 of this.rotationAngles) {
-        const p2 = normalizeToOrigin(rotatePolygon(base2, angle2 * Math.PI / 180));
-        const bb2 = getBoundingBox(p2);
-        const fit = this._findTightFit(p1, bb1, p2, bb2);
+    for (const item1 of cachedP1) {
+      for (const item2 of cachedP2) {
+        const fit = this._findTightFit(item1.poly, item1.bb, item2.poly, item2.bb);
         if (!fit) continue;
 
         const scored = this._scoreCandidate({
           type: `${label1}-${label2}`,
-          angle1,
-          angle2,
+          angle1: item1.angle,
+          angle2: item2.angle,
           offset: fit.offset,
           bbox: fit.bbox,
           area: fit.area,
-          polyA: p1,
-          polyB: translate(p2, fit.offset.x, fit.offset.y)
+          polyA: item1.poly,
+          polyB: translate(item2.poly, fit.offset.x, fit.offset.y)
         });
         results.push(scored);
       }
@@ -125,6 +132,9 @@ export class PairOptimizer {
       let bestSafeX = safeX;
 
       for (let i = 0; i < this.binaryIterations; i++) {
+        // Early Exit: Độ chênh < 0.25mm sẽ bị nuốt bởi GridStep >= 1mm, không cần lặp thêm
+        if (high - low < 0.25) break;
+        
         const mid = (low + high) / 2;
         if (polygonsOverlap(polyA, polyB, { x: 0, y: 0 }, { x: mid, y: dy }, this.spacing, bbA, bbB)) {
           low = mid;
