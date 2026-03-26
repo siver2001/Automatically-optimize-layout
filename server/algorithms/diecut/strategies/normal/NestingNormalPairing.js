@@ -252,8 +252,11 @@ export class NestingNormalPairing extends BaseNesting {
     const sheets = [];
     let remaining = this.buildPairs(sizeList);
     let sheetIndex = 0;
+    const maxSheets = Number.isFinite(config.maxSheets) && config.maxSheets > 0
+      ? config.maxSheets
+      : Number.POSITIVE_INFINITY;
 
-    while (remaining.length > 0 && sheetIndex < (config.maxSheets || 10)) {
+    while (remaining.length > 0 && sheetIndex < maxSheets) {
       const { placed, remaining: nextRemaining } = this._packOneSheet(remaining, config);
       if (!placed.length) break;
 

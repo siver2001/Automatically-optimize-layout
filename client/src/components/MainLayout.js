@@ -6,7 +6,7 @@ const MainLayout = ({ children }) => {
 
   if (childrenArray.length === 1) {
     return (
-      <div className="space-y-4 md:space-y-6 lg:space-y-8">
+      <div className="space-y-3 md:space-y-4 lg:space-y-5">
         {children}
       </div>
     );
@@ -17,10 +17,10 @@ const MainLayout = ({ children }) => {
   const packingResult = childrenArray[2];
 
   return (
-    <div className="grid grid-cols-12 gap-3 md:gap-4 lg:gap-2 md:h-[calc(100vh-120px)] lg:h-[calc(100vh-130px)] w-full mx-auto">
+    <div className="grid grid-cols-12 gap-2 md:gap-3 lg:gap-2 h-full min-h-0 w-full mx-auto">
 
       {/* Cột trái: Thiết kế tấm liệu + Quản lý size */}
-      <div className="col-span-12 lg:col-span-6 xl:col-span-5 flex flex-col gap-3 md:gap-4 md:h-full">
+      <div className="col-span-12 lg:col-span-6 xl:col-span-5 flex flex-col gap-2 md:gap-3 h-full min-h-0">
 
         {/* Import DXF Control */}
         <div className="flex-none">
@@ -28,18 +28,18 @@ const MainLayout = ({ children }) => {
         </div>
 
         {/* Container Input - chiều cao linh hoạt theo nội dung */}
-        <div className="flex-none md:flex-[0.42] lg:flex-[0.40] md:overflow-auto custom-scrollbar">
+        <div className="flex-none md:flex-[0.37] lg:flex-[0.35] min-h-0 md:overflow-auto custom-scrollbar">
           {containerInput}
         </div>
 
         {/* Rectangle List - chiếm phần còn lại */}
-        <div className="flex-1 md:flex-[0.58] lg:flex-[0.60] md:overflow-auto custom-scrollbar">
+        <div className="flex-1 md:flex-[0.63] lg:flex-[0.65] min-h-0 md:overflow-auto custom-scrollbar">
           {rectangleList}
         </div>
       </div>
 
       {/* Cột phải: Packing Result - tự động điều chỉnh theo màn hình */}
-      <div className="col-span-12 lg:col-span-6 xl:col-span-7 md:h-full md:overflow-auto custom-scrollbar">
+      <div className="col-span-12 lg:col-span-6 xl:col-span-7 h-full min-h-0 md:overflow-auto custom-scrollbar">
         {packingResult}
       </div>
 

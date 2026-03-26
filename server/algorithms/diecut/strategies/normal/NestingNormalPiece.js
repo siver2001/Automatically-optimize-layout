@@ -1,4 +1,3 @@
-
 import { BaseNesting } from '../../core/BaseNesting.js';
 import { flipX, normalizeToOrigin, area as polygonArea } from '../../core/polygonUtils.js';
 
@@ -7,37 +6,164 @@ export class NestingNormalPiece extends BaseNesting {
     super(config);
   }
 
-  _packOneSheet(items, config) {
-    const step = config.gridStep || 1;
-    const workWidth = config.sheetWidth - 2 * config.marginX;
-    const workHeight = config.sheetHeight - 2 * config.marginY;
-    const bCols = Math.ceil(workWidth / step);
-    const bRows = Math.ceil(workHeight / step);
-    const board = new Uint8Array(bCols * bRows);
-    const placed = [];
-    const remaining = [];
+  _buildUnitFromOrient(item, orient, step) {
+    if (!orient?.raster?.cols || !orient?.raster?.rows) return null;
 
+    const sx = this._findStride(orient.raster, false);
+    const sy = this._findStride(orient.raster, true);
+    const widthMm = sx * step;
+    const heightMm = sy * step;
+    const bboxArea = Math.max(1e-6, widthMm * heightMm);
+    const fillDensity = polygonArea(orient.polygon) / bboxArea;
+    const horizontalBias = widthMm / Math.max(1e-6, heightMm);
+    const lowProfileScore = 1 / Math.max(1e-6, heightMm);
+    const compactScore = fillDensity * 0.70 + (1 / bboxArea) * 0.30;
+    const rowScore = lowProfileScore * 0.55 + fillDensity * 0.30 + horizontalBias * 0.15;
+    const totalScore = rowScore * 0.58 + compactScore * 0.42;
+
+    return {
+      sizeName: item.sizeName,
+      foot: item.foot,
+      orient,
+      sx,
+      sy,
+      widthMm,
+      heightMm,
+      compactScore,
+      rowScore,
+      totalScore
+    };
+  }
+
+  _selectMastersForItem(item, config, step) {
     const angles = this._getAllowedAngles(config);
+    const allUnits = [];
 
-    // Sắp xếp items theo diện tích giảm dần
-    const sortedItems = [...items].sort((a, b) => {
-      return polygonArea(b.polygon) - polygonArea(a.polygon);
+    for (const angle of angles) {
+      const orient = this._getOrient(item, angle, step, config.spacing);
+      const unit = this._buildUnitFromOrient(item, orient, step);
+      if (unit) allUnits.push(unit);
+    }
+
+    if (!allUnits.length) return null;
+
+    const rowMaster = [...allUnits].sort((a, b) => {
+      if (b.rowScore !== a.rowScore) return b.rowScore - a.rowScore;
+      if (a.heightMm !== b.heightMm) return a.heightMm - b.heightMm;
+      return b.totalScore - a.totalScore;
+    })[0];
+
+    const compactMaster = [...allUnits].sort((a, b) => {
+      if (b.compactScore !== a.compactScore) return b.compactScore - a.compactScore;
+      if (a.widthMm !== b.widthMm) return a.widthMm - b.widthMm;
+      return b.totalScore - a.totalScore;
+    })[0];
+
+    return {
+      key: `${item.sizeName}__${item.foot || 'X'}`,
+      sizeName: item.sizeName,
+      foot: item.foot,
+      rowMaster,
+      compactMaster,
+      allUnits
+    };
+  }
+
+  _packRowsFast(board, bCols, bRows, groupedItems, mastersByKey, placed, config, step) {
+    const keyOrder = [...groupedItems.keys()].sort((a, b) => {
+      const ma = mastersByKey.get(a)?.rowMaster;
+      const mb = mastersByKey.get(b)?.rowMaster;
+      const sa = ma ? (100000 / Math.max(1, ma.heightMm)) + ma.rowScore + ma.totalScore : 0;
+      const sb = mb ? (100000 / Math.max(1, mb.heightMm)) + mb.rowScore + mb.totalScore : 0;
+      return sb - sa;
     });
 
+    let y = 0;
+    while (y < bRows) {
+      let rowPlaced = false;
+      let rowHeight = 0;
+      let x = 0;
+
+      while (x < bCols) {
+        let placedHere = false;
+        const widthLeft = bCols - x;
+
+        for (const key of keyOrder) {
+          const queue = groupedItems.get(key);
+          if (!queue || !queue.length) continue;
+
+          const masters = mastersByKey.get(key);
+          if (!masters?.rowMaster) continue;
+
+          const unit = x === 0 ? masters.rowMaster : (masters.compactMaster || masters.rowMaster);
+          const raster = unit.orient.raster;
+          if (raster.cols > widthLeft || y + raster.rows > bRows) continue;
+
+          if (!this._checkCollision(board, bCols, bRows, raster, x, y)) {
+            this._mark(board, bCols, raster, x, y, 1);
+            const item = queue.shift();
+            placed.push(this._buildPlaced(item, unit.orient, x, y, config, step));
+            rowPlaced = true;
+            rowHeight = Math.max(rowHeight, unit.sy);
+            x += unit.sx;
+            placedHere = true;
+            break;
+          }
+        }
+
+        if (!placedHere) x += 1;
+      }
+
+      if (!rowPlaced) y += 1;
+      else y += rowHeight;
+
+      const hasRemaining = keyOrder.some((key) => groupedItems.get(key)?.length > 0);
+      if (!hasRemaining) break;
+    }
+  }
+
+  _getFallbackUnits(master) {
+    if (!master) return [];
+    const seen = new Set();
+    const candidates = [master.rowMaster, master.compactMaster, ...(master.allUnits || [])];
+
+    return candidates.filter((unit) => {
+      if (!unit?.orient?.raster) return false;
+      const key = [
+        unit.orient.angle,
+        unit.orient.raster.cols,
+        unit.orient.raster.rows,
+        unit.sx,
+        unit.sy
+      ].join(':');
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).sort((a, b) => {
+      if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
+      return a.heightMm - b.heightMm;
+    });
+  }
+
+  _packFallbackGreedy(board, bCols, bRows, items, mastersByKey, config, step, placed) {
+    const sortedItems = [...items].sort((a, b) => polygonArea(b.polygon) - polygonArea(a.polygon));
+    const remaining = [];
+
     for (const item of sortedItems) {
+      const key = `${item.sizeName}__${item.foot || 'X'}`;
+      const master = mastersByKey.get(key);
+      const candidates = this._getFallbackUnits(master);
       let bestPos = null;
 
-      // Thử từng góc xoay
-      for (const angle of angles) {
-        const orient = this._getOrient(item, angle, step, config.spacing);
-        if (orient.raster.cols > bCols || orient.raster.rows > bRows) continue;
+      for (const unit of candidates) {
+        const raster = unit.orient.raster;
+        if (raster.cols > bCols || raster.rows > bRows) continue;
 
-        // Tìm vị trí đầu tiên trống (Top-Left scan)
         let found = false;
-        for (let y = 0; y <= bRows - orient.raster.rows; y++) {
-          for (let x = 0; x <= bCols - orient.raster.cols; x++) {
-            if (!this._checkCollision(board, bCols, bRows, orient.raster, x, y)) {
-              bestPos = { orient, x, y };
+        for (let y = 0; y <= bRows - raster.rows; y++) {
+          for (let x = 0; x <= bCols - raster.cols; x++) {
+            if (!this._checkCollision(board, bCols, bRows, raster, x, y)) {
+              bestPos = { unit, x, y };
               found = true;
               break;
             }
@@ -48,12 +174,53 @@ export class NestingNormalPiece extends BaseNesting {
       }
 
       if (bestPos) {
-        this._mark(board, bCols, bestPos.orient.raster, bestPos.x, bestPos.y, 1);
-        placed.push(this._buildPlaced(item, bestPos.orient, bestPos.x, bestPos.y, config, step));
+        this._mark(board, bCols, bestPos.unit.orient.raster, bestPos.x, bestPos.y, 1);
+        placed.push(this._buildPlaced(item, bestPos.unit.orient, bestPos.x, bestPos.y, config, step));
       } else {
         remaining.push(item);
       }
     }
+
+    return remaining;
+  }
+
+  _packOneSheet(items, config) {
+    const step = config.gridStep || 1;
+    const workWidth = config.sheetWidth - 2 * config.marginX;
+    const workHeight = config.sheetHeight - 2 * config.marginY;
+    const bCols = Math.ceil(workWidth / step);
+    const bRows = Math.ceil(workHeight / step);
+    const board = new Uint8Array(bCols * bRows);
+    const placed = [];
+
+    const groupedItems = new Map();
+    for (const item of items) {
+      const key = `${item.sizeName}__${item.foot || 'X'}`;
+      if (!groupedItems.has(key)) groupedItems.set(key, []);
+      groupedItems.get(key).push(item);
+    }
+
+    const mastersByKey = new Map();
+    for (const [key, queue] of groupedItems.entries()) {
+      if (!queue.length) continue;
+      const master = this._selectMastersForItem(queue[0], config, step);
+      if (master) mastersByKey.set(key, master);
+    }
+
+    this._packRowsFast(board, bCols, bRows, groupedItems, mastersByKey, placed, config, step);
+
+    const placedIds = new Set(placed.map((item) => item.id));
+    const afterRows = items.filter((item) => !placedIds.has(item.id));
+    const remaining = this._packFallbackGreedy(
+      board,
+      bCols,
+      bRows,
+      afterRows,
+      mastersByKey,
+      config,
+      step,
+      placed
+    );
 
     return { placed, remaining };
   }
@@ -62,8 +229,7 @@ export class NestingNormalPiece extends BaseNesting {
     const config = { ...this.config, ...overrideConfig };
     this._orientCache.clear();
     const startedAt = Date.now();
-    
-    // Tạo danh sách các chiếc đơn lẻ (L và R)
+
     let items = [];
     let idCounter = 0;
     for (const size of sizeList) {
@@ -79,8 +245,11 @@ export class NestingNormalPiece extends BaseNesting {
 
     const sheets = [];
     let sheetIndex = 0;
+    const maxSheets = Number.isFinite(config.maxSheets) && config.maxSheets > 0
+      ? config.maxSheets
+      : Number.POSITIVE_INFINITY;
 
-    while (items.length > 0 && sheetIndex < (config.maxSheets || 10)) {
+    while (items.length > 0 && sheetIndex < maxSheets) {
       const { placed, remaining: nextItems } = this._packOneSheet(items, config);
       if (!placed.length) break;
 

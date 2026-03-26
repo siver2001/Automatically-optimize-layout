@@ -17,20 +17,20 @@ const Header = () => {
   ];
 
   return (
-    <header className="bg-white/10 backdrop-blur-md border-b border-white/20 px-4 sm:px-6 md:px-8 lg:px-10 py-3 md:py-2 mb-3 md:mb-4">
+    <header className="bg-white/10 backdrop-blur-md border-b border-white/20 px-4 sm:px-5 md:px-7 lg:px-8 py-2 md:py-1.5 mb-2 md:mb-3 flex-none">
       <div className="flex justify-between items-center max-w-full mx-auto">
-        <Link to="/" className="text-white text-xl sm:text-2xl md:text-3xl font-bold m-0 drop-shadow-lg flex items-center gap-3">
-          <img src="/Ortholite-logo.png" alt="Ortholite Logo" className="h-8 md:h-10 object-contain" />
+        <Link to="/" className="text-white text-lg sm:text-2xl md:text-3xl font-bold m-0 drop-shadow-lg flex items-center gap-3">
+          <img src="/Ortholite-logo.png" alt="Ortholite Logo" className="h-7 md:h-9 object-contain" />
           Auto Netting
         </Link>
 
-        <nav className="flex gap-2 sm:gap-3 md:gap-4">
+        <nav className="flex gap-2 sm:gap-2.5 md:gap-3">
           {navItems.map(item => (
             <Link
               key={item.path}
               to={item.path}
               onClick={item.onClick}
-              className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-sm sm:text-base font-medium transition-all duration-300 hover:-translate-y-0.5 ${
+              className={`px-3 sm:px-4 py-1.5 rounded-lg text-sm sm:text-base font-medium transition-all duration-300 hover:-translate-y-0.5 ${
                 item.active
                   ? 'bg-white/20 text-white border border-white/30'
                   : 'bg-transparent text-white/80 border border-white/20 hover:bg-white/10'

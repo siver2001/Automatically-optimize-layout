@@ -20,6 +20,8 @@ import React, { useState, useMemo, useEffect } from 'react';
 import DieCutDxfUploader from './DieCutDxfUploader.js';
 import DieCutExcelUploader from './DieCutExcelUploader.js';
 import DieCutNestingBoard from './DieCutNestingBoard.js';
+import DieCutNestingStrategySelector, { DIECUT_NESTING_STRATEGY_OPTIONS } from './DieCutNestingStrategySelector.js';
+import { diecutExportService } from '../../services/diecutExportService.js';
 
 // ─────────────────────────────────────────
 // Modal popup cấu hình Sheet PU
@@ -31,9 +33,9 @@ const SheetConfigPanel = ({ config, onChange, isTestMode }) => {
         <span className="text-xl">⚙️</span> Cấu hình Tấm PU
       </h3>
       
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
         {/* Dimensions */}
-        <div className="bg-white/5 p-3 rounded-xl border border-white/10 space-y-2 col-span-2">
+        <div className="bg-white/5 p-3 rounded-xl border border-white/10 space-y-2 md:col-span-2">
           <label className="text-white/60 text-xs font-medium flex items-center gap-1.5"><span className="text-blue-400">📏</span> Kích thước mặt cắt PU (mm)</label>
           <div className="flex items-center gap-2">
             <input
@@ -55,35 +57,41 @@ const SheetConfigPanel = ({ config, onChange, isTestMode }) => {
         </div>
 
         {/* Spacing & Margins */}
-        <div className="bg-white/5 p-3 rounded-xl border border-white/10 space-y-2 col-span-2">
+        <div className="bg-white/5 p-3 rounded-xl border border-white/10 space-y-2 md:col-span-3">
           <label className="text-white/60 text-xs font-medium flex items-center gap-1.5"><span className="text-green-400">↔️</span> Lề & Khoảng cách</label>
-          <div className="grid grid-cols-3 gap-2">
-            <div className="flex items-center gap-1.5 bg-black/20 rounded-lg px-2 py-1 border border-white/5" title="Khoảng cách từ chi tiết đến mép Vải/Tấm (Trái/Phải)">
-              <span className="text-white/40 text-[10px] uppercase min-w-[32px]">Lề H</span>
-              <input
-                type="number"
-                value={config.marginX}
-                onChange={e => onChange({ ...config, marginX: Number(e.target.value) })}
-                className="w-full bg-transparent text-white text-sm text-right focus:outline-none min-w-[20px]"
-              />
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+            <div className="bg-black/20 rounded-lg px-3 py-2 border border-white/5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-white/75 text-[11px] font-semibold flex-1 min-w-0">Lề ngang</span>
+                <input
+                  type="number"
+                  value={config.marginX}
+                  onChange={e => onChange({ ...config, marginX: Number(e.target.value) })}
+                  className="w-12 md:w-14 bg-transparent text-white text-sm text-right focus:outline-none shrink-0"
+                />
+              </div>
             </div>
-            <div className="flex items-center gap-1.5 bg-black/20 rounded-lg px-2 py-1 border border-white/5" title="Khoảng cách từ chi tiết đến mép Vải/Tấm (Trên/Dưới)">
-              <span className="text-white/40 text-[10px] uppercase min-w-[32px]">Lề V</span>
-              <input
-                type="number"
-                value={config.marginY}
-                onChange={e => onChange({ ...config, marginY: Number(e.target.value) })}
-                className="w-full bg-transparent text-white text-sm text-right focus:outline-none min-w-[20px]"
-              />
+            <div className="bg-black/20 rounded-lg px-3 py-2 border border-white/5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-white/75 text-[11px] font-semibold flex-1 min-w-0">Lề dọc</span>
+                <input
+                  type="number"
+                  value={config.marginY}
+                  onChange={e => onChange({ ...config, marginY: Number(e.target.value) })}
+                  className="w-12 md:w-14 bg-transparent text-white text-sm text-right focus:outline-none shrink-0"
+                />
+              </div>
             </div>
-            <div className="flex items-center gap-1.5 bg-black/20 rounded-lg px-2 py-1 border border-white/5" title="Khoảng cách giữa các chi tiết với nhau">
-              <span className="text-white/40 text-[10px] uppercase min-w-[44px]">K.Cách</span>
-              <input
-                type="number"
-                value={config.spacing}
-                onChange={e => onChange({ ...config, spacing: Number(e.target.value) })}
-                className="w-full bg-transparent text-white text-sm text-right focus:outline-none min-w-[20px]"
-              />
+            <div className="bg-black/20 rounded-lg px-3 py-2 border border-white/5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-white/75 text-[11px] font-semibold flex-1 min-w-0">Khoảng cách</span>
+                <input
+                  type="number"
+                  value={config.spacing}
+                  onChange={e => onChange({ ...config, spacing: Number(e.target.value) })}
+                  className="w-12 md:w-14 bg-transparent text-white text-sm text-right focus:outline-none shrink-0"
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -142,12 +150,17 @@ const SheetConfigPanel = ({ config, onChange, isTestMode }) => {
               onChange={e => onChange({ ...config, gridStep: Number(e.target.value) })}
               className="bg-black/40 border border-white/10 text-white text-xs rounded px-2 py-1 focus:outline-none"
             >
+              <option value={0.5}>0.5 mm (Rất chính xác)</option>
               <option value={1.0}>1.0 mm (Chính xác)</option>
               <option value={1.5}>1.5 mm (Cân bằng)</option>
               <option value={2.0}>2.0 mm (Nhanh)</option>
             </select>
           </div>
         </div>
+
+        {!isTestMode && (
+          <DieCutNestingStrategySelector value={config} onChange={onChange} />
+        )}
 
       </div>
     </div>
@@ -217,7 +230,7 @@ const SheetVisualizerPanel = ({ config }) => {
 // ─────────────────────────────────────────────────────────
 // Panel hiển thị kết quả Test Capacity — Layout 2 cột siêu nhỏ gọn
 // ─────────────────────────────────────────────────────────
-const TestCapacityResult = ({ result, config, onClose }) => {
+const TestCapacityResult = ({ result, config, onClose, onExportPdf, onExportDxf }) => {
   const summary = result?.summary || [];
   const sheetsBySize = result?.sheetsBySize || null;
   const initialSize = useMemo(() => {
@@ -276,12 +289,28 @@ const TestCapacityResult = ({ result, config, onClose }) => {
             </div>
           </div>
         </div>
-        <button
-          onClick={onClose}
-          className="px-3 py-1 bg-white/10 hover:bg-white/20 text-white font-medium rounded-lg text-xs transition-all flex items-center gap-1.5 border border-white/10"
-        >
-          <span>←</span> Trở lại
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => onExportPdf?.({ selectedSizeName: selectedSummary?.sizeName, selectedSheet, selectedSummary })}
+            disabled={!selectedSheet}
+            className="px-3 py-1 bg-emerald-500/20 hover:bg-emerald-500/30 disabled:opacity-40 disabled:cursor-not-allowed text-emerald-200 font-medium rounded-lg text-xs transition-all border border-emerald-400/20"
+          >
+            Export PDF
+          </button>
+          <button
+            onClick={() => onExportDxf?.({ selectedSizeName: selectedSummary?.sizeName, selectedSheet, selectedSummary })}
+            disabled={!selectedSheet}
+            className="px-3 py-1 bg-sky-500/20 hover:bg-sky-500/30 disabled:opacity-40 disabled:cursor-not-allowed text-sky-200 font-medium rounded-lg text-xs transition-all border border-sky-400/20"
+          >
+            Export DXF
+          </button>
+          <button
+            onClick={onClose}
+            className="px-3 py-1 bg-white/10 hover:bg-white/20 text-white font-medium rounded-lg text-xs transition-all flex items-center gap-1.5 border border-white/10"
+          >
+            <span>←</span> Trở lại
+          </button>
+        </div>
       </div>
 
       {/* ── Body: 2 cột (Trái 260px - Phải auto) ── */}
@@ -437,10 +466,50 @@ function mergeShapesAndQuantities(shapes, quantities) {
   });
 }
 
+function buildExportFileBase({
+  orderNames = [],
+  mode,
+  selectedSizeName = null,
+  activeSizes = []
+}) {
+  const uniqueOrders = [...new Set((orderNames || []).filter(Boolean))];
+  const orderPart = uniqueOrders.length === 1
+    ? uniqueOrders[0]
+    : uniqueOrders.length > 1
+      ? `${uniqueOrders.slice(0, 2).join('-')}${uniqueOrders.length > 2 ? '-multi' : ''}`
+      : 'diecut';
+
+  const sizePart = selectedSizeName
+    ? `size-${selectedSizeName}`
+    : activeSizes.length === 1
+      ? `size-${activeSizes[0]}`
+      : activeSizes.length > 1
+        ? 'multi-size'
+        : 'layout';
+
+  return `${orderPart}_${mode}_${sizePart}`;
+}
+
+function getNestingStrategyLabel(strategy) {
+  const matched = DIECUT_NESTING_STRATEGY_OPTIONS.find((option) => option.value === strategy);
+  return matched?.title || 'Bình thường';
+}
+
 // ─────────────────────────────────────────
 // MAIN COMPONENT
 // ─────────────────────────────────────────
 const DieCutLayout = () => {
+  const buildExportSubtitle = (configValue, extraText = '') => {
+    if (!configValue) return extraText || '';
+    const parts = [
+      `${configValue.sheetWidth} x ${configValue.sheetHeight} mm`,
+      `spacing ${configValue.spacing} mm`,
+      `margin ${configValue.marginX}/${configValue.marginY} mm`,
+      configValue.layers > 1 ? `layers ${configValue.layers}` : null,
+      extraText || null
+    ].filter(Boolean);
+    return parts.join(' | ');
+  };
   const [shapes, setShapes] = useState([]);               // từ DXF
   const [quantities, setQuantities] = useState([]);        // từ Excel
   const [nestingResult, setNestingResult] = useState(null);
@@ -459,8 +528,10 @@ const DieCutLayout = () => {
     marginY: 5,
     allowRotate90: true,
     pairingStrategy: 'pair', // 'pair' hoặc 'same-side'
-    gridStep: 1,
-    capacityLayoutMode: 'pair-complementary'
+    gridStep: 0.5,
+    capacityLayoutMode: 'pair-complementary',
+    layers: 1,
+    nestingStrategy: 'ordered'
   });
 
   // Merge shapes + quantities
@@ -477,7 +548,128 @@ const DieCutLayout = () => {
     // Cả 2 strategy đều là sắp xếp theo cặp (2 chiếc lẻ thành 1 đơn vị)
     return s + item.quantity * 2;
   }, 0);
+  const effectiveTotalPairs = useMemo(() => {
+    const layers = Math.max(1, Math.floor(Number(config.layers) || 1));
+    return sizeList.reduce((sum, item) => sum + Math.ceil((item.quantity || 0) / layers), 0);
+  }, [config.layers, sizeList]);
+  const effectiveTotalPieces = effectiveTotalPairs * 2;
   const hasData = shapes.length > 0;
+  const exportOrderNames = [...new Set(quantities.map(item => item.orderName).filter(Boolean))];
+  const activeExportSizes = sizeList
+    .filter((item) => (item.quantity ?? item.pairQuantity ?? 0) > 0)
+    .map((item) => item.sizeName)
+    .filter(Boolean);
+  const nestingResultSizeSummary = useMemo(() => {
+    if (!nestingResult?.planningSummary?.sizes?.length) return [];
+
+    const placedBySize = {};
+    for (const sheet of nestingResult.sheets || []) {
+      for (const item of sheet.placed || []) {
+        const key = item.sizeName || 'Unknown';
+        placedBySize[key] = (placedBySize[key] || 0) + 1;
+      }
+    }
+
+    return nestingResult.planningSummary.sizes.map((size) => ({
+      ...size,
+      placedPieces: placedBySize[size.sizeName] || 0,
+      placedPairs: Math.floor((placedBySize[size.sizeName] || 0) / 2)
+    }));
+  }, [nestingResult]);
+
+  const handleExportNestingPdf = async () => {
+    if (!nestingResult?.sheets?.length) return;
+    try {
+      await diecutExportService.exportPdf({
+        sheets: nestingResult.sheets,
+        sheetWidth: config.sheetWidth,
+        sheetHeight: config.sheetHeight,
+        sizeList,
+        fileNameBase: buildExportFileBase({
+          orderNames: exportOrderNames,
+          mode: 'nesting',
+          activeSizes: activeExportSizes
+        }),
+        title: 'Die-Cut Nesting Result',
+        subtitle: buildExportSubtitle(config, `${nestingResult.placedCount || 0} pieces`)
+      });
+    } catch (err) {
+      console.error('[DieCut] export nesting pdf error:', err);
+      window.alert(err.message || 'Không thể xuất file PDF.');
+    }
+  };
+
+  const handleExportNestingDxf = async () => {
+    if (!nestingResult?.sheets?.length) return;
+    try {
+      await diecutExportService.exportDxf({
+        sheets: nestingResult.sheets,
+        sheetWidth: config.sheetWidth,
+        sheetHeight: config.sheetHeight,
+        sizeList,
+        fileNameBase: buildExportFileBase({
+          orderNames: exportOrderNames,
+          mode: 'nesting',
+          activeSizes: activeExportSizes
+        }),
+        title: 'Die-Cut Nesting Result',
+        subtitle: buildExportSubtitle(config, `${nestingResult.placedCount || 0} pieces`)
+      });
+    } catch (err) {
+      console.error('[DieCut] export nesting dxf error:', err);
+      window.alert(err.message || 'Không thể xuất file DXF.');
+    }
+  };
+
+  const handleExportTestPdf = async ({ selectedSizeName, selectedSheet, selectedSummary } = {}) => {
+    if (!selectedSheet?.placed?.length) return;
+    try {
+      await diecutExportService.exportPdf({
+        sheets: [selectedSheet],
+        sheetWidth: selectedSheet.sheetWidth || config.sheetWidth,
+        sheetHeight: selectedSheet.sheetHeight || config.sheetHeight,
+        sizeList: selectedSizeName ? [{ sizeName: selectedSizeName }] : shapes,
+        fileNameBase: buildExportFileBase({
+          orderNames: exportOrderNames,
+          mode: 'capacity',
+          selectedSizeName
+        }),
+        title: selectedSizeName ? `Capacity Test - Size ${selectedSizeName}` : 'Capacity Test Result',
+        subtitle: buildExportSubtitle(
+          config,
+          `${selectedSummary?.totalPieces || selectedSheet.placed.length} pieces`
+        )
+      });
+    } catch (err) {
+      console.error('[DieCut] export test pdf error:', err);
+      window.alert(err.message || 'Không thể xuất file PDF.');
+    }
+  };
+
+  const handleExportTestDxf = async ({ selectedSizeName, selectedSheet, selectedSummary } = {}) => {
+    if (!selectedSheet?.placed?.length) return;
+    try {
+      await diecutExportService.exportDxf({
+        sheets: [selectedSheet],
+        sheetWidth: selectedSheet.sheetWidth || config.sheetWidth,
+        sheetHeight: selectedSheet.sheetHeight || config.sheetHeight,
+        sizeList: selectedSizeName ? [{ sizeName: selectedSizeName }] : shapes,
+        fileNameBase: buildExportFileBase({
+          orderNames: exportOrderNames,
+          mode: 'capacity',
+          selectedSizeName
+        }),
+        title: selectedSizeName ? `Capacity Test - Size ${selectedSizeName}` : 'Capacity Test Result',
+        subtitle: buildExportSubtitle(
+          config,
+          `${selectedSummary?.totalPieces || selectedSheet.placed.length} pieces`
+        )
+      });
+    } catch (err) {
+      console.error('[DieCut] export test dxf error:', err);
+      window.alert(err.message || 'Không thể xuất file DXF.');
+    }
+  };
 
   // ─── Handler: Chạy Nesting thường ───
   const handleRunNesting = async () => {
@@ -750,10 +942,15 @@ const DieCutLayout = () => {
                   <div className="text-white font-medium text-sm">{shapes.length} size</div>
                 </div>
                 <div className="bg-white/5 p-2 rounded-lg border border-white/10">
-                  <div className="text-white/50 text-xs mb-0.5">{isTestMode ? 'Chế độ' : 'Tổng chiếc cắt'}</div>
+                  <div className="text-white/50 text-xs mb-0.5">{isTestMode ? 'Chế độ' : 'Tổng đơn / trên sơ đồ'}</div>
                   <div className={`font-medium text-sm ${isTestMode ? 'text-amber-300' : 'text-emerald-300'}`}>
-                    {isTestMode ? '🧪 Test Max' : `${totalPieces} chiếc`}
+                    {isTestMode ? '🧪 Test Max' : `${totalPieces} / ${effectiveTotalPieces} chiếc`}
                   </div>
+                  {!isTestMode && (
+                    <div className="text-[10px] text-white/35 mt-1">
+                      {config.layers > 1 ? `${config.layers} lớp cắt` : '1 lớp cắt'}
+                    </div>
+                  )}
                 </div>
                 <div className="bg-white/5 p-2 rounded-lg border border-white/10">
                   <div className="text-white/50 text-xs mb-0.5">Kích thước tấm PU</div>
@@ -764,6 +961,11 @@ const DieCutLayout = () => {
                   <div className="text-white font-medium text-sm">
                     {config.spacing}mm {(config.allowRotate90 ? <span className="text-green-400">(90° On)</span> : <span className="text-white/40">(90° Off)</span>)}
                   </div>
+                  {!isTestMode && (
+                    <div className="text-[10px] text-white/35 mt-1">
+                      {getNestingStrategyLabel(config.nestingStrategy)}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -841,19 +1043,81 @@ const DieCutLayout = () => {
               <TestCapacityResult
                 result={testResult}
                 config={config}
+                onExportPdf={handleExportTestPdf}
+                onExportDxf={handleExportTestDxf}
                 onClose={() => { setActiveStep(3); }}
               />
             ) : (
               /* Normal Nesting Result */
               <>
+                {nestingResultSizeSummary.length > 0 && (
+                  <div className="bg-white/10 backdrop-blur-md rounded-xl border border-white/20 overflow-hidden">
+                    <div className="px-4 py-3 border-b border-white/10 bg-white/5">
+                      <div className="text-white font-semibold text-sm">Số lượng theo từng size</div>
+                      <div className="text-white/45 text-xs mt-1">
+                        Hiển thị đơn gốc, số đôi sau khi chia layers và số lượng đã xếp thực tế.
+                      </div>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-black/20">
+                          <tr>
+                            <th className="text-left text-white/50 font-medium px-4 py-2">Size</th>
+                            <th className="text-center text-white/50 font-medium px-3 py-2">Gốc (đôi)</th>
+                            <th className="text-center text-white/50 font-medium px-3 py-2">Sau chia (đôi)</th>
+                            <th className="text-center text-white/50 font-medium px-3 py-2">Đã xếp (đôi)</th>
+                            <th className="text-center text-white/50 font-medium px-3 py-2">Đã xếp (chiếc)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {nestingResultSizeSummary.map((item) => (
+                            <tr key={item.sizeName} className="border-t border-white/5">
+                              <td className="px-4 py-2 text-white font-medium">{item.sizeName}</td>
+                              <td className="px-3 py-2 text-center text-white/75">{item.originalPairs}</td>
+                              <td className="px-3 py-2 text-center text-cyan-200">{item.plannedPairs}</td>
+                              <td className="px-3 py-2 text-center text-emerald-300">{item.placedPairs}</td>
+                              <td className="px-3 py-2 text-center text-amber-300">{item.placedPieces}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
                 <div className="flex justify-between items-center">
-                  <h2 className="text-white font-semibold">🎯 Kết quả Nesting</h2>
-                  <button
-                    onClick={() => { setActiveStep(3); setNestingResult(null); }}
-                    className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white/70 rounded-lg text-sm transition-colors"
-                  >
-                    ← Chạy lại
-                  </button>
+                  <div>
+                    <h2 className="text-white font-semibold">Kết quả Nesting</h2>
+                    <div className="text-white/45 text-xs mt-1">
+                      {getNestingStrategyLabel(nestingResult?.nestingStrategy || config.nestingStrategy)}
+                      {' · '}
+                      {(nestingResult?.layers || config.layers || 1)} lớp
+                      {nestingResult?.planningSummary?.plannedPieces
+                        ? ` · Sơ đồ ${nestingResult.planningSummary.plannedPieces} chiếc`
+                        : ''}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleExportNestingPdf}
+                      disabled={!nestingResult?.sheets?.length}
+                      className="px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 disabled:opacity-40 disabled:cursor-not-allowed text-emerald-200 rounded-lg text-sm transition-colors border border-emerald-400/20"
+                    >
+                      Export PDF
+                    </button>
+                    <button
+                      onClick={handleExportNestingDxf}
+                      disabled={!nestingResult?.sheets?.length}
+                      className="px-3 py-1.5 bg-sky-500/20 hover:bg-sky-500/30 disabled:opacity-40 disabled:cursor-not-allowed text-sky-200 rounded-lg text-sm transition-colors border border-sky-400/20"
+                    >
+                      Export DXF
+                    </button>
+                    <button
+                      onClick={() => { setActiveStep(3); setNestingResult(null); }}
+                      className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white/70 rounded-lg text-sm transition-colors"
+                    >
+                      ← Chạy lại
+                    </button>
+                  </div>
                 </div>
                 <DieCutNestingBoard nestingResult={nestingResult} sizeList={sizeList} />
               </>

@@ -196,6 +196,11 @@ function compareAlignedPairCandidates(nextCandidate, bestCandidate) {
   if (nextCandidate.placedCount !== bestCandidate.placedCount) {
     return bestCandidate.placedCount - nextCandidate.placedCount;
   }
+  const nextShift = Math.abs(nextCandidate.rowShiftXmm || 0) + Math.abs(nextCandidate.rowShiftYmm || 0);
+  const bestShift = Math.abs(bestCandidate.rowShiftXmm || 0) + Math.abs(bestCandidate.rowShiftYmm || 0);
+  if (nextShift !== bestShift) {
+    return nextShift - bestShift;
+  }
   if (nextCandidate.bodyCount !== bestCandidate.bodyCount) {
     return bestCandidate.bodyCount - nextCandidate.bodyCount;
   }
@@ -1145,7 +1150,16 @@ export class CapacityTestComplementaryPattern extends BaseNesting {
   _getPairFineRotateOffsets(config) {
     const rawOffsets = Array.isArray(config.pairFineRotateOffsets) && config.pairFineRotateOffsets.length
       ? config.pairFineRotateOffsets
-      : [-6, -4, -2, 0, 2, 4, 6];
+      : (() => {
+          if ((config.gridStep || 1) <= 0.5) {
+            const denseOffsets = [];
+            for (let value = -6; value <= 6.0001; value += 0.5) {
+              denseOffsets.push(roundMetric(value, 3));
+            }
+            return denseOffsets;
+          }
+          return [-6, -4, -2, 0, 2, 4, 6];
+        })();
     if (config.pairFineRotateEnabled === false) {
       return [0];
     }

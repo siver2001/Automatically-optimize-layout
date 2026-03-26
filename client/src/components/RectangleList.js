@@ -262,7 +262,7 @@ const RectangleList = () => {
         <div
           key="add-btn"
           className={`
-              bg-gray-100 rounded-lg p-3 flex-shrink-0 w-40 relative transition-all duration-300 
+              bg-gray-100 rounded-lg p-2.5 flex-shrink-0 w-40 relative transition-all duration-300 
               border-2 border-dashed border-gray-400 flex flex-col items-center justify-center
               ${isOptimizing || isParsing
               ? 'opacity-50 cursor-not-allowed'
@@ -305,7 +305,7 @@ const RectangleList = () => {
     return (
       <div
         key={rect.id}
-        className={`bg-white rounded-lg p-3 w-40 cursor-pointer relative transition-all duration-300 hover:shadow-lg border-2 flex flex-col justify-between box-border ${selectedRectangles.includes(rect.id)
+        className={`bg-white rounded-lg p-2.5 w-40 cursor-pointer relative transition-all duration-300 hover:shadow-lg border-2 flex flex-col justify-between box-border ${selectedRectangles.includes(rect.id)
           ? 'border-primary-500 shadow-md scale-105 z-10'
           : 'border-gray-200 hover:border-primary-300'
           } ${isOptimizing || isParsing ? 'opacity-70 pointer-events-none' : ''}`}
@@ -330,7 +330,7 @@ const RectangleList = () => {
             </svg>
           </button>
         )}
-        <div className="flex justify-center mb-3">
+        <div className="flex justify-center mb-2">
           <div
             className="rounded shadow-md flex items-center justify-center text-white font-bold text-xs drop-shadow-lg"
             style={getRectangleStyle(rect)}
@@ -344,8 +344,8 @@ const RectangleList = () => {
         </div>
 
         <div className="text-center">
-          <div className="h-10 flex flex-col justify-center">
-            <div className="font-semibold text-gray-800 mb-1 text-sm truncate" title={rect.name}>
+          <div className="h-9 flex flex-col justify-center">
+            <div className="font-semibold text-gray-800 mb-0.5 text-sm truncate" title={rect.name}>
               {rect.name}
             </div>
             <div className="text-xs text-gray-600">
@@ -353,7 +353,7 @@ const RectangleList = () => {
             </div>
           </div>
 
-          <div className="flex items-center justify-center gap-2 mt-3">
+          <div className="flex items-center justify-center gap-2 mt-2">
             <span className="text-xs text-gray-500">SL:</span>
             <input
               type="number"
@@ -372,8 +372,8 @@ const RectangleList = () => {
   };
 
   return (
-    <div className="mb-2 card p-2">
-      <div className="flex justify-between items-center mb-2 border-b pb-1">
+    <div className="mb-1 card p-2">
+      <div className="flex justify-between items-center mb-1.5 border-b pb-1">
         <h2 className="text-gray-800 text-l font-semibold flex items-center gap-2">
           📦 Quản lý size
         </h2>
@@ -388,13 +388,13 @@ const RectangleList = () => {
         </div>
       )}
 
-      <div className="mb-2 bg-blue-50 border border-blue-200 rounded-lg p-2">
+      <div className="mb-2 bg-blue-50 border border-blue-200 rounded-lg p-1.5">
         <div className="flex flex-col gap-1 md:flex-row md:justify-between md:items-center">
 
           <div className="flex gap-2 flex-shrink-0">
             <button
               onClick={selectAllRectangles}
-              className="px-3 py-2 rounded-lg text-sm font-medium transition-all duration-300 hover:shadow-md border border-gray-400 bg-white text-gray-700 disabled:opacity-50"
+              className="px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-300 hover:shadow-md border border-gray-400 bg-white text-gray-700 disabled:opacity-50"
               disabled={isOptimizing || isParsing}
             >
               ✅ Select All
@@ -402,7 +402,7 @@ const RectangleList = () => {
             <button
               onClick={clearSelection}
               disabled={selectedRectangles.length === 0 || isOptimizing || isParsing}
-              className="px-3 py-2 rounded-lg text-sm font-medium transition-all duration-300 hover:shadow-md border border-gray-400 bg-white text-gray-700 disabled:opacity-50"
+              className="px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-300 hover:shadow-md border border-gray-400 bg-white text-gray-700 disabled:opacity-50"
 
             >
               ❌ Cancel
@@ -422,7 +422,7 @@ const RectangleList = () => {
             <button
               disabled={isOptimizing || isParsing}
               className={`
-                    flex items-center justify-between w-fit px-3 py-2 text-sm font-medium bg-white border rounded-lg shadow-sm transition-all
+                    flex items-center justify-between w-fit px-3 py-1.5 text-sm font-medium bg-white border rounded-lg shadow-sm transition-all
                     ${isOptimizing ? 'opacity-50 cursor-not-allowed' : 'hover:border-primary-500 hover:shadow-md cursor-pointer'}
                     ${unsplitableRectIds.length > 0 ? 'border-yellow-400 text-yellow-800 bg-yellow-50' : 'border-gray-300 text-gray-700'}
                 `}
@@ -506,7 +506,7 @@ const RectangleList = () => {
             onClick={startOptimization}
             disabled={totalRectanglesCount === 0 || isOptimizing || isParsing}
             className={`
-                btn-primary text-sm px-4 py-2 flex-shrink-0 transition-all 
+                btn-primary text-sm px-4 py-1.5 flex-shrink-0 transition-all 
                 ${isOptimizing ? 'opacity-70 cursor-not-allowed' : ''}
             `}
           >
@@ -528,11 +528,11 @@ const RectangleList = () => {
         disabled={isOptimizing || isParsing}
       />
 
-      <div className="rounded-xl p-4 border border-gray-200">
+      <div className="rounded-xl p-3 border border-gray-200">
         <div
           ref={scrollContainerRef}
           className="overflow-x-auto custom-scrollbar"
-          style={{ height: '14.5rem', width: '100%', overflowY: 'hidden', position: 'relative' }}
+          style={{ height: '12rem', width: '100%', overflowY: 'hidden', position: 'relative' }}
           onScroll={handleScroll}
         >
           {/* Scroll Spacer to check total width */}

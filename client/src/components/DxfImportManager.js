@@ -72,10 +72,10 @@ const DxfImportManager = () => {
     };
 
     return (
-        <div className="mb-3 card p-3 md:p-4 bg-blue-50 border border-blue-200 shadow-sm">
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="mb-2 card p-2.5 md:p-3 bg-blue-50 border border-blue-200 shadow-sm">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-2.5">
                 <div className="flex items-center gap-2">
-                    <div className="p-2 bg-blue-100 rounded-full text-blue-600">
+                    <div className="p-1.5 bg-blue-100 rounded-full text-blue-600">
                         <ImportIcon />
                     </div>
                     <div>
@@ -95,7 +95,7 @@ const DxfImportManager = () => {
                     <button
                         onClick={handleButtonClick}
                         disabled={isImporting}
-                        className="btn-primary bg-white text-blue-600 border border-blue-200 hover:bg-blue-50 focus:ring-blue-200 text-sm py-2 px-4 shadow-sm"
+                        className="btn-primary bg-white text-blue-600 border border-blue-200 hover:bg-blue-50 focus:ring-blue-200 text-sm py-1.5 px-3.5 shadow-sm"
                     >
                         {isImporting ? 'Đang xử lý...' : '📂 Chọn file DXF'}
                     </button>

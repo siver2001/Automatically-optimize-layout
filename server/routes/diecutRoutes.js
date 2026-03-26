@@ -16,9 +16,14 @@ import { TrueShapeNesting } from '../algorithms/diecut/TrueShapeNesting.js';
 // Các thuật toán mới tách ra
 import { NestingNormalPairing } from '../algorithms/diecut/strategies/normal/NestingNormalPairing.js';
 import { NestingNormalPiece } from '../algorithms/diecut/strategies/normal/NestingNormalPiece.js';
+import { applyLayersToSizeList, buildNestingPlanSummary, normalizeLayers, normalizeNestingStrategy } from '../algorithms/diecut/strategies/normal/nestingPlanUtils.js';
+import { runNestingMode } from '../algorithms/diecut/strategies/normal/runNestingMode.js';
 import { CapacityTestPairing } from '../algorithms/diecut/strategies/capacity/CapacityTestPairing.js';
 import { CapacityTestSameSidePattern } from '../algorithms/diecut/strategies/capacity/CapacityTestSameSidePattern.js';
 import { CapacityTestComplementaryPattern } from '../algorithms/diecut/strategies/capacity/CapacityTestComplementaryPattern.js';
+import { generateDieCutPdf } from '../utils/diecutPdfGenerator.js';
+import { generateDieCutDxf } from '../utils/diecutDxfGenerator.js';
+import { sanitizeExportFileName } from '../utils/diecutExportUtils.js';
 
 import { area as polygonArea } from '../algorithms/diecut/core/polygonUtils.js';
 import ExcelJS from 'exceljs';
@@ -171,7 +176,9 @@ router.post('/nest', async (req, res) => {
       allowRotate180,
       gridStep,
       mirrorPairs,
-      pairingStrategy
+      pairingStrategy,
+      layers,
+      nestingStrategy
     } = req.body;
 
     if (!sizeList || sizeList.length === 0) {
@@ -188,20 +195,37 @@ router.post('/nest', async (req, res) => {
       allowRotate180: allowRotate180 !== false,
       mirrorPairs: mirrorPairs !== false,
       pairingStrategy: pairingStrategy || (mirrorPairs !== false ? 'pair' : 'same-side'),
-      gridStep: gridStep || 2,
+      gridStep: gridStep ?? 0.5,
+      layers: normalizeLayers(layers),
+      nestingStrategy: normalizeNestingStrategy(nestingStrategy),
       maxTimeMs: 60000
     };
 
     const { nestStrategy } = req.body; // 'pair' hoặc 'piece'
-    let nester;
+    const createNester = () => {
+      if (nestStrategy === 'piece' || (!config.mirrorPairs && config.pairingStrategy === 'same-side')) {
+        return new NestingNormalPiece(config);
+      }
+      return new NestingNormalPairing(config);
+    };
 
-    if (nestStrategy === 'piece' || (mirrorPairs === false && pairingStrategy === 'same-side')) {
-      nester = new NestingNormalPiece(config);
-    } else {
-      nester = new NestingNormalPairing(config);
+    const plannedSizeList = applyLayersToSizeList(sizeList, config.layers);
+    const planSummary = buildNestingPlanSummary(sizeList, plannedSizeList, config);
+
+    if (planSummary.plannedPairs <= 0) {
+      return res.status(400).json({ error: 'Khong co so luong hop le de nesting sau khi chia layers' });
     }
 
-    const result = await nester.nest(sizeList, config);
+    const result = await runNestingMode({
+      sizeList: plannedSizeList,
+      createNester,
+      config,
+      metadata: {
+        layers: config.layers,
+        nestingStrategy: config.nestingStrategy,
+        planningSummary: planSummary
+      }
+    });
 
     res.json({ success: true, ...result });
   } catch (err) {
@@ -289,6 +313,59 @@ router.post('/test-capacity', async (req, res) => {
   } catch (err) {
     console.error('[DieCut] test-capacity error:', err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/export-pdf', (req, res) => {
+  try {
+    const { sheets, sheetWidth, sheetHeight, sizeList, title, subtitle, fileNameBase } = req.body;
+
+    if (!Array.isArray(sheets) || sheets.length === 0) {
+      return res.status(400).json({ error: 'Khong co du lieu sheet de xuat PDF.' });
+    }
+
+    const safeFileName = `${sanitizeExportFileName(fileNameBase, 'diecut-layouts')}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeFileName}"`);
+
+    generateDieCutPdf({
+      sheets,
+      sheetWidth,
+      sheetHeight,
+      sizeList,
+      title,
+      subtitle
+    }, res);
+  } catch (err) {
+    console.error('[DieCut] export-pdf error:', err);
+    res.status(500).json({ error: err.message || 'Khong the tao file PDF.' });
+  }
+});
+
+router.post('/export-dxf', (req, res) => {
+  try {
+    const { sheets, sheetWidth, sheetHeight, sizeList, title, subtitle, fileNameBase } = req.body;
+
+    if (!Array.isArray(sheets) || sheets.length === 0) {
+      return res.status(400).json({ error: 'Khong co du lieu sheet de xuat DXF.' });
+    }
+
+    const safeFileName = `${sanitizeExportFileName(fileNameBase, 'diecut-layouts')}.dxf`;
+    const dxfContent = generateDieCutDxf({
+      sheets,
+      sheetWidth,
+      sheetHeight,
+      sizeList,
+      title,
+      subtitle
+    });
+
+    res.setHeader('Content-Type', 'application/dxf');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeFileName}"`);
+    res.send(dxfContent);
+  } catch (err) {
+    console.error('[DieCut] export-dxf error:', err);
+    res.status(500).json({ error: err.message || 'Khong the tao file DXF.' });
   }
 });
 

@@ -38,15 +38,15 @@ const ContainerInput = () => {
 
   const getContainerPreviewStyle = () => {
     if (!localContainer.width || !localContainer.length || localContainer.width <= 0 || localContainer.length <= 0) {
-      return { width: '200px', height: '120px' };
+      return { width: '170px', height: '96px' };
     }
 
     const effectiveWidth = Math.max(localContainer.width, localContainer.length);
     const effectiveLength = Math.min(localContainer.width, localContainer.length);
 
     // Responsive sizes
-    const maxWidth = Math.min(window.innerWidth * 0.15, 350);
-    const maxLength = Math.min(window.innerHeight * 0.8, 200);
+    const maxWidth = Math.min(window.innerWidth * 0.13, 260);
+    const maxLength = Math.min(window.innerHeight * 0.38, 150);
     const aspectRatio = effectiveWidth / effectiveLength;
 
     let displayWidth, displayLength;
@@ -59,20 +59,20 @@ const ContainerInput = () => {
       displayWidth = Math.min(maxWidth, displayLength * aspectRatio);
     }
 
-    displayWidth = Math.max(180, displayWidth);
-    displayLength = Math.max(100, displayLength);
+    displayWidth = Math.max(150, displayWidth);
+    displayLength = Math.max(84, displayLength);
 
     return {
       width: `${displayWidth}px`,
       height: `${displayLength}px`,
-      minWidth: '180px',
-      minHeight: '100px'
+      minWidth: '150px',
+      minHeight: '84px'
     };
   };
 
   return (
-    <div className="mb-3 card p-3 md:p-4">
-      <div className="flex items-center justify-between mb-4 md:mb-6 border-b pb-2 md:pb-3">
+    <div className="mb-2 card p-2.5 md:p-3">
+      <div className="flex items-center justify-between mb-3 border-b pb-2">
         <h2 className="text-gray-800 text-base md:text-lg lg:text-l font-semibold flex items-center gap-2">
           📐 Thiết kế tấm liệu
         </h2>
@@ -86,11 +86,11 @@ const ContainerInput = () => {
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-5 lg:gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-[1.05fr_0.95fr] gap-3 md:gap-4">
         {/* Input Form */}
-        <div className="space-y-3 md:space-y-4">
-          <form onSubmit={handleSubmit} className="space-y-3 md:space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
+        <div className="space-y-2.5">
+          <form onSubmit={handleSubmit} className="space-y-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 md:gap-3">
               <div className="flex flex-col">
                 <label htmlFor="width" className="label text-sm md:text-base">
                   Chiều rộng (mm)
@@ -104,7 +104,7 @@ const ContainerInput = () => {
                   value={localContainer.width === 0 ? '' : localContainer.width}
                   onChange={(e) => handleInputChange('width', e.target.value)}
                   placeholder="e.g., 600.0"
-                  className="input-field text-sm md:text-base"
+                  className="input-field text-sm"
                   required
                 />
               </div>
@@ -122,13 +122,13 @@ const ContainerInput = () => {
                   value={localContainer.length === 0 ? '' : localContainer.length}
                   onChange={(e) => handleInputChange('length', e.target.value)}
                   placeholder="e.g., 500.0"
-                  className="input-field text-sm md:text-base"
+                  className="input-field text-sm"
                   required
                 />
               </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-3 md:gap-4">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-2.5 md:gap-3">
               <div className="flex flex-col flex-1">
                 <label htmlFor="layers" className="label text-sm md:text-base">
                   📚 Số lớp
@@ -142,14 +142,14 @@ const ContainerInput = () => {
                   value={localContainer.layers || 1}
                   onChange={(e) => handleInputChange('layers', e.target.value)}
                   placeholder="Nhập số lớp..."
-                  className="input-field text-sm md:text-base"
+                  className="input-field text-sm"
                   required
                 />
               </div>
 
               <button
                 type="submit"
-                className="btn-primary text-sm md:text-base py-2 md:py-2.5 sm:flex-0.5 sm:min-w-[150px]"
+                className="btn-primary text-sm py-1.5 md:py-2 sm:flex-0.5 sm:min-w-[140px]"
                 disabled={!localContainer.width || !localContainer.length || localContainer.width <= 0 || localContainer.length <= 0}
               >
                 Thiết kế tấm liệu
@@ -167,14 +167,14 @@ const ContainerInput = () => {
         </div>
 
         {/* Container Preview */}
-        <div className="bg-white rounded-lg p-3 md:p-4 border border-gray-200 flex flex-col items-center justify-center">
+        <div className="bg-white rounded-lg p-2.5 md:p-3 border border-gray-200 flex flex-col items-center justify-center">
           <div className="flex flex-col items-center">
             <div
               className="bg-blue-100 border-2 border-primary-500 rounded-lg shadow-xl flex items-center justify-center relative"
               style={getContainerPreviewStyle()}
             >
               <div className="text-center text-primary-800 font-bold p-2">
-                <div className="text-base md:text-lg lg:text-xl leading-tight">
+                <div className="text-sm md:text-base lg:text-lg leading-tight">
                   {localContainer.width > 0 ? localContainer.width : '?'}×{localContainer.length > 0 ? localContainer.length : '?'}
                 </div>
                 <div className="text-xs md:text-sm opacity-80">mm</div>

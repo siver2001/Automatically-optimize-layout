@@ -948,7 +948,7 @@ const PackingResult = () => {
 
     const efficiency = totalArea > 0 ? (totalUsedArea / totalArea * 100) : 0;
     return { efficiency, totalLayers };
-  }, [editablePlates, editedRectangles, originalRectangles, currentPlateMeta, currentLayerCount, singleLayerArea, isEditMode]);
+  }, [editablePlates, editedRectangles, viewOnlyRects, currentPlateMeta, currentLayerCount, singleLayerArea, isEditMode]);
 
   // --- Display ---
   const displayRectangles = isEditMode ? editedRectangles : viewOnlyRects;
@@ -958,7 +958,7 @@ const PackingResult = () => {
 
   if (isOptimizing) {
     return (
-      <div className="mb-4 card p-6 md:p-8 min-h-[300px] md:min-h-[400px] flex flex-col justify-center items-center">
+      <div className="mb-2 card p-5 md:p-6 min-h-[280px] md:min-h-[320px] flex flex-col justify-center items-center">
         <div className="text-center">
           <div className="animate-spin-slow text-4xl md:text-6xl mb-4 md:mb-6 text-primary-500">⚙️</div>
           <p className="text-lg md:text-xl font-semibold text-gray-800 mb-2">Đang chạy thuật toán tối ưu</p>
@@ -970,7 +970,7 @@ const PackingResult = () => {
 
   if (!packingResult || !packingResult.plates || packingResult.plates.length === 0) {
     return (
-      <div className="mb-4 card p-6 md:p-8 min-h-[300px] md:min-h-[400px] flex flex-col justify-center items-center">
+      <div className="mb-2 card p-5 md:p-6 min-h-[280px] md:min-h-[320px] flex flex-col justify-center items-center">
         <h2 className="text-gray-800 text-xl md:text-2xl font-semibold mb-4 md:mb-6">
           📊 Kết quả sắp xếp
         </h2>
@@ -993,7 +993,7 @@ const PackingResult = () => {
     .reduce((sum, item) => sum + item.instances.length, 0);
 
   return (
-    <div className="mb-4 card p-1 md:p-2">
+    <div className="mb-2 card p-1 md:p-1.5">
       <EditModeControls
         isEditMode={isEditMode}
         onToggleEditMode={handleToggleEditMode}
