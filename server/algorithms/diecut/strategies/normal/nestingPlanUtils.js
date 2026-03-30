@@ -94,6 +94,7 @@ export function sortSizesByDescendingArea(sizeList = []) {
 }
 
 export function finalizeNestingResult(rawResult = {}, config = {}, metadata = {}) {
+  const { planningSummary: metadataPlanningSummary, planSummary: metadataPlanSummary, ...restMetadata } = metadata || {};
   const normalizedSheets = (rawResult.sheets || []).map((sheet, index) => ({
     ...sheet,
     sheetIndex: index,
@@ -104,10 +105,33 @@ export function finalizeNestingResult(rawResult = {}, config = {}, metadata = {}
   const totalSheets = normalizedSheets.length;
   const placedCount = rawResult.placedCount ?? normalizedSheets.reduce((sum, sheet) => sum + (sheet.placedCount || 0), 0);
   const planSummary = metadata.planningSummary || metadata.planSummary || null;
+  const placedBySize = normalizedSheets.reduce((acc, sheet) => {
+    for (const item of sheet.placed || []) {
+      const sizeName = item?.sizeName || 'Unknown';
+      acc[sizeName] = (acc[sizeName] || 0) + 1;
+    }
+    return acc;
+  }, {});
+  const enrichedPlanSummary = planSummary
+    ? {
+        ...planSummary,
+        sizes: (planSummary.sizes || []).map((size) => {
+          const placedPieces = placedBySize[size.sizeName] || 0;
+          return {
+            ...size,
+            placedPieces,
+            placedPairs: Math.floor(placedPieces / 2)
+          };
+        })
+      }
+    : null;
   const totalItems = rawResult.totalItems ?? planSummary?.plannedPieces ?? placedCount;
   const unplacedCount = Math.max(0, totalItems - placedCount);
   const usedArea = normalizedSheets.reduce(
-    (sum, sheet) => sum + (sheet.placed || []).reduce((sheetSum, item) => sheetSum + polygonArea(item.polygon), 0),
+    (sum, sheet) => sum + (
+      sheet.usedArea
+      ?? (sheet.placed || []).reduce((sheetSum, item) => sheetSum + polygonArea(item.polygon), 0)
+    ),
     0
   );
   const totalSheetArea = totalSheets * (config.sheetWidth || 0) * (config.sheetHeight || 0);
@@ -124,7 +148,7 @@ export function finalizeNestingResult(rawResult = {}, config = {}, metadata = {}
     unplacedCount,
     efficiency,
     timeMs: rawResult.timeMs ?? 0,
-    planningSummary: planSummary,
-    ...metadata
+    planningSummary: enrichedPlanSummary,
+    ...restMetadata
   };
 }

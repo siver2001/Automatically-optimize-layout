@@ -341,6 +341,13 @@ export class CapacityTestComplementaryPattern extends BaseNesting {
     super(config);
   }
 
+  _getStaggerSpacing(config) {
+    const baseSpacing = config?.spacing ?? 0;
+    const staggerSpacing = config?.staggerSpacing;
+    if (!Number.isFinite(staggerSpacing)) return baseSpacing;
+    return Math.max(baseSpacing, staggerSpacing);
+  }
+
   _minSepV(rA, rB, dx) {
     for (let dy = -rB.rows; dy <= rA.rows + rB.rows; dy++) {
       let overlap = false;
@@ -547,6 +554,7 @@ export class CapacityTestComplementaryPattern extends BaseNesting {
   }
 
   _findAlternatingDy(row0Spec, row1Spec, dxMm, colShiftYmm, rowShiftXmm, rowShiftYmm, config, step) {
+    const requiredSpacing = this._getStaggerSpacing(config);
     const heightUpper = Math.max(
       row0Spec.leftOrient.height,
       row0Spec.rightOrient.height,
@@ -567,7 +575,7 @@ export class CapacityTestComplementaryPattern extends BaseNesting {
         rowShiftXmm,
         rowShiftYmm,
         rowStrideYmm,
-        config.spacing
+        requiredSpacing
       )
     );
   }
@@ -665,9 +673,10 @@ export class CapacityTestComplementaryPattern extends BaseNesting {
   }
 
   _findRowStrideY(row0Motif, row1Motif, rowStrideXmm, rowShiftXmm, rowShiftYmm, config, step) {
+    const requiredSpacing = this._getStaggerSpacing(config);
     const upper = Math.max(
       step,
-      quantizeToStep(row0Motif.height + row1Motif.height + Math.abs(rowShiftYmm) + config.spacing + step * 10, step)
+      quantizeToStep(row0Motif.height + row1Motif.height + Math.abs(rowShiftYmm) + requiredSpacing + step * 10, step)
     );
 
     return findMinimalQuantizedValue(step, upper, step, (rowStrideYmm) => {
@@ -679,7 +688,7 @@ export class CapacityTestComplementaryPattern extends BaseNesting {
         rowShiftYmm,
         rowStrideYmm
       );
-      return validateLocalPlacements(neighborhood, config.spacing).valid;
+      return validateLocalPlacements(neighborhood, requiredSpacing).valid;
     });
   }
 
@@ -970,6 +979,7 @@ export class CapacityTestComplementaryPattern extends BaseNesting {
 
   _buildAlignedPairBodyVariants(bodyStrategy, bodyRowPlacements, workWidth, workHeight, config, step, includeShifted = true) {
     const variants = [];
+    const staggerSpacing = this._getStaggerSpacing(config);
     const bodyDyMm = this._findSequentialPairRowPitch(bodyRowPlacements, config, step);
     if (bodyDyMm == null) return variants;
 
@@ -1016,8 +1026,8 @@ export class CapacityTestComplementaryPattern extends BaseNesting {
       );
       if (!shiftedRowPlacements.length) continue;
 
-      const row0ToRow1Dy = this._findStartOffsetAfterRow(bodyRowPlacements, shiftedRowPlacements, config, step);
-      const row1ToRow0Dy = this._findStartOffsetAfterRow(shiftedRowPlacements, bodyRowPlacements, config, step);
+      const row0ToRow1Dy = this._findStartOffsetAfterRow(bodyRowPlacements, shiftedRowPlacements, config, step, staggerSpacing);
+      const row1ToRow0Dy = this._findStartOffsetAfterRow(shiftedRowPlacements, bodyRowPlacements, config, step, staggerSpacing);
       if (row0ToRow1Dy == null || row1ToRow0Dy == null) continue;
 
       const alternatingRows = this._countAlternatingRowsFromRows(
@@ -1072,7 +1082,7 @@ export class CapacityTestComplementaryPattern extends BaseNesting {
     return variants;
   }
 
-  _findStartOffsetAfterRow(baseRowPlacements, nextRowPlacements, config, step) {
+  _findStartOffsetAfterRow(baseRowPlacements, nextRowPlacements, config, step, requiredSpacing = config.spacing) {
     if (!baseRowPlacements.length || !nextRowPlacements.length) return 0;
 
     const precision = Math.min(step, 0.05);
@@ -1081,7 +1091,7 @@ export class CapacityTestComplementaryPattern extends BaseNesting {
     const nextBottom = getPlacementsBottom(nextRowPlacements);
     const upper = buildUpperBound(
       step,
-      baseBottom - nextTop + nextBottom + config.spacing + step * 8
+      baseBottom - nextTop + nextBottom + requiredSpacing + step * 8
     );
 
     const deltaY = findMinimalContinuousValue(0, upper, precision, (delta) =>
@@ -1092,7 +1102,7 @@ export class CapacityTestComplementaryPattern extends BaseNesting {
           id: `pair_fill_${index}`,
           y: roundMetric(placement.y + delta, 3)
         })),
-        config.spacing
+        requiredSpacing
       )
     );
 

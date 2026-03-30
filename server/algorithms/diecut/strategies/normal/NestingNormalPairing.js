@@ -149,8 +149,12 @@ export class NestingNormalPairing extends BaseNesting {
     const sizeOrder = [...groupedPairs.keys()].sort((a, b) => {
       const ma = mastersBySize.get(a)?.rowMaster;
       const mb = mastersBySize.get(b)?.rowMaster;
-      const sa = ma ? (100000 / Math.max(1, ma.heightMm)) + ma.score : 0;
-      const sb = mb ? (100000 / Math.max(1, mb.heightMm)) + mb.score : 0;
+      const sa = ma
+        ? ((polygonArea(ma.aOrient.polygon) + polygonArea(ma.bOrient.polygon)) * 0.0025) + (ma.compactScore || 0) * 4 + (ma.rowScore || 0) * 3 + ma.score
+        : 0;
+      const sb = mb
+        ? ((polygonArea(mb.aOrient.polygon) + polygonArea(mb.bOrient.polygon)) * 0.0025) + (mb.compactScore || 0) * 4 + (mb.rowScore || 0) * 3 + mb.score
+        : 0;
       return sb - sa;
     });
 
@@ -177,8 +181,8 @@ export class NestingNormalPairing extends BaseNesting {
           if (!this._checkCollision(board, bCols, bRows, unit.unitR, x, y)) {
             this._mark(board, bCols, unit.unitR, x, y, 1);
             const pair = queue.shift();
-            placed.push(this._buildPlaced(pair.left, unit.aOrient, x + unit.ax, y + unit.ay, config, step));
-            placed.push(this._buildPlaced(pair.right, unit.bOrient, x + unit.bx, y + unit.by, config, step));
+            placed.push(this._buildTempPlacement(pair.left, unit.aOrient, x + unit.ax, y + unit.ay));
+            placed.push(this._buildTempPlacement(pair.right, unit.bOrient, x + unit.bx, y + unit.by));
             
             rowPlaced = true;
             rowHeight = Math.max(rowHeight, unit.sy);
@@ -204,7 +208,7 @@ export class NestingNormalPairing extends BaseNesting {
     const bCols = Math.ceil(workWidth / step);
     const bRows = Math.ceil(workHeight / step);
     const board = new Uint8Array(bCols * bRows);
-    const placed = [];
+    const tempPlaced = [];
 
     const groupedPairs = new Map();
     for (const pair of pairs) {
@@ -219,8 +223,10 @@ export class NestingNormalPairing extends BaseNesting {
       if (master) mastersBySize.set(sizeName, master);
     }
 
-    this._packRowsFast(board, bCols, bRows, groupedPairs, mastersBySize, config, step, placed);
+    this._packRowsFast(board, bCols, bRows, groupedPairs, mastersBySize, config, step, tempPlaced);
 
+    const compactPlaced = this._compactTempPlacements(tempPlaced, bCols, bRows);
+    const placed = this._materializeTempPlacements(compactPlaced, config, step);
     const placedIds = new Set(placed.map(p => p.id));
     const remaining = pairs.filter(pair => !placedIds.has(pair.left.id));
     return { placed, remaining };

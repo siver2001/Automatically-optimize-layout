@@ -60,7 +60,7 @@ const DieCutExcelUploader = ({ onQuantitiesLoaded }) => {
   const totalPieces = quantities.reduce((s, q) => s + q.pieceQuantity, 0);
 
   return (
-    <div className="bg-white/10 backdrop-blur-md rounded-xl border border-white/20 p-4 space-y-4">
+    <div className="bg-white/10 backdrop-blur-md rounded-xl border border-white/20 p-4 space-y-4 h-full">
       <h3 className="text-white font-semibold text-base flex items-center gap-2">
         <span className="text-xl">📊</span> Import Excel Đơn Hàng
       </h3>
@@ -112,7 +112,7 @@ const DieCutExcelUploader = ({ onQuantitiesLoaded }) => {
               Tổng: {totalPairs} đôi / {totalPieces} chiếc
             </div>
           </div>
-          <div className="max-h-52 overflow-y-auto space-y-1">
+          <div className="max-h-[28rem] overflow-y-auto space-y-1">
             {quantities.map((q, i) => (
               <div key={i} className="flex items-center gap-2 bg-white/5 rounded-lg px-3 py-1.5">
                 <span className="text-white font-medium text-sm w-16 flex-shrink-0">Size {q.sizeName}</span>

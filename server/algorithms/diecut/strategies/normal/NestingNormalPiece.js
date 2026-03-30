@@ -73,8 +73,12 @@ export class NestingNormalPiece extends BaseNesting {
     const keyOrder = [...groupedItems.keys()].sort((a, b) => {
       const ma = mastersByKey.get(a)?.rowMaster;
       const mb = mastersByKey.get(b)?.rowMaster;
-      const sa = ma ? (100000 / Math.max(1, ma.heightMm)) + ma.rowScore + ma.totalScore : 0;
-      const sb = mb ? (100000 / Math.max(1, mb.heightMm)) + mb.rowScore + mb.totalScore : 0;
+      const sa = ma
+        ? (polygonArea(ma.orient.polygon) * 0.0035) + (ma.compactScore || 0) * 4 + (ma.rowScore || 0) * 3 + ma.totalScore
+        : 0;
+      const sb = mb
+        ? (polygonArea(mb.orient.polygon) * 0.0035) + (mb.compactScore || 0) * 4 + (mb.rowScore || 0) * 3 + mb.totalScore
+        : 0;
       return sb - sa;
     });
 
@@ -102,7 +106,7 @@ export class NestingNormalPiece extends BaseNesting {
           if (!this._checkCollision(board, bCols, bRows, raster, x, y)) {
             this._mark(board, bCols, raster, x, y, 1);
             const item = queue.shift();
-            placed.push(this._buildPlaced(item, unit.orient, x, y, config, step));
+            placed.push(this._buildTempPlacement(item, unit.orient, x, y));
             rowPlaced = true;
             rowHeight = Math.max(rowHeight, unit.sy);
             x += unit.sx;
@@ -175,7 +179,7 @@ export class NestingNormalPiece extends BaseNesting {
 
       if (bestPos) {
         this._mark(board, bCols, bestPos.unit.orient.raster, bestPos.x, bestPos.y, 1);
-        placed.push(this._buildPlaced(item, bestPos.unit.orient, bestPos.x, bestPos.y, config, step));
+        placed.push(this._buildTempPlacement(item, bestPos.unit.orient, bestPos.x, bestPos.y));
       } else {
         remaining.push(item);
       }
@@ -191,7 +195,7 @@ export class NestingNormalPiece extends BaseNesting {
     const bCols = Math.ceil(workWidth / step);
     const bRows = Math.ceil(workHeight / step);
     const board = new Uint8Array(bCols * bRows);
-    const placed = [];
+    const tempPlaced = [];
 
     const groupedItems = new Map();
     for (const item of items) {
@@ -207,10 +211,10 @@ export class NestingNormalPiece extends BaseNesting {
       if (master) mastersByKey.set(key, master);
     }
 
-    this._packRowsFast(board, bCols, bRows, groupedItems, mastersByKey, placed, config, step);
+    this._packRowsFast(board, bCols, bRows, groupedItems, mastersByKey, tempPlaced, config, step);
 
-    const placedIds = new Set(placed.map((item) => item.id));
-    const afterRows = items.filter((item) => !placedIds.has(item.id));
+    const tempPlacedIds = new Set(tempPlaced.map((placement) => placement.item.id));
+    const afterRows = items.filter((item) => !tempPlacedIds.has(item.id));
     const remaining = this._packFallbackGreedy(
       board,
       bCols,
@@ -219,8 +223,11 @@ export class NestingNormalPiece extends BaseNesting {
       mastersByKey,
       config,
       step,
-      placed
+      tempPlaced
     );
+
+    const compactPlaced = this._compactTempPlacements(tempPlaced, bCols, bRows);
+    const placed = this._materializeTempPlacements(compactPlaced, config, step);
 
     return { placed, remaining };
   }

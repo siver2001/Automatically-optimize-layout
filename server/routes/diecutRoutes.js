@@ -24,6 +24,11 @@ import { CapacityTestComplementaryPattern } from '../algorithms/diecut/strategie
 import { generateDieCutPdf } from '../utils/diecutPdfGenerator.js';
 import { generateDieCutDxf } from '../utils/diecutDxfGenerator.js';
 import { sanitizeExportFileName } from '../utils/diecutExportUtils.js';
+import {
+  getDieCutNestingResult,
+  getDieCutNestingSheetDetail,
+  storeDieCutNestingResult
+} from '../utils/diecutNestingResultCache.js';
 
 import { area as polygonArea } from '../algorithms/diecut/core/polygonUtils.js';
 import ExcelJS from 'exceljs';
@@ -35,6 +40,59 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 50 * 1024 * 1024 }
 });
+
+function extractExcelCellValue(value) {
+  if (value == null) return null;
+  if (typeof value === 'object') {
+    if (value.result != null) return value.result;
+    if (typeof value.text === 'string') return value.text;
+    if (typeof value.hyperlink === 'string') return value.text || value.hyperlink;
+    if (Array.isArray(value.richText)) {
+      return value.richText.map((part) => part?.text || '').join('');
+    }
+    return null;
+  }
+  return value;
+}
+
+function normalizeExcelText(value) {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\u0110\u0111]/g, 'd')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getWorksheetPrimitiveValues(row) {
+  return row.values.map(extractExcelCellValue);
+}
+
+function getNumericSizeValues(values) {
+  return values.filter((value) => {
+    const num = Number(value);
+    return Number.isFinite(num) && num >= 3 && num <= 20;
+  });
+}
+
+function isPreferredSizeHeaderRow(values) {
+  const normalizedCells = values.map(normalizeExcelText);
+  const joined = normalizedCells.join(' | ');
+  return joined.includes('size') || joined.includes('size rpro');
+}
+
+function isPreferredTotalRow(values) {
+  const leadText = normalizeExcelText(values.slice(0, 3).filter(Boolean).join(' '));
+  if (!leadText) return false;
+  return (
+    leadText.includes('tong so doi') ||
+    leadText.includes('tong doi') ||
+    leadText === 'tong' ||
+    leadText.includes('total pair') ||
+    leadText.includes('total')
+  );
+}
 
 // ─────────────────────────────────────────
 // 1. PARSE DXF → POLYGON LIST
@@ -90,38 +148,41 @@ router.post('/parse-excel', upload.single('excelFile'), async (req, res) => {
     workbook.eachSheet((worksheet) => {
       let headerRow = null;
       let totalRow = null;
+      let fallbackHeaderRow = null;
 
       worksheet.eachRow((row) => {
-        const vals = row.values;
+        const vals = getWorksheetPrimitiveValues(row);
+        const numericVals = getNumericSizeValues(vals);
 
-        const numericVals = vals.filter(v => {
-          const n = parseFloat(v);
-          return !isNaN(n) && n >= 3 && n <= 20;
-        });
-
-        if (numericVals.length >= 3 && !headerRow) {
-          headerRow = vals;
+        if (numericVals.length >= 3) {
+          if (!fallbackHeaderRow) {
+            fallbackHeaderRow = vals;
+          }
+          if (!headerRow && isPreferredSizeHeaderRow(vals)) {
+            headerRow = vals;
+          }
         }
 
-        const str = JSON.stringify(vals).toLowerCase();
-        if ((str.includes('tổng') || str.includes('total')) && headerRow) {
-          const candidates = vals.filter(v => {
-            const n = parseInt(v);
-            return !isNaN(n) && n >= 0;
-          });
+        const candidateNumbers = vals.filter((value) => {
+          const num = Number(value);
+          return Number.isFinite(num) && num >= 0;
+        });
 
-          if (candidates.length >= 3) {
-            totalRow = { vals };
+        if (candidateNumbers.length >= 3) {
+          if (headerRow && isPreferredTotalRow(vals)) {
+            totalRow = { vals, rowNumber: row.number };
           }
         }
       });
+
+      headerRow = headerRow || fallbackHeaderRow;
 
       if (!headerRow || !totalRow) return;
 
       const sizeMap = {};
       headerRow.forEach((val, idx) => {
-        const n = parseFloat(val);
-        if (!isNaN(n) && n >= 3 && n <= 20) {
+        const n = Number(val);
+        if (Number.isFinite(n) && n >= 3 && n <= 20) {
           sizeMap[idx] = n.toFixed(1);
         }
       });
@@ -129,8 +190,8 @@ router.post('/parse-excel', upload.single('excelFile'), async (req, res) => {
       const quantities = {};
       totalRow.vals.forEach((val, idx) => {
         if (sizeMap[idx] !== undefined) {
-          const qty = parseInt(String(val).replace(/,/g, ''), 10);
-          if (!isNaN(qty) && qty > 0) {
+          const qty = Math.round(Number(String(val).replace(/,/g, '')));
+          if (Number.isFinite(qty) && qty > 0) {
             quantities[sizeMap[idx]] = (quantities[sizeMap[idx]] || 0) + qty;
           }
         }
@@ -170,6 +231,7 @@ router.post('/nest', async (req, res) => {
       sheetWidth,
       sheetHeight,
       spacing,
+      staggerSpacing,
       marginX,
       marginY,
       allowRotate90,
@@ -189,6 +251,7 @@ router.post('/nest', async (req, res) => {
       sheetWidth: sheetWidth || 1400,
       sheetHeight: sheetHeight || 700,
       spacing: spacing ?? 2,
+      staggerSpacing: staggerSpacing ?? spacing ?? 2,
       marginX: marginX ?? 5,
       marginY: marginY ?? 5,
       allowRotate90: allowRotate90 !== false,
@@ -227,9 +290,29 @@ router.post('/nest', async (req, res) => {
       }
     });
 
-    res.json({ success: true, ...result });
+    const compactResult = storeDieCutNestingResult(result);
+    res.json({ success: true, ...compactResult });
   } catch (err) {
     console.error('[DieCut] nest error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/nest-sheet-detail', async (req, res) => {
+  try {
+    const { resultId, sheetIndex } = req.body || {};
+    if (!resultId) {
+      return res.status(400).json({ error: 'Thieu resultId de tai chi tiet tam.' });
+    }
+
+    const sheet = getDieCutNestingSheetDetail(resultId, sheetIndex);
+    if (!sheet) {
+      return res.status(404).json({ error: 'Khong tim thay chi tiet tam hoac du lieu da het han.' });
+    }
+
+    res.json({ success: true, sheet });
+  } catch (err) {
+    console.error('[DieCut] nest-sheet-detail error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -244,6 +327,7 @@ router.post('/test-capacity', async (req, res) => {
       sheetWidth,
       sheetHeight,
       spacing,
+      staggerSpacing,
       marginX,
       marginY,
       allowRotate90,
@@ -269,6 +353,7 @@ router.post('/test-capacity', async (req, res) => {
       sheetWidth: sheetWidth || 1400,
       sheetHeight: sheetHeight || 700,
       spacing: spacing ?? 2,
+      staggerSpacing: staggerSpacing ?? spacing ?? 2,
       marginX: marginX ?? 5,
       marginY: marginY ?? 5,
       allowRotate90: allowRotate90 !== false,
@@ -318,7 +403,14 @@ router.post('/test-capacity', async (req, res) => {
 
 router.post('/export-pdf', (req, res) => {
   try {
-    const { sheets, sheetWidth, sheetHeight, sizeList, title, subtitle, fileNameBase } = req.body;
+    let { sheets, sheetWidth, sheetHeight, sizeList, title, subtitle, fileNameBase, resultId } = req.body;
+
+    if ((!Array.isArray(sheets) || sheets.length === 0) && resultId) {
+      const cachedResult = getDieCutNestingResult(resultId);
+      sheets = cachedResult?.sheets || [];
+      sheetWidth = sheetWidth || cachedResult?.sheets?.[0]?.sheetWidth;
+      sheetHeight = sheetHeight || cachedResult?.sheets?.[0]?.sheetHeight;
+    }
 
     if (!Array.isArray(sheets) || sheets.length === 0) {
       return res.status(400).json({ error: 'Khong co du lieu sheet de xuat PDF.' });
@@ -344,7 +436,14 @@ router.post('/export-pdf', (req, res) => {
 
 router.post('/export-dxf', (req, res) => {
   try {
-    const { sheets, sheetWidth, sheetHeight, sizeList, title, subtitle, fileNameBase } = req.body;
+    let { sheets, sheetWidth, sheetHeight, sizeList, title, subtitle, fileNameBase, resultId } = req.body;
+
+    if ((!Array.isArray(sheets) || sheets.length === 0) && resultId) {
+      const cachedResult = getDieCutNestingResult(resultId);
+      sheets = cachedResult?.sheets || [];
+      sheetWidth = sheetWidth || cachedResult?.sheets?.[0]?.sheetWidth;
+      sheetHeight = sheetHeight || cachedResult?.sheets?.[0]?.sheetHeight;
+    }
 
     if (!Array.isArray(sheets) || sheets.length === 0) {
       return res.status(400).json({ error: 'Khong co du lieu sheet de xuat DXF.' });

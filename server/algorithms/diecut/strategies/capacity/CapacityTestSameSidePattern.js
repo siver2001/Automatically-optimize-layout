@@ -312,6 +312,13 @@ export class CapacityTestSameSidePattern extends BaseNesting {
     super(config);
   }
 
+  _getStaggerSpacing(config) {
+    const baseSpacing = config?.spacing ?? 0;
+    const staggerSpacing = config?.staggerSpacing;
+    if (!Number.isFinite(staggerSpacing)) return baseSpacing;
+    return Math.max(baseSpacing, staggerSpacing);
+  }
+
   _normalizeAngle(angle) {
     return ((angle % 360) + 360) % 360;
   }
@@ -698,10 +705,11 @@ export class CapacityTestSameSidePattern extends BaseNesting {
       return this._findUniformDy(primaryOrient, dxMm, config, step);
     }
 
+    const requiredSpacing = this._getStaggerSpacing(config);
     const precision = Math.min(step, 0.05);
     const upper = buildUpperBound(
       step,
-      Math.max(primaryOrient.height, alternateOrient.height) * 2 + config.spacing + step * 8
+      Math.max(primaryOrient.height, alternateOrient.height) * 2 + requiredSpacing + step * 8
     );
     const baseRow = this._buildAlternatingUniformNeighborhood(
       primaryOrient,
@@ -736,14 +744,14 @@ export class CapacityTestSameSidePattern extends BaseNesting {
           ...placement,
           y: roundMetric(dyMm, 3)
         })),
-        config.spacing
+        requiredSpacing
       ) && !hasCrossPlacementOverlap(
         reverseBaseRow,
         reverseNextRow.map((placement) => ({
           ...placement,
           y: roundMetric(dyMm, 3)
         })),
-        config.spacing
+        requiredSpacing
       )
     );
   }
@@ -759,10 +767,11 @@ export class CapacityTestSameSidePattern extends BaseNesting {
         };
     }
 
+    const requiredSpacing = this._getStaggerSpacing(config);
     const precision = Math.min(step, 0.05);
     const upper = buildUpperBound(
       step,
-      Math.max(primaryOrient.height, alternateOrient.height) * 2 + config.spacing + step * 8
+      Math.max(primaryOrient.height, alternateOrient.height) * 2 + requiredSpacing + step * 8
     );
     const neighborhood = this._buildAlternatingUniformNeighborhood(
       primaryOrient,
@@ -786,7 +795,7 @@ export class CapacityTestSameSidePattern extends BaseNesting {
           ...placement,
           y: roundMetric(dyMm, 3)
         })),
-        config.spacing
+        requiredSpacing
       )
     );
     if (primaryToAlternateDyMm == null) return null;
@@ -799,7 +808,7 @@ export class CapacityTestSameSidePattern extends BaseNesting {
           id: `uniform_alt_next_${index}`,
           y: roundMetric(dyMm, 3)
         })),
-        config.spacing
+        requiredSpacing
       )
     );
     if (alternateToPrimaryDyMm == null) return null;
@@ -1025,7 +1034,7 @@ export class CapacityTestSameSidePattern extends BaseNesting {
     return this._findStartOffsetAfterRow(fillerRowPlacements, bodyRowPlacements, config, step);
   }
 
-  _findStartOffsetAfterRow(baseRowPlacements, nextRowPlacements, config, step) {
+  _findStartOffsetAfterRow(baseRowPlacements, nextRowPlacements, config, step, requiredSpacing = config.spacing) {
     if (!baseRowPlacements.length || !nextRowPlacements.length) return 0;
 
     const precision = Math.min(step, 0.05);
@@ -1034,7 +1043,7 @@ export class CapacityTestSameSidePattern extends BaseNesting {
     const nextBottom = getPlacementsBottom(nextRowPlacements);
     const upper = buildUpperBound(
       step,
-      baseBottom - nextTop + nextBottom + config.spacing + step * 8
+      baseBottom - nextTop + nextBottom + requiredSpacing + step * 8
     );
 
     const deltaY = findMinimalContinuousValue(0, upper, precision, (delta) =>
@@ -1045,7 +1054,7 @@ export class CapacityTestSameSidePattern extends BaseNesting {
           id: `body_start_${index}`,
           y: roundMetric(placement.y + delta, 3)
         })),
-        config.spacing
+        requiredSpacing
       )
     );
 
@@ -1070,6 +1079,7 @@ export class CapacityTestSameSidePattern extends BaseNesting {
 
   _buildSequentialBodyVariants(rowPlacements, workWidth, workHeight, config, step, includeShifted = true) {
     const variants = [];
+    const staggerSpacing = this._getStaggerSpacing(config);
     const bodyDyMm = this._findSequentialRowPitch(rowPlacements, config, step);
     if (bodyDyMm == null) return variants;
 
@@ -1107,8 +1117,8 @@ export class CapacityTestSameSidePattern extends BaseNesting {
       );
       if (shiftedRowPlacements.length < Math.max(1, rowPlacements.length - 1)) continue;
 
-      const row0ToRow1Dy = this._findStartOffsetAfterRow(rowPlacements, shiftedRowPlacements, config, step);
-      const row1ToRow0Dy = this._findStartOffsetAfterRow(shiftedRowPlacements, rowPlacements, config, step);
+      const row0ToRow1Dy = this._findStartOffsetAfterRow(rowPlacements, shiftedRowPlacements, config, step, staggerSpacing);
+      const row1ToRow0Dy = this._findStartOffsetAfterRow(shiftedRowPlacements, rowPlacements, config, step, staggerSpacing);
       if (row0ToRow1Dy == null || row1ToRow0Dy == null) continue;
 
       const alternatingRows = this._countAlternatingRowsFromRows(
@@ -1534,15 +1544,20 @@ export class CapacityTestSameSidePattern extends BaseNesting {
   }
 
   _buildSheetFromCandidate(sizeName, candidate, config, totalArea) {
-    const placedCount = candidate.placed.length;
+    const resolvedCandidate = candidate?.placed
+      ? candidate
+      : this._finalizeCandidate(candidate, config);
+    if (!resolvedCandidate?.placed?.length) return null;
+
+    const placedCount = resolvedCandidate.placed.length;
     const efficiency = totalArea > 0
-      ? roundMetric((placedCount * candidate.pieceArea / totalArea) * 100, 1)
+      ? roundMetric((placedCount * resolvedCandidate.pieceArea / totalArea) * 100, 1)
       : 0;
 
     return {
       sheetIndex: 0,
-      placed: candidate.placed,
-      renderTemplates: candidate.renderTemplates,
+      placed: resolvedCandidate.placed,
+      renderTemplates: resolvedCandidate.renderTemplates,
       sheetWidth: config.sheetWidth,
       sheetHeight: config.sheetHeight,
       placedCount,

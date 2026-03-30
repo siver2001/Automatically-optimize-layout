@@ -117,4 +117,74 @@ export class BaseNesting {
       polygon: translate(orient.polygon, xm, ym)
     };
   }
+
+  _buildTempPlacement(item, orient, x, y) {
+    return {
+      item,
+      orient,
+      x,
+      y
+    };
+  }
+
+  _materializeTempPlacements(tempPlacements, config, step) {
+    return tempPlacements.map((placement) =>
+      this._buildPlaced(placement.item, placement.orient, placement.x, placement.y, config, step)
+    );
+  }
+
+  _compactTempPlacements(tempPlacements, bCols, bRows, maxPasses = 3) {
+    if (!Array.isArray(tempPlacements) || tempPlacements.length <= 1) {
+      return tempPlacements || [];
+    }
+
+    const placements = tempPlacements.map((placement) => ({ ...placement }));
+
+    for (let pass = 0; pass < maxPasses; pass++) {
+      let moved = false;
+      const board = new Uint8Array(bCols * bRows);
+
+      for (const placement of placements) {
+        this._mark(board, bCols, placement.orient.raster, placement.x, placement.y, 1);
+      }
+
+      const ordered = [...placements].sort((left, right) =>
+        left.y - right.y
+        || left.x - right.x
+        || polygonArea(right.item?.polygon || []) - polygonArea(left.item?.polygon || [])
+      );
+
+      for (const placement of ordered) {
+        this._mark(board, bCols, placement.orient.raster, placement.x, placement.y, 0);
+
+        let nextX = placement.x;
+        let nextY = placement.y;
+        let changed = true;
+
+        while (changed) {
+          changed = false;
+          while (nextX > 0 && !this._checkCollision(board, bCols, bRows, placement.orient.raster, nextX - 1, nextY)) {
+            nextX -= 1;
+            changed = true;
+          }
+          while (nextY > 0 && !this._checkCollision(board, bCols, bRows, placement.orient.raster, nextX, nextY - 1)) {
+            nextY -= 1;
+            changed = true;
+          }
+        }
+
+        if (nextX !== placement.x || nextY !== placement.y) {
+          placement.x = nextX;
+          placement.y = nextY;
+          moved = true;
+        }
+
+        this._mark(board, bCols, placement.orient.raster, placement.x, placement.y, 1);
+      }
+
+      if (!moved) break;
+    }
+
+    return placements;
+  }
 }

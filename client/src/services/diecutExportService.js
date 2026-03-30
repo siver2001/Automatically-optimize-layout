@@ -45,6 +45,22 @@ class DieCutExportService {
   async exportDxf(payload) {
     return downloadBlob('export-dxf', payload, 'diecut-layouts.dxf');
   }
+
+  async fetchNestingSheetDetail(resultId, sheetIndex) {
+    const response = await fetch(`${API_BASE_URL}/diecut/nest-sheet-detail`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ resultId, sheetIndex })
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data?.error || 'Khong the tai chi tiet tam.');
+    }
+    return data?.sheet || null;
+  }
 }
 
 export const diecutExportService = new DieCutExportService();

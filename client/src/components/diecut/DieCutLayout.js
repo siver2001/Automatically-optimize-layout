@@ -33,9 +33,9 @@ const SheetConfigPanel = ({ config, onChange, isTestMode }) => {
         <span className="text-xl">⚙️</span> Cấu hình Tấm PU
       </h3>
       
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+      <div className="grid grid-cols-1 gap-3">
         {/* Dimensions */}
-        <div className="bg-white/5 p-3 rounded-xl border border-white/10 space-y-2 md:col-span-2">
+        <div className="bg-white/5 p-3 rounded-xl border border-white/10 space-y-2">
           <label className="text-white/60 text-xs font-medium flex items-center gap-1.5"><span className="text-blue-400">📏</span> Kích thước mặt cắt PU (mm)</label>
           <div className="flex items-center gap-2">
             <input
@@ -57,12 +57,12 @@ const SheetConfigPanel = ({ config, onChange, isTestMode }) => {
         </div>
 
         {/* Spacing & Margins */}
-        <div className="bg-white/5 p-3 rounded-xl border border-white/10 space-y-2 md:col-span-3">
+        <div className="bg-white/5 p-3 rounded-xl border border-white/10 space-y-2">
           <label className="text-white/60 text-xs font-medium flex items-center gap-1.5"><span className="text-green-400">↔️</span> Lề & Khoảng cách</label>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">
             <div className="bg-black/20 rounded-lg px-3 py-2 border border-white/5">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-white/75 text-[11px] font-semibold flex-1 min-w-0">Lề ngang</span>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-white/75 text-[11px] font-semibold flex-1 leading-snug">Lề ngang</span>
                 <input
                   type="number"
                   value={config.marginX}
@@ -72,8 +72,8 @@ const SheetConfigPanel = ({ config, onChange, isTestMode }) => {
               </div>
             </div>
             <div className="bg-black/20 rounded-lg px-3 py-2 border border-white/5">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-white/75 text-[11px] font-semibold flex-1 min-w-0">Lề dọc</span>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-white/75 text-[11px] font-semibold flex-1 leading-snug">Lề dọc</span>
                 <input
                   type="number"
                   value={config.marginY}
@@ -83,12 +83,23 @@ const SheetConfigPanel = ({ config, onChange, isTestMode }) => {
               </div>
             </div>
             <div className="bg-black/20 rounded-lg px-3 py-2 border border-white/5">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-white/75 text-[11px] font-semibold flex-1 min-w-0">Khoảng cách</span>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-white/75 text-[11px] font-semibold flex-1 leading-snug">Khoảng cách</span>
                 <input
                   type="number"
                   value={config.spacing}
                   onChange={e => onChange({ ...config, spacing: Number(e.target.value) })}
+                  className="w-12 md:w-14 bg-transparent text-white text-sm text-right focus:outline-none shrink-0"
+                />
+              </div>
+            </div>
+            <div className="bg-black/20 rounded-lg px-3 py-2 border border-white/5">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-white/75 text-[11px] font-semibold flex-1 leading-snug">Khoảng cách so le</span>
+                <input
+                  type="number"
+                  value={config.staggerSpacing}
+                  onChange={e => onChange({ ...config, staggerSpacing: Number(e.target.value) })}
                   className="w-12 md:w-14 bg-transparent text-white text-sm text-right focus:outline-none shrink-0"
                 />
               </div>
@@ -183,10 +194,10 @@ const SheetVisualizerPanel = ({ config }) => {
       <h3 className="text-white font-semibold text-sm flex items-center gap-2">
         <span className="text-xl">📏</span> Mô phỏng cấu hình tấm PU ({w} × {h})
       </h3>
-      <div className="flex-1 bg-black/20 rounded-lg border border-white/10 flex items-center justify-center p-2 min-h-[300px]">
+      <div className="flex-1 bg-black/20 rounded-lg border border-white/10 flex items-center justify-center p-2 min-h-[420px]">
         <svg 
           viewBox={`-20 -20 ${viewBoxW} ${viewBoxH}`} 
-          className="w-full h-full max-h-[400px]"
+          className="w-full h-full max-h-[560px]"
           preserveAspectRatio="xMidYMid meet"
         >
           <defs>
@@ -451,6 +462,145 @@ const TestCapacityResult = ({ result, config, onClose, onExportPdf, onExportDxf 
   );
 };
 
+const NormalNestingResult = ({
+  nestingResult,
+  sizeList,
+  config,
+  sizeSummary,
+  activeSizeSummary,
+  emptySizeSummary,
+  showEmptySizeRows,
+  setShowEmptySizeRows,
+  onExportPdf,
+  onExportDxf,
+  onClose
+}) => {
+  const totalPairs = Math.floor((nestingResult?.placedCount || 0) / 2);
+  const totalPieces = nestingResult?.placedCount || 0;
+  const totalSheets = nestingResult?.totalSheets || nestingResult?.sheets?.length || 0;
+  const totalTimeSeconds = ((nestingResult?.timeMs || 0) / 1000).toFixed(1);
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-4 mb-2 bg-white/5 p-2 rounded-xl border border-white/10 shadow-lg">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-pink-600 rounded-lg flex items-center justify-center text-base shadow-lg shadow-pink-500/20">✂️</div>
+          <div>
+            <h2 className="text-white font-bold text-sm leading-tight flex items-center gap-2">
+              Kết quả Nesting
+              <span className="text-fuchsia-300 font-medium px-2 py-0 rounded-md bg-fuchsia-400/10 border border-fuchsia-400/20 text-[10px]">
+                {getNestingStrategyLabel(nestingResult?.nestingStrategy || config.nestingStrategy)}
+              </span>
+            </h2>
+            <div className="flex items-center gap-2 text-white/40 text-[10px] mt-0.5 flex-wrap">
+              <span className="flex items-center gap-1"><span className="text-blue-400">📏</span> {config.sheetWidth}×{config.sheetHeight} mm</span>
+              <span className="w-0.5 h-0.5 bg-white/20 rounded-full"></span>
+              <span>{nestingResult?.layers || config.layers || 1} lớp</span>
+              <span className="w-0.5 h-0.5 bg-white/20 rounded-full"></span>
+              <span className="flex items-center gap-1"><span className="text-purple-400">⏱️</span> {totalTimeSeconds}s</span>
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <button
+            onClick={onExportPdf}
+            disabled={!nestingResult?.sheets?.length}
+            className="px-3 py-1 bg-emerald-500/20 hover:bg-emerald-500/30 disabled:opacity-40 disabled:cursor-not-allowed text-emerald-200 font-medium rounded-lg text-xs transition-all border border-emerald-400/20"
+          >
+            Export PDF
+          </button>
+          <button
+            onClick={onExportDxf}
+            disabled={!nestingResult?.sheets?.length}
+            className="px-3 py-1 bg-sky-500/20 hover:bg-sky-500/30 disabled:opacity-40 disabled:cursor-not-allowed text-sky-200 font-medium rounded-lg text-xs transition-all border border-sky-400/20"
+          >
+            Export DXF
+          </button>
+          <button
+            onClick={onClose}
+            className="px-3 py-1 bg-white/10 hover:bg-white/20 text-white font-medium rounded-lg text-xs transition-all flex items-center gap-1.5 border border-white/10"
+          >
+            <span>←</span> Chạy lại
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-3 items-stretch">
+        <div className="flex flex-col gap-2 max-h-[78vh] overflow-y-auto pr-1 custom-scrollbar">
+          <div className="grid grid-cols-4 gap-1.5">
+            <div className="bg-gradient-to-br from-fuchsia-500/20 to-pink-500/20 border border-fuchsia-400/30 rounded-lg p-2 text-center">
+              <div className="text-[1rem] font-black text-fuchsia-200 leading-none">{totalSheets}</div>
+              <div className="text-white/60 text-[10px] uppercase font-semibold mt-1">Tấm</div>
+            </div>
+            <div className="bg-white/10 border border-white/20 rounded-lg p-2 text-center">
+              <div className="text-[1rem] font-black text-emerald-300 leading-none">{totalPairs}</div>
+              <div className="text-white/60 text-[10px] uppercase font-semibold mt-1">Đôi</div>
+            </div>
+            <div className="bg-white/10 border border-white/20 rounded-lg p-2 text-center">
+              <div className="text-[1rem] font-black text-amber-300 leading-none">{totalPieces}</div>
+              <div className="text-white/60 text-[10px] uppercase font-semibold mt-1">Chiếc</div>
+            </div>
+            <div className="bg-white/10 border border-white/20 rounded-lg p-2 text-center">
+              <div className="text-[1rem] font-black text-blue-300 leading-none">{nestingResult?.efficiency || 0}%</div>
+              <div className="text-white/60 text-[10px] uppercase font-semibold mt-1">Hiệu suất</div>
+            </div>
+          </div>
+
+          <div className="bg-white/10 rounded-xl border border-white/20 overflow-hidden flex-1 flex flex-col shadow-xl">
+            <div className="flex items-center gap-1.5 px-3 py-2 border-b border-white/10 bg-white/5">
+              <span className="text-white font-semibold text-[11px] uppercase tracking-wider">Thống kê Size</span>
+              <span className="text-[10px] bg-fuchsia-500/15 text-fuchsia-200 border border-fuchsia-400/20 rounded px-2 py-0.5 ml-auto font-bold">
+                {activeSizeSummary.length} size có dữ liệu
+              </span>
+            </div>
+            <div className="overflow-y-auto flex-1 custom-scrollbar bg-black/20">
+              <table className="w-full text-[11px]">
+                <thead className="sticky top-0 bg-gray-900 border-b border-white/10 z-10">
+                  <tr>
+                    <th className="text-white/50 font-medium text-left py-1.5 px-2">Size</th>
+                    <th className="text-white/50 font-medium text-center py-1.5 px-1">Đã xếp đôi</th>
+                    <th className="text-white/50 font-medium text-center py-1.5 px-1">Đã xếp chiếc</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {activeSizeSummary.map((item) => (
+                    <tr key={item.sizeName} className="border-b border-white/5 hover:bg-white/5">
+                      <td className="py-1.5 px-2 text-white/80 font-medium">{item.sizeName}</td>
+                      <td className="py-1.5 px-1 text-center"><span className="text-emerald-300/90">{item.placedPairs}</span></td>
+                      <td className="py-1.5 px-1 text-center"><span className="text-amber-300/90">{item.placedPieces}</span></td>
+                    </tr>
+                  ))}
+                  {showEmptySizeRows && emptySizeSummary.map((item) => (
+                    <tr key={item.sizeName} className="border-b border-white/5 bg-white/[0.03]">
+                      <td className="py-1.5 px-2 text-white/45 font-medium">{item.sizeName}</td>
+                      <td className="py-1.5 px-1 text-center text-white/30">0</td>
+                      <td className="py-1.5 px-1 text-center text-white/30">0</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {emptySizeSummary.length > 0 && (
+              <button
+                onClick={() => setShowEmptySizeRows((current) => !current)}
+                className="px-3 py-2 border-t border-white/10 text-left text-[11px] text-white/55 hover:text-white/80 hover:bg-white/5 transition-colors"
+              >
+                {showEmptySizeRows
+                  ? `Ẩn ${emptySizeSummary.length} size chưa có dữ liệu`
+                  : `Xem thêm ${emptySizeSummary.length} size chưa có dữ liệu`}
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="min-w-0">
+          <DieCutNestingBoard nestingResult={nestingResult} sizeList={sizeList} compactMode />
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─────────────────────────────────────────────────────
 // Merge Shapes (DXF) + Quantities (Excel) → size list
 // ─────────────────────────────────────────────────────
@@ -505,6 +655,9 @@ const DieCutLayout = () => {
       `${configValue.sheetWidth} x ${configValue.sheetHeight} mm`,
       `spacing ${configValue.spacing} mm`,
       `margin ${configValue.marginX}/${configValue.marginY} mm`,
+      (configValue.staggerSpacing ?? configValue.spacing) !== configValue.spacing
+        ? `sole ${configValue.staggerSpacing} mm`
+        : null,
       configValue.layers > 1 ? `layers ${configValue.layers}` : null,
       extraText || null
     ].filter(Boolean);
@@ -520,10 +673,12 @@ const DieCutLayout = () => {
   const [testResult, setTestResult] = useState(null);      // Kết quả test
   const [isTestRunning, setIsTestRunning] = useState(false);
   const [testError, setTestError] = useState(null);
+  const [showEmptySizeRows, setShowEmptySizeRows] = useState(false);
   const [config, setConfig] = useState({
     sheetWidth: 1100,
     sheetHeight: 2000,
     spacing: 2,
+    staggerSpacing: 2,
     marginX: 5,
     marginY: 5,
     allowRotate90: true,
@@ -572,16 +727,39 @@ const DieCutLayout = () => {
 
     return nestingResult.planningSummary.sizes.map((size) => ({
       ...size,
-      placedPieces: placedBySize[size.sizeName] || 0,
-      placedPairs: Math.floor((placedBySize[size.sizeName] || 0) / 2)
+      placedPieces: size.placedPieces ?? (placedBySize[size.sizeName] || 0),
+      placedPairs: size.placedPairs ?? Math.floor((placedBySize[size.sizeName] || 0) / 2)
     }));
+  }, [nestingResult]);
+  const activeNestingResultSizeSummary = useMemo(
+    () => nestingResultSizeSummary.filter((item) =>
+      (item.originalPairs || 0) > 0
+      || (item.plannedPairs || 0) > 0
+      || (item.placedPairs || 0) > 0
+      || (item.placedPieces || 0) > 0
+    ),
+    [nestingResultSizeSummary]
+  );
+  const emptyNestingResultSizeSummary = useMemo(
+    () => nestingResultSizeSummary.filter((item) =>
+      (item.originalPairs || 0) === 0
+      && (item.plannedPairs || 0) === 0
+      && (item.placedPairs || 0) === 0
+      && (item.placedPieces || 0) === 0
+    ),
+    [nestingResultSizeSummary]
+  );
+
+  useEffect(() => {
+    setShowEmptySizeRows(false);
   }, [nestingResult]);
 
   const handleExportNestingPdf = async () => {
     if (!nestingResult?.sheets?.length) return;
     try {
       await diecutExportService.exportPdf({
-        sheets: nestingResult.sheets,
+        sheets: nestingResult.hasLazySheetDetails ? undefined : nestingResult.sheets,
+        resultId: nestingResult.resultId,
         sheetWidth: config.sheetWidth,
         sheetHeight: config.sheetHeight,
         sizeList,
@@ -603,7 +781,8 @@ const DieCutLayout = () => {
     if (!nestingResult?.sheets?.length) return;
     try {
       await diecutExportService.exportDxf({
-        sheets: nestingResult.sheets,
+        sheets: nestingResult.hasLazySheetDetails ? undefined : nestingResult.sheets,
+        resultId: nestingResult.resultId,
         sheetWidth: config.sheetWidth,
         sheetHeight: config.sheetHeight,
         sizeList,
@@ -882,16 +1061,16 @@ const DieCutLayout = () => {
 
         {/* ── STEP 2: EXCEL (chỉ hiện khi không test mode) ── */}
         {activeStep === 2 && !isTestMode && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
             <DieCutExcelUploader onQuantitiesLoaded={setQuantities} />
 
             {/* Nhập số lượng thủ công nếu không có Excel */}
-            <div className="bg-white/10 backdrop-blur-md rounded-xl border border-white/20 p-4 space-y-3">
+            <div className="bg-white/10 backdrop-blur-md rounded-xl border border-white/20 p-4 space-y-3 h-full">
               <h3 className="text-white font-semibold text-sm">✏️ Hoặc nhập thủ công</h3>
               {shapes.length === 0 ? (
                 <p className="text-white/40 text-sm">Hãy import DXF trước (Bước 1)</p>
               ) : (
-                <div className="max-h-72 overflow-y-auto space-y-1">
+                <div className="max-h-[28rem] overflow-y-auto space-y-1">
                   {shapes.map((s, i) => {
                     const merged = sizeList.find(sl => sl.sizeName === s.sizeName);
                     return (
@@ -959,7 +1138,7 @@ const DieCutLayout = () => {
                 <div className="bg-white/5 p-2 rounded-lg border border-white/10">
                   <div className="text-white/50 text-xs mb-0.5">Cấu hình nesting</div>
                   <div className="text-white font-medium text-sm">
-                    {config.spacing}mm {(config.allowRotate90 ? <span className="text-green-400">(90° On)</span> : <span className="text-white/40">(90° Off)</span>)}
+                    {config.spacing}mm / sole {config.staggerSpacing ?? config.spacing}mm {(config.allowRotate90 ? <span className="text-green-400">(90° On)</span> : <span className="text-white/40">(90° Off)</span>)}
                   </div>
                   {!isTestMode && (
                     <div className="text-[10px] text-white/35 mt-1">
@@ -1050,6 +1229,21 @@ const DieCutLayout = () => {
             ) : (
               /* Normal Nesting Result */
               <>
+                <NormalNestingResult
+                  nestingResult={nestingResult}
+                  sizeList={sizeList}
+                  config={config}
+                  sizeSummary={nestingResultSizeSummary}
+                  activeSizeSummary={activeNestingResultSizeSummary}
+                  emptySizeSummary={emptyNestingResultSizeSummary}
+                  showEmptySizeRows={showEmptySizeRows}
+                  setShowEmptySizeRows={setShowEmptySizeRows}
+                  onExportPdf={handleExportNestingPdf}
+                  onExportDxf={handleExportNestingDxf}
+                  onClose={() => { setActiveStep(3); setNestingResult(null); }}
+                />
+                {false && (
+                  <>
                 {nestingResultSizeSummary.length > 0 && (
                   <div className="bg-white/10 backdrop-blur-md rounded-xl border border-white/20 overflow-hidden">
                     <div className="px-4 py-3 border-b border-white/10 bg-white/5">
@@ -1058,7 +1252,7 @@ const DieCutLayout = () => {
                         Hiển thị đơn gốc, số đôi sau khi chia layers và số lượng đã xếp thực tế.
                       </div>
                     </div>
-                    <div className="overflow-x-auto">
+                    <div className="max-h-[320px] overflow-auto">
                       <table className="w-full text-sm">
                         <thead className="bg-black/20">
                           <tr>
@@ -1070,7 +1264,7 @@ const DieCutLayout = () => {
                           </tr>
                         </thead>
                         <tbody>
-                          {nestingResultSizeSummary.map((item) => (
+                          {activeNestingResultSizeSummary.map((item) => (
                             <tr key={item.sizeName} className="border-t border-white/5">
                               <td className="px-4 py-2 text-white font-medium">{item.sizeName}</td>
                               <td className="px-3 py-2 text-center text-white/75">{item.originalPairs}</td>
@@ -1079,12 +1273,31 @@ const DieCutLayout = () => {
                               <td className="px-3 py-2 text-center text-amber-300">{item.placedPieces}</td>
                             </tr>
                           ))}
+                          {showEmptySizeRows && emptyNestingResultSizeSummary.map((item) => (
+                            <tr key={item.sizeName} className="border-t border-white/5 bg-white/[0.03]">
+                              <td className="px-4 py-2 text-white/50 font-medium">{item.sizeName}</td>
+                              <td className="px-3 py-2 text-center text-white/35">0</td>
+                              <td className="px-3 py-2 text-center text-white/35">0</td>
+                              <td className="px-3 py-2 text-center text-white/35">0</td>
+                              <td className="px-3 py-2 text-center text-white/35">0</td>
+                            </tr>
+                          ))}
                         </tbody>
                       </table>
                     </div>
+                    {emptyNestingResultSizeSummary.length > 0 && (
+                      <button
+                        onClick={() => setShowEmptySizeRows((current) => !current)}
+                        className="w-full px-4 py-2 border-t border-white/10 text-left text-xs text-white/55 hover:text-white/80 hover:bg-white/5 transition-colors"
+                      >
+                        {showEmptySizeRows
+                          ? `Ẩn ${emptyNestingResultSizeSummary.length} size chưa có dữ liệu`
+                          : `Xem thêm ${emptyNestingResultSizeSummary.length} size chưa có dữ liệu`}
+                      </button>
+                    )}
                   </div>
                 )}
-                <div className="flex justify-between items-center">
+                <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-3">
                   <div>
                     <h2 className="text-white font-semibold">Kết quả Nesting</h2>
                     <div className="text-white/45 text-xs mt-1">
@@ -1096,7 +1309,7 @@ const DieCutLayout = () => {
                         : ''}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <button
                       onClick={handleExportNestingPdf}
                       disabled={!nestingResult?.sheets?.length}
@@ -1119,7 +1332,9 @@ const DieCutLayout = () => {
                     </button>
                   </div>
                 </div>
-                <DieCutNestingBoard nestingResult={nestingResult} sizeList={sizeList} />
+                <DieCutNestingBoard nestingResult={nestingResult} sizeList={sizeList} compactMode />
+                  </>
+                )}
               </>
             )}
           </div>

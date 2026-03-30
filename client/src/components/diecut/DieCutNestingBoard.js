@@ -10,7 +10,8 @@
  *   sizeList       - danh sách size để map màu
  *   compactMode    - true → SVG auto-fit container, ẩn zoom controls & stats bar
  */
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { diecutExportService } from '../../services/diecutExportService.js';
 
 // Palette màu fill theo size (index)
 const FILL_PALETTE = [
@@ -18,6 +19,7 @@ const FILL_PALETTE = [
   '#06B6D4','#84CC16','#F97316','#EC4899','#14B8A6',
   '#A78BFA','#FCD34D','#6EE7B7','#FCA5A5','#93C5FD'
 ];
+const EMPTY_SHEETS = [];
 
 // Palette màu viền cho cặp (index pairId % n)
 function polygonToSVGPath(polygon) {
@@ -270,6 +272,15 @@ const DieCutNestingBoard = ({ nestingResult, sizeList, compactMode = false }) =>
   const [selectedSheet, setSelectedSheet] = useState(0);
   const [scale, setScale] = useState(0.5);
   const [isRotated, setIsRotated] = useState(false);
+  const [sheetDetails, setSheetDetails] = useState({});
+  const [loadingSheetIndex, setLoadingSheetIndex] = useState(null);
+  const sheetTabsRef = useRef(null);
+  const sheets = nestingResult?.sheets || EMPTY_SHEETS;
+  const totalSheets = nestingResult?.totalSheets || sheets.length;
+  const placedCount = nestingResult?.placedCount || 0;
+  const unplacedCount = nestingResult?.unplacedCount || 0;
+  const efficiency = nestingResult?.efficiency || 0;
+  const timeMs = nestingResult?.timeMs || 0;
   const memoizedSizeColorMap = React.useMemo(() => {
     const nextMap = {};
     (sizeList || []).forEach((s, i) => {
@@ -278,21 +289,67 @@ const DieCutNestingBoard = ({ nestingResult, sizeList, compactMode = false }) =>
     return nextMap;
   }, [sizeList]);
 
-  if (!nestingResult || !nestingResult.sheets || nestingResult.sheets.length === 0) {
-    return (
+  const emptyState = (
+
       <div className="flex items-center justify-center h-48 text-white/40 text-sm">
         Chưa có kết quả Nesting. Hãy cấu hình và bấm Chạy Nesting.
       </div>
-    );
-  }
+  );
+
+  useEffect(() => {
+    setSelectedSheet(0);
+    setSheetDetails({});
+    setLoadingSheetIndex(null);
+  }, [nestingResult?.resultId, nestingResult?.totalSheets]);
+
+  useEffect(() => {
+    if (!nestingResult?.resultId) return;
+    const summarySheet = nestingResult?.sheets?.[selectedSheet];
+    if (!summarySheet) return;
+    if (summarySheet.placed?.length || sheetDetails[selectedSheet]?.placed?.length) return;
+
+    let isCancelled = false;
+    setLoadingSheetIndex(selectedSheet);
+    diecutExportService.fetchNestingSheetDetail(nestingResult.resultId, selectedSheet)
+      .then((sheet) => {
+        if (isCancelled || !sheet) return;
+        setSheetDetails((current) => ({ ...current, [selectedSheet]: sheet }));
+      })
+      .catch((err) => {
+        console.error('[DieCut] load sheet detail error:', err);
+      })
+      .finally(() => {
+        if (!isCancelled) {
+          setLoadingSheetIndex((current) => (current === selectedSheet ? null : current));
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [nestingResult?.resultId, nestingResult?.sheets, selectedSheet, sheetDetails]);
+
+  useEffect(() => {
+    if (!sheetTabsRef.current) return;
+    const tabEl = sheetTabsRef.current.querySelector(`[data-sheet-index="${selectedSheet}"]`);
+    if (!tabEl) return;
+    tabEl.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+  }, [selectedSheet]);
 
   // Map sizeName → fill color
   const sizeColorMap = memoizedSizeColorMap;
 
   // Map pairId → pair border color
-  const { sheets, totalSheets, placedCount, unplacedCount, efficiency, timeMs } = nestingResult;
-  const currentSheet = sheets[selectedSheet] || sheets[0];
+  const resolvedSheets = useMemo(
+    () => sheets.map((sheet, index) => sheetDetails[index] || sheet),
+    [sheetDetails, sheets]
+  );
+  const currentSheet = resolvedSheets[selectedSheet] || resolvedSheets[0];
   const pairCount = Math.floor(placedCount / 2);
+
+  if (sheets.length === 0) {
+    return emptyState;
+  }
 
   // ── COMPACT MODE: dùng cho TestCapacityResult (cột phải)
   if (compactMode) {
@@ -331,12 +388,16 @@ const DieCutNestingBoard = ({ nestingResult, sizeList, compactMode = false }) =>
 
         {/* Sheet tabs (chỉ hiện nếu có nhiều hơn 1 tấm) */}
         {sheets.length > 1 && (
-          <div className="flex gap-1 flex-wrap">
+          <div
+            ref={sheetTabsRef}
+            className="grid grid-flow-col auto-cols-[7.5rem] gap-1 overflow-x-auto pb-1 pr-1 custom-scrollbar max-w-full"
+          >
             {sheets.map((sh, i) => (
               <button
                 key={i}
+                data-sheet-index={i}
                 onClick={() => setSelectedSheet(i)}
-                className={`px-2 py-0.5 rounded text-xs font-medium transition-all ${
+                className={`inline-flex w-full items-center justify-center px-2 py-0.5 rounded text-xs font-medium transition-all ${
                   selectedSheet === i
                     ? 'bg-amber-500 text-white'
                     : 'bg-white/10 text-white/60 hover:bg-white/20'
@@ -349,7 +410,7 @@ const DieCutNestingBoard = ({ nestingResult, sizeList, compactMode = false }) =>
         )}
 
         {/* Canvas tự fit container */}
-        {currentSheet && (
+        {currentSheet?.placed?.length ? (
           <SheetCanvas
             sheet={currentSheet}
             sizeColorMap={sizeColorMap}
@@ -357,6 +418,10 @@ const DieCutNestingBoard = ({ nestingResult, sizeList, compactMode = false }) =>
             compactMode={true}
             isRotated={isRotated}
           />
+        ) : (
+          <div className="rounded-lg bg-gray-900 border border-white/10 min-h-[50vh] xl:min-h-[78vh] flex items-center justify-center text-white/50 text-sm">
+            {loadingSheetIndex === selectedSheet ? 'Đang tải chi tiết tấm...' : 'Chưa có dữ liệu chi tiết cho tấm này.'}
+          </div>
         )}
       </div>
     );
@@ -399,12 +464,17 @@ const DieCutNestingBoard = ({ nestingResult, sizeList, compactMode = false }) =>
       </div>
 
       {/* Sheet tabs */}
-      <div className="flex gap-1 flex-wrap">
+      <div
+        ref={sheetTabsRef}
+        className="grid grid-flow-col gap-1 overflow-x-auto pb-1 pr-1 custom-scrollbar max-w-full"
+        style={{ gridAutoColumns: 'calc((100% - 2rem) / 9)' }}
+      >
         {sheets.map((sh, i) => (
           <button
             key={i}
+            data-sheet-index={i}
             onClick={() => setSelectedSheet(i)}
-            className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+            className={`inline-flex w-full items-center justify-center px-3 py-1 rounded-lg text-xs font-medium transition-all ${
               selectedSheet === i
                 ? 'bg-blue-500 text-white'
                 : 'bg-white/10 text-white/70 hover:bg-white/20'
@@ -416,7 +486,7 @@ const DieCutNestingBoard = ({ nestingResult, sizeList, compactMode = false }) =>
       </div>
 
       {/* Canvas */}
-      {currentSheet && (
+      {currentSheet?.placed?.length ? (
         <SheetCanvas
           sheet={currentSheet}
           sizeColorMap={sizeColorMap}
@@ -424,6 +494,10 @@ const DieCutNestingBoard = ({ nestingResult, sizeList, compactMode = false }) =>
           compactMode={false}
           isRotated={isRotated}
         />
+      ) : (
+        <div className="rounded-lg bg-gray-900 border border-white/10 min-h-[60vh] flex items-center justify-center text-white/50 text-sm">
+          {loadingSheetIndex === selectedSheet ? 'Đang tải chi tiết tấm...' : 'Chưa có dữ liệu chi tiết cho tấm này.'}
+        </div>
       )}
 
       {/* Legend */}
