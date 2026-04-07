@@ -2,15 +2,16 @@ import { BaseNesting } from '../../core/BaseNesting.js';
 import { Worker, isMainThread } from 'worker_threads';
 import {
   normalizeToOrigin,
-  area as polygonArea,
-  polygonsOverlap
+  area as polygonArea
 } from '../../core/polygonUtils.js';
 import {
+  cachedPolygonsOverlap,
   getOrientBounds,
   roundMetric,
   validateLocalPlacements,
   computeEnvelope,
-  validatePatternPlacements
+  validatePatternPlacements,
+  buildShiftCandidates
 } from './patternCapacityUtils.js';
 import {
   buildCapacityResultCacheKey,
@@ -183,7 +184,7 @@ function hasCrossPlacementOverlap(firstPlacements, secondPlacements, spacing) {
       }
 
       if (
-        polygonsOverlap(
+        cachedPolygonsOverlap(
           first.placement.orient.polygon,
           second.placement.orient.polygon,
           { x: first.placement.x, y: first.placement.y },
@@ -310,6 +311,35 @@ async function executeCapacityTasksInParallel(tasks, concurrency) {
 export class CapacityTestSameSidePattern extends BaseNesting {
   constructor(config = {}) {
     super(config);
+    this._helperCacheObjectIds = new WeakMap();
+    this._helperCacheNextId = 1;
+    this._sameSideHelperCaches = this._createHelperCaches();
+  }
+
+  _createHelperCaches() {
+    return {
+      uniformDx: new Map(),
+      uniformDy: new Map(),
+      alternatingUniformPitches: new Map(),
+      fillerRows: new Map()
+    };
+  }
+
+  _resetHelperCaches() {
+    this._sameSideHelperCaches = this._createHelperCaches();
+  }
+
+  _getHelperCacheObjectId(object) {
+    if (!object || (typeof object !== 'object' && typeof object !== 'function')) {
+      return String(object);
+    }
+
+    let id = this._helperCacheObjectIds.get(object);
+    if (!id) {
+      id = this._helperCacheNextId++;
+      this._helperCacheObjectIds.set(object, id);
+    }
+    return id;
   }
 
   _getStaggerSpacing(config) {
@@ -661,21 +691,42 @@ export class CapacityTestSameSidePattern extends BaseNesting {
   }
 
   _findUniformDx(orient, config, step) {
+    const cacheKey = [
+      this._getHelperCacheObjectId(orient),
+      roundMetric(config.spacing, 3),
+      roundMetric(step, 3)
+    ].join('|');
+    if (this._sameSideHelperCaches.uniformDx.has(cacheKey)) {
+      return this._sameSideHelperCaches.uniformDx.get(cacheKey);
+    }
+
     const precision = Math.min(step, 0.05);
     const upper = buildUpperBound(
       step,
       orient.width * 2 + config.spacing + step * 8
     );
 
-    return findMinimalContinuousValue(step, upper, precision, (dxMm) =>
+    const resolvedDx = findMinimalContinuousValue(step, upper, precision, (dxMm) =>
       validateLocalPlacements(
         this._buildUniformNeighborhood(orient, dxMm, orient.height + config.spacing + step * 2).filter(item => item.y === 0),
         config.spacing
       ).valid
     );
+    this._sameSideHelperCaches.uniformDx.set(cacheKey, resolvedDx);
+    return resolvedDx;
   }
 
   _findUniformDy(orient, dxMm, config, step) {
+    const cacheKey = [
+      this._getHelperCacheObjectId(orient),
+      roundMetric(dxMm, 3),
+      roundMetric(config.spacing, 3),
+      roundMetric(step, 3)
+    ].join('|');
+    if (this._sameSideHelperCaches.uniformDy.has(cacheKey)) {
+      return this._sameSideHelperCaches.uniformDy.get(cacheKey);
+    }
+
     const precision = Math.min(step, 0.05);
     const upper = buildUpperBound(
       step,
@@ -687,7 +738,7 @@ export class CapacityTestSameSidePattern extends BaseNesting {
       orient.height + config.spacing + step * 2
     ).filter((item) => item.y === 0);
 
-    return findMinimalContinuousValue(step, upper, precision, (dyMm) =>
+    const resolvedDy = findMinimalContinuousValue(step, upper, precision, (dyMm) =>
       !hasCrossPlacementOverlap(
         baseRow,
         baseRow.map((placement, index) => ({
@@ -698,6 +749,8 @@ export class CapacityTestSameSidePattern extends BaseNesting {
         config.spacing
       )
     );
+    this._sameSideHelperCaches.uniformDy.set(cacheKey, resolvedDy);
+    return resolvedDy;
   }
 
   _findAlternatingUniformDy(primaryOrient, alternateOrient, dxMm, config, step) {
@@ -757,14 +810,30 @@ export class CapacityTestSameSidePattern extends BaseNesting {
   }
 
   _findAlternatingUniformPitches(primaryOrient, alternateOrient, dxMm, config, step) {
+    const cacheKey = [
+      this._getHelperCacheObjectId(primaryOrient),
+      this._getHelperCacheObjectId(alternateOrient),
+      roundMetric(dxMm, 3),
+      roundMetric(this._getStaggerSpacing(config), 3),
+      roundMetric(config.spacing, 3),
+      roundMetric(step, 3)
+    ].join('|');
+    if (this._sameSideHelperCaches.alternatingUniformPitches.has(cacheKey)) {
+      return this._sameSideHelperCaches.alternatingUniformPitches.get(cacheKey);
+    }
+
     if (!alternateOrient) {
       const uniformDyMm = this._findUniformDy(primaryOrient, dxMm, config, step);
-      return uniformDyMm == null
+      const uniformResult = uniformDyMm == null
         ? null
         : {
           primaryToAlternateDyMm: uniformDyMm,
-          alternateToPrimaryDyMm: uniformDyMm
+          alternateToPrimaryDyMm: uniformDyMm,
+          primaryToAlternateShift: 0,
+          alternateToPrimaryShift: 0
         };
+      this._sameSideHelperCaches.alternatingUniformPitches.set(cacheKey, uniformResult);
+      return uniformResult;
     }
 
     const requiredSpacing = this._getStaggerSpacing(config);
@@ -788,35 +857,49 @@ export class CapacityTestSameSidePattern extends BaseNesting {
         y: 0
       }));
 
-    const primaryToAlternateDyMm = findMinimalContinuousValue(step, upper, precision, (dyMm) =>
-      !hasCrossPlacementOverlap(
-        basePrimaryRow,
-        baseAlternateRow.map((placement) => ({
-          ...placement,
-          y: roundMetric(dyMm, 3)
-        })),
-        requiredSpacing
-      )
-    );
-    if (primaryToAlternateDyMm == null) return null;
+    const findBestShift = (firstRow, secondRow) => {
+      const shifts = buildShiftCandidates(dxMm / 3, step, 23);
+      let best = null;
 
-    const alternateToPrimaryDyMm = findMinimalContinuousValue(step, upper, precision, (dyMm) =>
-      !hasCrossPlacementOverlap(
-        baseAlternateRow,
-        basePrimaryRow.map((placement, index) => ({
-          ...placement,
-          id: `uniform_alt_next_${index}`,
-          y: roundMetric(dyMm, 3)
-        })),
-        requiredSpacing
-      )
-    );
-    if (alternateToPrimaryDyMm == null) return null;
+      for (const shift of shifts) {
+        const dyMm = findMinimalContinuousValue(step, upper, precision, (dy) =>
+          !hasCrossPlacementOverlap(
+            firstRow,
+            secondRow.map((p, idx) => ({
+              ...p,
+              id: `uniform_shift_${idx}`,
+              x: roundMetric(p.x + shift, 3),
+              y: roundMetric(dy, 3)
+            })),
+            requiredSpacing
+          )
+        );
 
-    return {
-      primaryToAlternateDyMm,
-      alternateToPrimaryDyMm
+        if (dyMm != null) {
+          if (!best || dyMm < best.dyMm) {
+            best = { dyMm, shift };
+          } else if (Math.abs(dyMm - best.dyMm) < 1e-6 && Math.abs(shift) < Math.abs(best.shift)) {
+            best = { dyMm, shift };
+          }
+        }
+      }
+      return best;
     };
+
+    const p2a = findBestShift(basePrimaryRow, baseAlternateRow);
+    if (!p2a) return null;
+
+    const a2p = findBestShift(baseAlternateRow, basePrimaryRow);
+    if (!a2p) return null;
+
+    const result = {
+      primaryToAlternateDyMm: p2a.dyMm,
+      alternateToPrimaryDyMm: a2p.dyMm,
+      primaryToAlternateShift: p2a.shift,
+      alternateToPrimaryShift: a2p.shift
+    };
+    this._sameSideHelperCaches.alternatingUniformPitches.set(cacheKey, result);
+    return result;
   }
 
   _countCols(maxWidth, dxMm, workWidth) {
@@ -953,6 +1036,16 @@ export class CapacityTestSameSidePattern extends BaseNesting {
 
   _countFillerRows(primaryOrient, alternateOrient, fillerPrimaryPitchMm, fillerAlternatePitchMm, workHeight) {
     if (!primaryOrient) return 0;
+    const cacheKey = [
+      this._getHelperCacheObjectId(primaryOrient),
+      this._getHelperCacheObjectId(alternateOrient),
+      roundMetric(fillerPrimaryPitchMm, 3),
+      roundMetric(fillerAlternatePitchMm, 3),
+      roundMetric(workHeight, 3)
+    ].join('|');
+    if (this._sameSideHelperCaches.fillerRows.has(cacheKey)) {
+      return this._sameSideHelperCaches.fillerRows.get(cacheKey);
+    }
 
     let currentY = 0;
     let rows = 0;
@@ -962,6 +1055,7 @@ export class CapacityTestSameSidePattern extends BaseNesting {
       rows += 1;
       currentY += rows % 2 === 1 ? fillerPrimaryPitchMm : fillerAlternatePitchMm;
     }
+    this._sameSideHelperCaches.fillerRows.set(cacheKey, rows);
     return rows;
   }
 
@@ -1009,10 +1103,13 @@ export class CapacityTestSameSidePattern extends BaseNesting {
     dxMm,
     primaryToAlternateDyMm,
     alternateToPrimaryDyMm,
+    primaryToAlternateShift = 0,
+    alternateToPrimaryShift = 0,
     startY = 0
   ) {
     const placements = [];
     let currentY = startY;
+    let currentOffsetX = 0;
 
     for (let row = 0; row < rows; row++) {
       const orient = this._resolveFillerOrient(primaryOrient, alternateOrient, row);
@@ -1020,11 +1117,14 @@ export class CapacityTestSameSidePattern extends BaseNesting {
         placements.push({
           id: `fill90_${row}_${col}`,
           orient,
-          x: roundMetric(col * dxMm, 3),
+          x: roundMetric(col * dxMm + currentOffsetX, 3),
           y: roundMetric(currentY, 3)
         });
       }
-      currentY += row % 2 === 0 ? primaryToAlternateDyMm : alternateToPrimaryDyMm;
+      
+      const isEven = row % 2 === 0;
+      currentY += isEven ? primaryToAlternateDyMm : alternateToPrimaryDyMm;
+      currentOffsetX += isEven ? primaryToAlternateShift : alternateToPrimaryShift;
     }
 
     return placements;
@@ -1330,6 +1430,8 @@ export class CapacityTestSameSidePattern extends BaseNesting {
               fillerDxMm,
               alternatingPitches.primaryToAlternateDyMm,
               alternatingPitches.alternateToPrimaryDyMm,
+              alternatingPitches.primaryToAlternateShift,
+              alternatingPitches.alternateToPrimaryShift,
               0
             );
             fillerStrategies.push({
@@ -1339,6 +1441,8 @@ export class CapacityTestSameSidePattern extends BaseNesting {
               dxMm: fillerDxMm,
               dyMm: alternatingPitches.primaryToAlternateDyMm,
               alternateDyMm: alternatingPitches.alternateToPrimaryDyMm,
+              rowShiftXmm: alternatingPitches.primaryToAlternateShift,
+              alternateRowShiftXmm: alternatingPitches.alternateToPrimaryShift,
               cols: alternatingCols,
               maxRows: this._countFillerRows(
                 fillerPrimaryOrient,
@@ -1567,6 +1671,7 @@ export class CapacityTestSameSidePattern extends BaseNesting {
 
   async _testCapacitySequential(sizeList, config) {
     this._orientCache.clear();
+    this._resetHelperCaches();
     const startTime = Date.now();
     const totalArea = config.sheetWidth * config.sheetHeight;
     const workWidth = config.sheetWidth - 2 * (config.marginX || 0);
@@ -1651,6 +1756,7 @@ export class CapacityTestSameSidePattern extends BaseNesting {
   }
 
   async _testCapacityParallel(sizeList, config) {
+    this._resetHelperCaches();
     const startTime = Date.now();
     const cachedResults = new Array(sizeList.length).fill(null);
     const uncachedTasks = [];

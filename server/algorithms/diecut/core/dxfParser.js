@@ -12,6 +12,11 @@
  */
 
 import DxfParser from 'dxf-parser';
+import { execFile } from 'child_process';
+import fs from 'fs/promises';
+import os from 'os';
+import path from 'path';
+import { promisify } from 'util';
 import {
   getBoundingBox,
   area,
@@ -19,6 +24,63 @@ import {
   roundPolygon,
   simplifyPolygon
 } from './polygonUtils.js';
+
+const execFileAsync = promisify(execFile);
+const DEFAULT_ODA_PATHS = [
+  process.env.ODA_FILE_CONVERTER_PATH,
+  'C:\\Program Files\\ODA\\ODAFileConverter\\ODAFileConverter.exe',
+  'C:\\Program Files\\Open Design Alliance\\ODAFileConverter\\ODAFileConverter.exe'
+].filter(Boolean);
+
+async function resolveOdaFileConverterPath() {
+  for (const candidate of DEFAULT_ODA_PATHS) {
+    try {
+      await fs.access(candidate);
+      return candidate;
+    } catch {
+      // Keep checking known install locations.
+    }
+  }
+  return null;
+}
+
+async function convertDwgBufferToDxfText(buffer, fileName = 'drawing.dwg') {
+  const converterPath = await resolveOdaFileConverterPath();
+  if (!converterPath) {
+    throw new Error(
+      'Chua tim thay ODA File Converter. Cai ODA File Converter hoac set ODA_FILE_CONVERTER_PATH de doc file DWG.'
+    );
+  }
+
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'diecut-dwg-'));
+  const inputDir = path.join(tempRoot, 'input');
+  const outputDir = path.join(tempRoot, 'output');
+  const inputName = path.basename(fileName, path.extname(fileName) || '.dwg') + '.dwg';
+  const inputPath = path.join(inputDir, inputName);
+  const outputPath = path.join(outputDir, inputName.replace(/\.dwg$/i, '.dxf'));
+
+  try {
+    await fs.mkdir(inputDir, { recursive: true });
+    await fs.mkdir(outputDir, { recursive: true });
+    await fs.writeFile(inputPath, buffer);
+
+    await execFileAsync(
+      converterPath,
+      [inputDir, outputDir, 'ACAD2018', 'DXF', '0', '1', '*.DWG'],
+      { windowsHide: true, timeout: 120000, maxBuffer: 10 * 1024 * 1024 }
+    );
+
+    await fs.access(outputPath);
+    return await fs.readFile(outputPath, 'utf8');
+  } catch (error) {
+    const stderr = error?.stderr?.toString?.().trim();
+    const stdout = error?.stdout?.toString?.().trim();
+    const details = stderr || stdout || error.message;
+    throw new Error(`Khong the chuyen file DWG sang DXF: ${details}`);
+  } finally {
+    await fs.rm(tempRoot, { recursive: true, force: true }).catch(() => {});
+  }
+}
 
 // ─────────────────────────────────────────────
 // 1. BULGE → ARC POINTS (Công thức chuẩn DXF)
@@ -233,6 +295,13 @@ function lineEntitiesToPolygons(lines, tolerance = 0.5) {
   return polygons;
 }
 
+function isClosedPointPath(points, tolerance = 0.5) {
+  if (!points || points.length < 3) return false;
+  const first = points[0];
+  const last = points[points.length - 1];
+  return Math.hypot(last.x - first.x, last.y - first.y) <= tolerance;
+}
+
 // ─────────────────────────────────────────────
 // 5. PARSE DXF → POLYGON LIST (chính xác)
 // ─────────────────────────────────────────────
@@ -286,12 +355,22 @@ export function parseDxfToPolygons(dxfText) {
       }
 
       // Nếu closed → bỏ điểm trùng lặp cuối-đầu
-      if (entity.closed && pts.length > 0) {
+      const isClosedShape = entity.closed || isClosedPointPath(pts, 0.5);
+
+      if (isClosedShape && pts.length > 0) {
         const last = pts[pts.length - 1];
         const first = pts[0];
         if (Math.hypot(last.x - first.x, last.y - first.y) < 0.001) {
           pts.pop();
         }
+      } else {
+        lineEntities.push({
+          start: pts[0],
+          end: pts[pts.length - 1],
+          type: 'polyline',
+          _pts: pts
+        });
+        pts = null;
       }
     }
 
@@ -315,6 +394,23 @@ export function parseDxfToPolygons(dxfText) {
             pts.push(p);
           }
         }
+      }
+
+      const isClosedShape = entity.closed || isClosedPointPath(pts, 0.5);
+      if (isClosedShape && pts.length > 0) {
+        const last = pts[pts.length - 1];
+        const first = pts[0];
+        if (Math.hypot(last.x - first.x, last.y - first.y) < 0.001) {
+          pts.pop();
+        }
+      } else {
+        lineEntities.push({
+          start: pts[0],
+          end: pts[pts.length - 1],
+          type: 'polyline',
+          _pts: pts
+        });
+        pts = null;
       }
     }
 
@@ -371,6 +467,11 @@ export function parseDxfToPolygons(dxfText) {
           start: { x: entity.start.x, y: entity.start.y },
           end:   { x: entity.end.x,   y: entity.end.y   }
         });
+      } else if (entity.vertices && entity.vertices.length >= 2) {
+        lineEntities.push({
+          start: { x: entity.vertices[0].x, y: entity.vertices[0].y },
+          end:   { x: entity.vertices[1].x, y: entity.vertices[1].y }
+        });
       }
     }
 
@@ -419,6 +520,18 @@ export function parseDxfToPolygons(dxfText) {
 // ─────────────────────────────────────────────
 // 6. GÁN SIZE TỰ ĐỘNG
 // ─────────────────────────────────────────────
+export async function parseCadBufferToPolygons(buffer, fileName = 'drawing.dxf') {
+  const extension = path.extname(fileName).toLowerCase();
+
+  if (extension === '.dwg') {
+    const dxfText = await convertDwgBufferToDxfText(buffer, fileName);
+    return parseDxfToPolygons(dxfText);
+  }
+
+  const dxfText = buffer.toString('utf-8');
+  return parseDxfToPolygons(dxfText);
+}
+
 /**
  * Gán size tự động cho danh sách polygon
  * Sắp xếp từ polygon có diện tích nhỏ nhất → lớn nhất → gán size tăng dần
@@ -428,6 +541,83 @@ export function parseDxfToPolygons(dxfText) {
  * @param {number} stepSize
  * @returns {Array<{sizeName, sizeValue, polygon, boundingBox, area, pointCount}>}
  */
+function extractDetectedSizeLabelsFromDxfText(dxfText) {
+  let dxf;
+  try {
+    dxf = new DxfParser().parseSync(dxfText);
+  } catch {
+    return [];
+  }
+
+  const uniqueLabels = new Map();
+
+  for (const entity of dxf.entities || []) {
+    if (entity.type !== 'TEXT' && entity.type !== 'MTEXT') continue;
+
+    const rawText = String(entity.text || entity.string || entity.plainText || '')
+      .replace(/\\P/g, ' ')
+      .replace(/\\[A-Za-z][^;]*;/g, ' ')
+      .replace(/,/g, '.')
+      .trim();
+
+    if (!/^\d+(?:\.\d+)?$/.test(rawText)) continue;
+
+    const sizeValue = Number.parseFloat(rawText);
+    if (!Number.isFinite(sizeValue) || sizeValue < 3 || sizeValue > 20) continue;
+
+    const key = String(sizeValue);
+    if (!uniqueLabels.has(key)) {
+      uniqueLabels.set(key, {
+        sizeName: Number.isInteger(sizeValue) ? String(sizeValue) : rawText.replace(/\.0+$/, ''),
+        sizeValue
+      });
+    }
+  }
+
+  return [...uniqueLabels.values()].sort((a, b) => a.sizeValue - b.sizeValue);
+}
+
+function assignSizesWithDetectedLabels(polygons, detectedLabels, startSize = 3.5, stepSize = 0.5) {
+  if (!Array.isArray(detectedLabels) || detectedLabels.length !== polygons.length) {
+    return assignSizesToPolygons(polygons, startSize, stepSize);
+  }
+
+  const sortedPolygons = [...polygons].sort((a, b) => area(a) - area(b));
+
+  return sortedPolygons.map((polygon, index) => {
+    const detected = detectedLabels[index];
+    const bb = getBoundingBox(polygon);
+
+    return {
+      sizeName: detected.sizeName,
+      sizeValue: detected.sizeValue,
+      polygon,
+      boundingBox: {
+        width: parseFloat(bb.width.toFixed(2)),
+        height: parseFloat(bb.height.toFixed(2))
+      },
+      area: parseFloat(area(polygon).toFixed(2)),
+      pointCount: polygon.length
+    };
+  });
+}
+
+export async function parseCadBufferToSizedShapes(
+  buffer,
+  fileName = 'drawing.dxf',
+  startSize = 3.5,
+  stepSize = 0.5
+) {
+  const extension = path.extname(fileName).toLowerCase();
+  const dxfText = extension === '.dwg'
+    ? await convertDwgBufferToDxfText(buffer, fileName)
+    : buffer.toString('utf-8');
+
+  const polygons = parseDxfToPolygons(dxfText);
+  const detectedLabels = extractDetectedSizeLabelsFromDxfText(dxfText);
+  return assignSizesWithDetectedLabels(polygons, detectedLabels, startSize, stepSize);
+}
+
 export function assignSizesToPolygons(polygons, startSize = 3.5, stepSize = 0.5) {
   // Lọc bỏ polygon rỗng
   const valid = polygons.filter(p => p && p.length >= 3);

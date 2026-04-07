@@ -289,7 +289,7 @@ const DieCutDxfUploader = ({ onShapesLoaded, initialShapes }) => {
   };
 
   const handleUpload = async () => {
-    if (files.length === 0) { setError('Vui lòng chọn ít nhất 1 file DXF'); return; }
+    if (files.length === 0) { setError('Vui lòng chọn ít nhất 1 file DXF hoặc DWG'); return; }
     const start = parseFloat(startSize);
     const step  = parseFloat(stepSize);
     if (isNaN(start) || isNaN(step) || step <= 0) {
@@ -332,7 +332,7 @@ const DieCutDxfUploader = ({ onShapesLoaded, initialShapes }) => {
 
       <div className="bg-white/10 backdrop-blur-md rounded-xl border border-white/20 p-4 space-y-4">
         <h3 className="text-white font-semibold text-base flex items-center gap-2">
-          <span className="text-xl">📐</span> Import File DXF Biên Dạng
+          <span className="text-xl">📐</span> Import File DXF/DWG Biên Dạng
         </h3>
 
         {/* Size Setup */}
@@ -370,14 +370,14 @@ const DieCutDxfUploader = ({ onShapesLoaded, initialShapes }) => {
             id="dxf-file-input"
             type="file"
             multiple
-            accept=".dxf"
+            accept=".dxf,.dwg"
             className="hidden"
             onChange={handleFileChange}
           />
           {files.length === 0 ? (
             <div className="space-y-2">
               <div className="text-4xl">📁</div>
-              <p className="text-white/70 text-sm">Nhấn để chọn file DXF (có thể chọn nhiều file)</p>
+              <p className="text-white/70 text-sm">Nhấn để chọn file DXF hoặc DWG (có thể chọn nhiều file)</p>
             </div>
           ) : (
             <div className="space-y-1">
@@ -401,7 +401,7 @@ const DieCutDxfUploader = ({ onShapesLoaded, initialShapes }) => {
           disabled={loading || files.length === 0}
           className="w-full py-2 bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors text-sm"
         >
-          {loading ? '⏳ Đang xử lý DXF...' : '✅ Phân tích DXF'}
+          {loading ? '⏳ Đang xử lý DXF/DWG...' : '✅ Phân tích DXF/DWG'}
         </button>
 
         {/* ── GALLERY BIÊN DẠNG ── */}

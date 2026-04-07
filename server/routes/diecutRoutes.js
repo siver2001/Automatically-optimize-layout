@@ -10,7 +10,7 @@
 
 import express from 'express';
 import multer from 'multer';
-import { parseDxfToPolygons, assignSizesToPolygons } from '../algorithms/diecut/core/dxfParser.js';
+import { parseCadBufferToPolygons, parseCadBufferToSizedShapes, assignSizesToPolygons } from '../algorithms/diecut/core/dxfParser.js';
 // Các thuật toán cũ (giữ lại để tương thích nếu cần, hoặc có thể xóa sau)
 import { TrueShapeNesting } from '../algorithms/diecut/TrueShapeNesting.js';
 // Các thuật toán mới tách ra
@@ -103,19 +103,38 @@ router.post('/parse-dxf', upload.array('dxfFiles', 20), async (req, res) => {
     const stepSize = parseFloat(req.body.stepSize) || 0.5;
 
     if (!req.files || req.files.length === 0) {
-      return res.status(400).json({ error: 'Chưa upload file DXF' });
+      return res.status(400).json({ error: 'Chưa upload file DXF hoặc DWG' });
+    }
+
+    if (req.files.length === 1) {
+      const [file] = req.files;
+      const shapes = await parseCadBufferToSizedShapes(
+        file.buffer,
+        file.originalname,
+        startSize,
+        stepSize
+      );
+
+      if (shapes.length === 0) {
+        return res.status(400).json({ error: 'Không tìm thấy biên dạng hợp lệ trong file DXF/DWG' });
+      }
+
+      return res.json({
+        success: true,
+        shapes,
+        count: shapes.length
+      });
     }
 
     let allPolygons = [];
 
     for (const file of req.files) {
-      const dxfText = file.buffer.toString('utf-8');
-      const polygons = parseDxfToPolygons(dxfText);
+      const polygons = await parseCadBufferToPolygons(file.buffer, file.originalname);
       allPolygons = allPolygons.concat(polygons);
     }
 
     if (allPolygons.length === 0) {
-      return res.status(400).json({ error: 'Không tìm thấy biên dạng hợp lệ trong file DXF' });
+      return res.status(400).json({ error: 'Không tìm thấy biên dạng hợp lệ trong file DXF/DWG' });
     }
 
     const sizedShapes = assignSizesToPolygons(allPolygons, startSize, stepSize);

@@ -16,7 +16,7 @@
  * 4. Bấm "Test Capacity" → gọi /api/diecut/test-capacity
  * 5. Xem số lượng tối đa từng size có thể xếp trên 1 tấm PU
  */
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { startTransition, useState, useMemo, useEffect } from 'react';
 import DieCutDxfUploader from './DieCutDxfUploader.js';
 import DieCutExcelUploader from './DieCutExcelUploader.js';
 import DieCutNestingBoard from './DieCutNestingBoard.js';
@@ -871,8 +871,10 @@ const DieCutLayout = () => {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Lỗi server');
-      setNestingResult(data);
-      setActiveStep(4);
+      startTransition(() => {
+        setNestingResult(data);
+        setActiveStep(4);
+      });
     } catch (err) {
       setNestError(err.message);
     } finally {
@@ -898,8 +900,10 @@ const DieCutLayout = () => {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Lỗi server');
-      setTestResult(data);
-      setActiveStep(4);
+      startTransition(() => {
+        setTestResult(data);
+        setActiveStep(4);
+      });
     } catch (err) {
       setTestError(err.message);
     } finally {

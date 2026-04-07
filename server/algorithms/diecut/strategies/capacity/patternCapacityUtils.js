@@ -1,4 +1,99 @@
-import { getBoundingBox, polygonsOverlap } from '../../core/polygonUtils.js';
+import { getBoundingBox, polygonsOverlap as rawPolygonsOverlap } from '../../core/polygonUtils.js';
+
+const MAX_OVERLAP_CACHE_ENTRIES = 100000;
+const MAX_LOCAL_VALIDATION_CACHE_ENTRIES = 20000;
+
+const objectIdCache = new WeakMap();
+const overlapCache = new Map();
+const localValidationCache = new Map();
+let nextObjectId = 1;
+
+function getObjectId(object) {
+  if (!object || (typeof object !== 'object' && typeof object !== 'function')) {
+    return String(object);
+  }
+
+  let id = objectIdCache.get(object);
+  if (!id) {
+    id = nextObjectId++;
+    objectIdCache.set(object, id);
+  }
+  return id;
+}
+
+function setBoundedCacheEntry(cache, key, value, maxEntries) {
+  if (cache.has(key)) {
+    cache.delete(key);
+  }
+  cache.set(key, value);
+  if (cache.size > maxEntries) {
+    const oldestKey = cache.keys().next().value;
+    cache.delete(oldestKey);
+  }
+  return value;
+}
+
+function formatCacheMetric(value) {
+  return Number.isFinite(value) ? roundMetric(value, 3) : value;
+}
+
+function buildOverlapCacheKey(polyA, polyB, offsetA, offsetB, spacing) {
+  const idA = getObjectId(polyA);
+  const idB = getObjectId(polyB);
+  let dx = formatCacheMetric((offsetB?.x ?? 0) - (offsetA?.x ?? 0));
+  let dy = formatCacheMetric((offsetB?.y ?? 0) - (offsetA?.y ?? 0));
+
+  if (idA > idB) {
+    return `${idB}|${idA}|${-dx}|${-dy}|${formatCacheMetric(spacing ?? 0)}`;
+  }
+
+  return `${idA}|${idB}|${dx}|${dy}|${formatCacheMetric(spacing ?? 0)}`;
+}
+
+function buildEnvelopeFromIndexed(indexedPlacements) {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  for (const placement of indexedPlacements) {
+    minX = Math.min(minX, placement.bb.minX);
+    minY = Math.min(minY, placement.bb.minY);
+    maxX = Math.max(maxX, placement.bb.maxX);
+    maxY = Math.max(maxY, placement.bb.maxY);
+  }
+
+  return {
+    minX,
+    minY,
+    maxX,
+    maxY,
+    width: maxX - minX,
+    height: maxY - minY
+  };
+}
+
+function buildLocalValidationCacheKey(rebasedPlacements, workWidth, workHeight, spacing) {
+  const parts = [`${formatCacheMetric(workWidth)}:${formatCacheMetric(workHeight)}:${formatCacheMetric(spacing ?? 0)}`];
+
+  for (const placement of rebasedPlacements) {
+    parts.push(
+      `${getObjectId(placement.orient)}@${formatCacheMetric(placement.x)},${formatCacheMetric(placement.y)}`
+    );
+  }
+
+  return parts.join('|');
+}
+
+export function cachedPolygonsOverlap(polyA, polyB, offsetA = { x: 0, y: 0 }, offsetB = { x: 0, y: 0 }, spacing = 0, bbA = null, bbB = null) {
+  const cacheKey = buildOverlapCacheKey(polyA, polyB, offsetA, offsetB, spacing);
+  if (overlapCache.has(cacheKey)) {
+    return overlapCache.get(cacheKey);
+  }
+
+  const result = rawPolygonsOverlap(polyA, polyB, offsetA, offsetB, spacing, bbA, bbB);
+  return setBoundedCacheEntry(overlapCache, cacheKey, result, MAX_OVERLAP_CACHE_ENTRIES);
+}
 
 export function roundMetric(value, decimals = 2) {
   return Number.parseFloat(value.toFixed(decimals));
@@ -126,20 +221,22 @@ export function validatePatternPlacements(placements, workWidth, workHeight, spa
   }
 
   const indexed = placements.map((placement, index) => {
-    const bb = getOrientBounds(placement.orient);
+    const localBounds = getOrientBounds(placement.orient);
     return {
       ...placement,
       index,
+      localBounds,
       bb: {
-        minX: placement.x + bb.minX,
-        minY: placement.y + bb.minY,
-        maxX: placement.x + bb.maxX,
-        maxY: placement.y + bb.maxY,
-        width: bb.width,
-        height: bb.height
+        minX: placement.x + localBounds.minX,
+        minY: placement.y + localBounds.minY,
+        maxX: placement.x + localBounds.maxX,
+        maxY: placement.y + localBounds.maxY,
+        width: localBounds.width,
+        height: localBounds.height
       }
     };
   });
+  const envelope = buildEnvelopeFromIndexed(indexed);
 
   for (const item of indexed) {
     if (
@@ -151,7 +248,7 @@ export function validatePatternPlacements(placements, workWidth, workHeight, spa
       return {
         valid: false,
         reason: 'out-of-bounds',
-        bounds: computeEnvelope(indexed)
+        bounds: envelope
       };
     }
   }
@@ -179,20 +276,20 @@ export function validatePatternPlacements(placements, workWidth, workHeight, spa
           compared.add(pairKey);
 
           if (
-            polygonsOverlap(
+            cachedPolygonsOverlap(
               item.orient.polygon,
               other.orient.polygon,
               { x: item.x, y: item.y },
               { x: other.x, y: other.y },
               spacing,
-              getOrientBounds(item.orient),
-              getOrientBounds(other.orient)
+              item.localBounds,
+              other.localBounds
             )
           ) {
             return {
               valid: false,
               reason: 'overlap',
-              bounds: computeEnvelope(indexed),
+              bounds: envelope,
               pair: [other.id, item.id]
             };
           }
@@ -205,13 +302,25 @@ export function validatePatternPlacements(placements, workWidth, workHeight, spa
 
   return {
     valid: true,
-    bounds: computeEnvelope(indexed)
+    bounds: envelope
   };
 }
 
 export function validateLocalPlacements(placements, spacing, padding = 10) {
   const rebased = rebasePlacements(placements, padding);
-  return validatePatternPlacements(rebased.placements, rebased.workWidth, rebased.workHeight, spacing);
+  const cacheKey = buildLocalValidationCacheKey(
+    rebased.placements,
+    rebased.workWidth,
+    rebased.workHeight,
+    spacing
+  );
+
+  if (localValidationCache.has(cacheKey)) {
+    return localValidationCache.get(cacheKey);
+  }
+
+  const result = validatePatternPlacements(rebased.placements, rebased.workWidth, rebased.workHeight, spacing);
+  return setBoundedCacheEntry(localValidationCache, cacheKey, result, MAX_LOCAL_VALIDATION_CACHE_ENTRIES);
 }
 
 export function comparePatternCandidates(nextCandidate, bestCandidate) {

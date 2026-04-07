@@ -3,11 +3,11 @@ import { BaseNesting } from '../../core/BaseNesting.js';
 import {
   flipX,
   normalizeToOrigin,
-  area as polygonArea,
-  polygonsOverlap
+  area as polygonArea
 } from '../../core/polygonUtils.js';
 import {
   buildShiftCandidates,
+  cachedPolygonsOverlap,
   compareComplementaryCandidates,
   computeEnvelope,
   findMinimalQuantizedValue,
@@ -318,7 +318,7 @@ function hasCrossPlacementOverlap(firstPlacements, secondPlacements, spacing) {
       }
 
       if (
-        polygonsOverlap(
+        cachedPolygonsOverlap(
           first.placement.orient.polygon,
           second.placement.orient.polygon,
           { x: first.placement.x, y: first.placement.y },
@@ -437,7 +437,7 @@ export class CapacityTestComplementaryPattern extends BaseNesting {
     if (this._checkRasterOverlap(orientA.raster, orientB.raster, dx, dy)) {
       return false;
     }
-    return !polygonsOverlap(
+    return !cachedPolygonsOverlap(
       orientA.polygon,
       orientB.polygon,
       { x: 0, y: 0 },
