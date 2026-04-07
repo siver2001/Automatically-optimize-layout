@@ -1,7 +1,7 @@
 {
-  "name": "Netting",
+  "name": "Nesting",
   "version": "0.1.0",
-  "description": "Ứng dụng netting liệu",
+  "description": "Ứng dụng Nesting liệu",
   "author": "Nguyễn Hoàng Long",
   "private": true,
   "dependencies": {
@@ -12,7 +12,7 @@
     "framer-motion": "^10.0.1",
     "konva": "^9.3.3",
     "lodash": "^4.17.21-5",
-    "Netting": "file:..",
+    "Nesting": "file:..",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-draggable": "^4.4.5",
@@ -26,7 +26,7 @@
     "web-vitals": "^2.1.4"
   },
   "scripts": {
-    "start": "cross-env BROWSER=none react-scripts start",
+    "start": "cross-env BROWSER=none DANGEROUSLY_DISABLE_HOST_CHECK=true react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
@@ -57,6 +57,7 @@
   "proxy": "http://localhost:5000",
   "devDependencies": {
     "autoprefixer": "^10.4.14",
+    "baseline-browser-mapping": "^2.10.16",
     "postcss": "^8.4.24",
     "tailwindcss": "^3.3.0"
   },

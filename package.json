@@ -43,7 +43,7 @@
   ],
   "build": {
     "appId": "com.rectanglepacking.optimizer",
-    "productName": "Netting",
+    "productName": "Nesting",
     "directories": {
       "output": "dist"
     },
