@@ -10,7 +10,11 @@
 
 import express from 'express';
 import multer from 'multer';
-import { parseCadBufferToPolygons, parseCadBufferToSizedShapes, assignSizesToPolygons } from '../algorithms/diecut/core/dxfParser.js';
+import {
+  parseCadBufferToPolygons,
+  parseCadBufferToSizedShapesWithAnalysis,
+  assignSizesToPolygons
+} from '../algorithms/diecut/core/dxfParser.js';
 // Các thuật toán cũ (giữ lại để tương thích nếu cần, hoặc có thể xóa sau)
 import { TrueShapeNesting } from '../algorithms/diecut/TrueShapeNesting.js';
 // Các thuật toán mới tách ra
@@ -21,6 +25,7 @@ import { runNestingMode } from '../algorithms/diecut/strategies/normal/runNestin
 import { CapacityTestPairing } from '../algorithms/diecut/strategies/capacity/CapacityTestPairing.js';
 import { CapacityTestSameSidePattern } from '../algorithms/diecut/strategies/capacity/CapacityTestSameSidePattern.js';
 import { CapacityTestComplementaryPattern } from '../algorithms/diecut/strategies/capacity/CapacityTestComplementaryPattern.js';
+import { CapacityTestPrePairedSameSidePattern } from '../algorithms/diecut/strategies/capacity/CapacityTestPrePairedSameSidePattern.js';
 import { generateDieCutPdf } from '../utils/diecutPdfGenerator.js';
 import { generateDieCutDxf } from '../utils/diecutDxfGenerator.js';
 import { sanitizeExportFileName } from '../utils/diecutExportUtils.js';
@@ -108,7 +113,7 @@ router.post('/parse-dxf', upload.array('dxfFiles', 20), async (req, res) => {
 
     if (req.files.length === 1) {
       const [file] = req.files;
-      const shapes = await parseCadBufferToSizedShapes(
+      const { shapes, importAnalysis } = await parseCadBufferToSizedShapesWithAnalysis(
         file.buffer,
         file.originalname,
         startSize,
@@ -122,7 +127,8 @@ router.post('/parse-dxf', upload.array('dxfFiles', 20), async (req, res) => {
       return res.json({
         success: true,
         shapes,
-        count: shapes.length
+        count: shapes.length,
+        importAnalysis
       });
     }
 
@@ -142,7 +148,8 @@ router.post('/parse-dxf', upload.array('dxfFiles', 20), async (req, res) => {
     res.json({
       success: true,
       shapes: sizedShapes,
-      count: sizedShapes.length
+      count: sizedShapes.length,
+      importAnalysis: null
     });
   } catch (err) {
     console.error('[DieCut] parse-dxf error:', err);
@@ -366,7 +373,11 @@ router.post('/test-capacity', async (req, res) => {
       ? 'legacy-pair'
       : resolvedPairingStrategy === 'pair'
         ? 'pair-complementary'
-        : 'same-side-banded';
+        : capacityLayoutMode === 'same-side-orthogonal'
+          ? 'same-side-orthogonal'
+          : capacityLayoutMode === 'same-side-prepaired-tight'
+            ? 'same-side-prepaired-tight'
+          : 'same-side-banded';
 
     const config = {
       sheetWidth: sheetWidth || 1400,
@@ -389,10 +400,17 @@ router.post('/test-capacity', async (req, res) => {
 
     let nester;
 
-    if (config.pairingStrategy === 'same-side' || config.mirrorPairs === false) {
+    if (config.capacityLayoutMode === 'same-side-prepaired-tight') {
+      nester = new CapacityTestPrePairedSameSidePattern({
+        ...config,
+        capacityLayoutMode: 'same-side-prepaired-tight',
+        pairingStrategy: 'same-side',
+        mirrorPairs: false
+      });
+    } else if (config.pairingStrategy === 'same-side' || config.mirrorPairs === false) {
       nester = new CapacityTestSameSidePattern({
         ...config,
-        capacityLayoutMode: 'same-side-banded',
+        capacityLayoutMode: resolvedCapacityLayoutMode,
         pairingStrategy: 'same-side',
         mirrorPairs: false
       });

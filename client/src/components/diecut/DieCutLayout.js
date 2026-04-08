@@ -23,10 +23,77 @@ import DieCutNestingBoard from './DieCutNestingBoard.js';
 import DieCutNestingStrategySelector, { DIECUT_NESTING_STRATEGY_OPTIONS } from './DieCutNestingStrategySelector.js';
 import { diecutExportService } from '../../services/diecutExportService.js';
 
+const DEFAULT_CAPACITY_MODE = {
+  pairingStrategy: 'pair',
+  capacityLayoutMode: 'pair-complementary'
+};
+
+function applyRecommendedMode(config, importAnalysis) {
+  const recommendation = importAnalysis?.recommendation;
+  if (!recommendation?.autoApply) {
+    if (
+      config.capacityLayoutMode === 'same-side-prepaired-tight' ||
+      config.capacityLayoutMode === 'same-side-orthogonal'
+    ) {
+      return {
+        ...config,
+        ...DEFAULT_CAPACITY_MODE
+      };
+    }
+    return config;
+  }
+
+  return {
+    ...config,
+    pairingStrategy: recommendation.pairingStrategy,
+    capacityLayoutMode: recommendation.capacityLayoutMode
+  };
+}
+
+function isUsingRecommendedMode(config, importAnalysis) {
+  const recommendation = importAnalysis?.recommendation;
+  if (!recommendation) return true;
+
+  return (
+    config.pairingStrategy === recommendation.pairingStrategy &&
+    config.capacityLayoutMode === recommendation.capacityLayoutMode
+  );
+}
+
+function buildSameSideConfig(config, importAnalysis) {
+  const recommendation = importAnalysis?.recommendation;
+  const recommendedMode = recommendation?.pairingStrategy === 'same-side'
+    ? recommendation.capacityLayoutMode
+    : null;
+
+  return {
+    ...config,
+    pairingStrategy: 'same-side',
+    capacityLayoutMode: recommendedMode || 'same-side-banded'
+  };
+}
+
+function getCapacityModeLabel(config) {
+  if (config.pairingStrategy === 'same-side') {
+    if (config.capacityLayoutMode === 'same-side-prepaired-tight') {
+      return 'Ghép Chiếc (Cùng bên) - Tối ưu file ghép sẵn';
+    }
+    if (config.capacityLayoutMode === 'same-side-orthogonal') {
+      return 'Ghép Chiếc (Cùng bên) - Hàng thẳng';
+    }
+    return 'Ghép Chiếc (Cùng bên)';
+  }
+
+  return 'Ghép Cặp (Trái-Phải)';
+}
+
 // ─────────────────────────────────────────
 // Modal popup cấu hình Sheet PU
 // ─────────────────────────────────────────
-const SheetConfigPanel = ({ config, onChange, isTestMode }) => {
+const SheetConfigPanel = ({ config, onChange, isTestMode, importAnalysis }) => {
+  const recommendation = importAnalysis?.recommendation;
+  const usingRecommendedMode = isUsingRecommendedMode(config, importAnalysis);
+
   return (
     <div className="bg-white/10 backdrop-blur-md rounded-xl border border-white/20 p-3 space-y-2">
       <h3 className="text-white font-semibold text-base flex items-center gap-2">
@@ -127,11 +194,7 @@ const SheetConfigPanel = ({ config, onChange, isTestMode }) => {
               👫 Ghép Cặp (Trái-Phải)
             </button>
             <button
-              onClick={() => onChange({
-                ...config,
-                pairingStrategy: 'same-side',
-                capacityLayoutMode: 'same-side-banded'
-              })}
+              onClick={() => onChange(buildSameSideConfig(config, importAnalysis))}
               className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-medium transition-all ${
                 config.pairingStrategy === 'same-side'
                   ? 'bg-amber-500 text-white shadow-lg'
@@ -168,6 +231,25 @@ const SheetConfigPanel = ({ config, onChange, isTestMode }) => {
             </select>
           </div>
         </div>
+
+        {recommendation && (
+          <div
+            className={`rounded-xl border px-3 py-2 text-xs ${
+              usingRecommendedMode
+                ? 'bg-emerald-500/15 border-emerald-400/30'
+                : 'bg-amber-500/15 border-amber-400/30'
+            }`}
+          >
+            <div className={usingRecommendedMode ? 'text-emerald-200 font-semibold' : 'text-amber-200 font-semibold'}>
+              {usingRecommendedMode
+                ? `Đang dùng mode khuyến nghị: ${recommendation.modeLabel}`
+                : `Mode hiện tại khác khuyến nghị cho file này: ${recommendation.modeLabel}`}
+            </div>
+            <div className="text-white/70 mt-1">
+              {recommendation.reason}
+            </div>
+          </div>
+        )}
 
         {!isTestMode && (
           <DieCutNestingStrategySelector value={config} onChange={onChange} />
@@ -664,6 +746,7 @@ const DieCutLayout = () => {
     return parts.join(' | ');
   };
   const [shapes, setShapes] = useState([]);               // từ DXF
+  const [importAnalysis, setImportAnalysis] = useState(null);
   const [quantities, setQuantities] = useState([]);        // từ Excel
   const [nestingResult, setNestingResult] = useState(null);
   const [isNesting, setIsNesting] = useState(false);
@@ -748,6 +831,10 @@ const DieCutLayout = () => {
       && (item.placedPieces || 0) === 0
     ),
     [nestingResultSizeSummary]
+  );
+  const usingRecommendedMode = useMemo(
+    () => isUsingRecommendedMode(config, importAnalysis),
+    [config, importAnalysis]
   );
 
   useEffect(() => {
@@ -999,6 +1086,28 @@ const DieCutLayout = () => {
           </div>
         )}
 
+        {importAnalysis?.recommendation && activeStep !== 4 && (
+          <div
+            className={`mb-2 rounded-lg px-2 py-1 flex items-start gap-2 border ${
+              usingRecommendedMode
+                ? 'bg-emerald-500/10 border-emerald-400/30'
+                : 'bg-amber-500/10 border-amber-400/30'
+            }`}
+          >
+            <span className="text-sm">{usingRecommendedMode ? '👫' : '⚠️'}</span>
+            <div>
+              <div className={usingRecommendedMode ? 'text-emerald-300 text-[11px] font-medium' : 'text-amber-300 text-[11px] font-medium'}>
+                {usingRecommendedMode
+                  ? `Đã tự động chọn mode ${importAnalysis.recommendation.modeLabel}`
+                  : `File này đang có khuyến nghị dùng mode ${importAnalysis.recommendation.modeLabel}`}
+              </div>
+              <div className="text-white/50 text-[10px]">
+                {importAnalysis.recommendation.reason}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Step tabs */}
         <div className="flex gap-1 mb-2 flex-wrap">
           {(isTestMode
@@ -1035,8 +1144,13 @@ const DieCutLayout = () => {
           <div className="space-y-4">
             {/* Uploader - full width */}
             <DieCutDxfUploader
-              onShapesLoaded={s => { setShapes(s); }}
+              onShapesLoaded={({ shapes: nextShapes, importAnalysis: nextImportAnalysis }) => {
+                setShapes(nextShapes);
+                setImportAnalysis(nextImportAnalysis || null);
+                setConfig((currentConfig) => applyRecommendedMode(currentConfig, nextImportAnalysis));
+              }}
               initialShapes={shapes.length > 0 ? shapes : null}
+              initialImportAnalysis={importAnalysis}
             />
 
             {/* Nút Next - chỉ hiện sau khi tải xong */}
@@ -1114,7 +1228,12 @@ const DieCutLayout = () => {
             
             {/* CỘT TRÁI: Cấu hình và Tóm tắt */}
             <div className="flex flex-col gap-2">
-              <SheetConfigPanel config={config} onChange={setConfig} isTestMode={isTestMode} />
+              <SheetConfigPanel
+                config={config}
+                onChange={setConfig}
+                isTestMode={isTestMode}
+                importAnalysis={importAnalysis}
+              />
 
               <div className="bg-white/10 backdrop-blur-md rounded-xl border border-white/20 p-3 space-y-2">
                 <h3 className="text-white font-semibold text-sm">📋 Tóm tắt trước khi chạy</h3>
@@ -1144,11 +1263,10 @@ const DieCutLayout = () => {
                   <div className="text-white font-medium text-sm">
                     {config.spacing}mm / sole {config.staggerSpacing ?? config.spacing}mm {(config.allowRotate90 ? <span className="text-green-400">(90° On)</span> : <span className="text-white/40">(90° Off)</span>)}
                   </div>
-                  {!isTestMode && (
-                    <div className="text-[10px] text-white/35 mt-1">
-                      {getNestingStrategyLabel(config.nestingStrategy)}
-                    </div>
-                  )}
+                  <div className="text-[10px] text-white/35 mt-1">
+                    {getCapacityModeLabel(config)}
+                    {!isTestMode ? ` · ${getNestingStrategyLabel(config.nestingStrategy)}` : ''}
+                  </div>
                 </div>
               </div>
 

@@ -312,19 +312,38 @@ function isClosedPointPath(points, tolerance = 0.5) {
  * @param {string} dxfText
  * @returns {Array<Array<{x,y}>>}
  */
-export function parseDxfToPolygons(dxfText) {
+function parseDxfDocument(dxfText) {
   const parser = new DxfParser();
-  let dxf;
   try {
-    dxf = parser.parseSync(dxfText);
+    return parser.parseSync(dxfText);
   } catch (e) {
     throw new Error(`Lỗi khi đọc file DXF: ${e.message}`);
   }
+}
 
+export function parseDxfToPolygons(dxfText) {
+  return parseDxfDocumentToPolygonAnalysis(parseDxfDocument(dxfText)).polygons;
+}
+
+function parseDxfDocumentToPolygons(dxf) {
+  return parseDxfDocumentToPolygonAnalysis(dxf).polygons;
+}
+
+function parseDxfDocumentToPolygonAnalysis(dxf) {
   const polygons = [];
   const lineEntities = [];
+  let openContourSegmentCount = 0;
 
-  if (!dxf || !dxf.entities) return polygons;
+  if (!dxf || !dxf.entities) {
+    return {
+      polygons,
+      analysis: {
+        stitchedPolygonCount: 0,
+        openContourSegmentCount: 0,
+        lineEntityCount: 0
+      }
+    };
+  }
 
   for (const entity of dxf.entities) {
     let pts = null;
@@ -364,6 +383,7 @@ export function parseDxfToPolygons(dxfText) {
           pts.pop();
         }
       } else {
+        openContourSegmentCount += 1;
         lineEntities.push({
           start: pts[0],
           end: pts[pts.length - 1],
@@ -404,6 +424,7 @@ export function parseDxfToPolygons(dxfText) {
           pts.pop();
         }
       } else {
+        openContourSegmentCount += 1;
         lineEntities.push({
           start: pts[0],
           end: pts[pts.length - 1],
@@ -505,16 +526,25 @@ export function parseDxfToPolygons(dxfText) {
   }
 
   // Gom LINE entities thành polygon vòng khép kín (nếu có)
+  let stitchedPolygonCount = 0;
   if (lineEntities.length >= 3) {
     const linePolys = lineEntitiesToPolygons(lineEntities, 0.5);
+    stitchedPolygonCount = linePolys.length;
     polygons.push(...linePolys);
   }
 
   // Post-process: flip y, simplify, normalize, round
-  return polygons
+  return {
+    polygons: polygons
     .map(poly => poly.map(p => ({ x: p.x, y: -p.y })))   // flip Y
     .map(poly => simplifyPolygon(poly, 0.25))            // Ngưỡng 0.25mm nén số điểm li ti nhưng ko ảnh hưởng nesting (vì lưới check ≥ 1mm)
-    .map(poly => roundPolygon(normalizeToOrigin(poly), 4));
+    .map(poly => roundPolygon(normalizeToOrigin(poly), 4)),
+    analysis: {
+      stitchedPolygonCount,
+      openContourSegmentCount,
+      lineEntityCount: lineEntities.length
+    }
+  };
 }
 
 // ─────────────────────────────────────────────
@@ -522,14 +552,10 @@ export function parseDxfToPolygons(dxfText) {
 // ─────────────────────────────────────────────
 export async function parseCadBufferToPolygons(buffer, fileName = 'drawing.dxf') {
   const extension = path.extname(fileName).toLowerCase();
-
-  if (extension === '.dwg') {
-    const dxfText = await convertDwgBufferToDxfText(buffer, fileName);
-    return parseDxfToPolygons(dxfText);
-  }
-
-  const dxfText = buffer.toString('utf-8');
-  return parseDxfToPolygons(dxfText);
+  const dxfText = extension === '.dwg'
+    ? await convertDwgBufferToDxfText(buffer, fileName)
+    : buffer.toString('utf-8');
+  return parseDxfDocumentToPolygonAnalysis(parseDxfDocument(dxfText)).polygons;
 }
 
 /**
@@ -541,14 +567,7 @@ export async function parseCadBufferToPolygons(buffer, fileName = 'drawing.dxf')
  * @param {number} stepSize
  * @returns {Array<{sizeName, sizeValue, polygon, boundingBox, area, pointCount}>}
  */
-function extractDetectedSizeLabelsFromDxfText(dxfText) {
-  let dxf;
-  try {
-    dxf = new DxfParser().parseSync(dxfText);
-  } catch {
-    return [];
-  }
-
+function extractDetectedSizeLabelsFromDxf(dxf) {
   const uniqueLabels = new Map();
 
   for (const entity of dxf.entities || []) {
@@ -602,7 +621,37 @@ function assignSizesWithDetectedLabels(polygons, detectedLabels, startSize = 3.5
   });
 }
 
-export async function parseCadBufferToSizedShapes(
+function buildCadImportAnalysis(polygons, detectedLabels, polygonAnalysis) {
+  const stitchedPolygonCount = polygonAnalysis?.analysis?.stitchedPolygonCount || 0;
+  const openContourSegmentCount = polygonAnalysis?.analysis?.openContourSegmentCount || 0;
+  const detectedLabelCount = Array.isArray(detectedLabels) ? detectedLabels.length : 0;
+  const polygonCount = Array.isArray(polygons) ? polygons.length : 0;
+  const isPrePairedContour =
+    polygonCount > 0 &&
+    stitchedPolygonCount > 0 &&
+    detectedLabelCount === polygonCount;
+
+  return {
+    polygonCount,
+    detectedLabelCount,
+    stitchedPolygonCount,
+    openContourSegmentCount,
+    recommendation: isPrePairedContour
+      ? {
+          kind: 'pre-paired-contour',
+          autoApply: true,
+          title: 'Đã nhận diện file cần ưu tiên xếp cùng bên',
+          modeLabel: 'Ghép Chiếc (Cùng bên) - Tối ưu file ghép sẵn',
+          pairingStrategy: 'same-side',
+          capacityLayoutMode: 'same-side-prepaired-tight',
+          reason:
+            'File này sẽ dùng thuật toán riêng cho biên dạng ghép sẵn để xếp cùng bên chặt hơn và giảm thời gian tính toán.'
+        }
+      : null
+  };
+}
+
+export async function parseCadBufferToSizedShapesWithAnalysis(
   buffer,
   fileName = 'drawing.dxf',
   startSize = 3.5,
@@ -613,9 +662,39 @@ export async function parseCadBufferToSizedShapes(
     ? await convertDwgBufferToDxfText(buffer, fileName)
     : buffer.toString('utf-8');
 
-  const polygons = parseDxfToPolygons(dxfText);
-  const detectedLabels = extractDetectedSizeLabelsFromDxfText(dxfText);
-  return assignSizesWithDetectedLabels(polygons, detectedLabels, startSize, stepSize);
+  const dxf = parseDxfDocument(dxfText);
+  const polygonAnalysis = parseDxfDocumentToPolygonAnalysis(dxf);
+  const detectedLabels = extractDetectedSizeLabelsFromDxf(dxf);
+  const shapes = assignSizesWithDetectedLabels(
+    polygonAnalysis.polygons,
+    detectedLabels,
+    startSize,
+    stepSize
+  );
+
+  return {
+    shapes,
+    importAnalysis: buildCadImportAnalysis(
+      polygonAnalysis.polygons,
+      detectedLabels,
+      polygonAnalysis
+    )
+  };
+}
+
+export async function parseCadBufferToSizedShapes(
+  buffer,
+  fileName = 'drawing.dxf',
+  startSize = 3.5,
+  stepSize = 0.5
+) {
+  const result = await parseCadBufferToSizedShapesWithAnalysis(
+    buffer,
+    fileName,
+    startSize,
+    stepSize
+  );
+  return result.shapes;
 }
 
 export function assignSizesToPolygons(polygons, startSize = 3.5, stepSize = 0.5) {

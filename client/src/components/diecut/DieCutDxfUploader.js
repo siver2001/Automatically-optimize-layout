@@ -272,7 +272,7 @@ const ShapePreviewCard = ({ shape, index, onClick }) => {
 };
 
 // ─── Main Uploader ─────────────────────────────────────
-const DieCutDxfUploader = ({ onShapesLoaded, initialShapes }) => {
+const DieCutDxfUploader = ({ onShapesLoaded, initialShapes, initialImportAnalysis = null }) => {
   const [startSize, setStartSize] = useState('3.5');
   const [stepSize, setStepSize] = useState('0.5');
   const [files, setFiles] = useState([]);
@@ -280,12 +280,14 @@ const DieCutDxfUploader = ({ onShapesLoaded, initialShapes }) => {
   const [error, setError] = useState(null);
   // Khởi tạo preview từ initialShapes (khi quay lại tab, shapes đã có sẵn)
   const [preview, setPreview] = useState(initialShapes || null);
+  const [previewImportAnalysis, setPreviewImportAnalysis] = useState(initialImportAnalysis);
   const [zoomShape, setZoomShape] = useState(null); // { shape, index }
 
   const handleFileChange = (e) => {
     setFiles(Array.from(e.target.files));
     setError(null);
     setPreview(null);
+    setPreviewImportAnalysis(null);
   };
 
   const handleUpload = async () => {
@@ -311,7 +313,11 @@ const DieCutDxfUploader = ({ onShapesLoaded, initialShapes }) => {
       if (!res.ok) throw new Error(data.error || 'Lỗi server');
 
       setPreview(data.shapes);
-      onShapesLoaded(data.shapes);
+      setPreviewImportAnalysis(data.importAnalysis || null);
+      onShapesLoaded({
+        shapes: data.shapes,
+        importAnalysis: data.importAnalysis || null
+      });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -393,6 +399,20 @@ const DieCutDxfUploader = ({ onShapesLoaded, initialShapes }) => {
         {error && (
           <div className="bg-red-500/20 border border-red-400/30 rounded-lg px-3 py-2 text-red-200 text-sm">
             {error}
+          </div>
+        )}
+
+        {previewImportAnalysis?.recommendation && (
+          <div className="bg-emerald-500/15 border border-emerald-400/30 rounded-lg px-3 py-2 text-sm">
+            <div className="text-emerald-200 font-semibold">
+              {previewImportAnalysis.recommendation.title}
+            </div>
+            <div className="text-white/75 text-xs mt-1">
+              Hệ thống sẽ ưu tiên mode <span className="text-emerald-200 font-medium">{previewImportAnalysis.recommendation.modeLabel}</span> cho file này.
+            </div>
+            <div className="text-white/55 text-xs mt-1">
+              {previewImportAnalysis.recommendation.reason}
+            </div>
           </div>
         )}
 
