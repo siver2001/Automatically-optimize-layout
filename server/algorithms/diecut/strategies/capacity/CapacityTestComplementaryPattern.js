@@ -33,6 +33,16 @@ const ROW_SHIFT_Y_SAMPLE_LIMIT = 13;
 const ROW_REPEAT_CHECK_COUNT = 4;
 const ROW_NEIGHBOR_COL_START = -1;
 const ROW_NEIGHBOR_COL_END = 2;
+const MAX_FINE_ROTATE_DEGREES = 5;
+const DETAILED_FINE_ROTATE_STEP_DEGREES = 0.5;
+
+function normalizeFineRotateOffsets(offsets) {
+  return [...new Set(
+    offsets
+      .filter((angle) => Number.isFinite(angle))
+      .map((value) => roundMetric(Math.max(-MAX_FINE_ROTATE_DEGREES, Math.min(MAX_FINE_ROTATE_DEGREES, value)), 3))
+  )];
+}
 
 function compareMotifCandidates(nextMotif, bestMotif) {
   if (!bestMotif) return -1;
@@ -100,7 +110,7 @@ function estimatePairTaskWeight(size, config) {
   const pieceArea = Math.max(1, polygonArea(size?.polygon) || 1);
   const pointFactor = 1 + Math.max(0, ((size?.polygon?.length || 0) - 12) / 48);
   const fineRotateOffsets = Array.isArray(config.pairFineRotateOffsets) && config.pairFineRotateOffsets.length
-    ? config.pairFineRotateOffsets.filter((angle) => Number.isFinite(angle))
+    ? normalizeFineRotateOffsets(config.pairFineRotateOffsets)
     : [-4, -2, 0];
   const angleFactor = 1 + Math.max(0, fineRotateOffsets.length - 1) * 0.35;
   const fillerFactor = config.allowRotate90 === false ? 1 : 1.15;
@@ -965,7 +975,7 @@ export class CapacityTestComplementaryPattern extends BaseNesting {
 
     const ratios = Array.isArray(this.config.pairAlignedRowShiftRatios) && this.config.pairAlignedRowShiftRatios.length
       ? this.config.pairAlignedRowShiftRatios
-      : [0.35, 0.5];
+      : [0.125, 0.35, 0.5];
     const candidates = [];
     for (const ratio of ratios) {
       const value = quantizeToStep(averagePitchX * ratio, step);
@@ -1163,17 +1173,20 @@ export class CapacityTestComplementaryPattern extends BaseNesting {
       : (() => {
           if ((config.gridStep || 1) <= 0.5) {
             const denseOffsets = [];
-            for (let value = -6; value <= 6.0001; value += 0.5) {
+            const stepDegrees = Number.isFinite(config.pairFineRotateStepDegrees)
+              ? Math.max(0.125, config.pairFineRotateStepDegrees)
+              : DETAILED_FINE_ROTATE_STEP_DEGREES;
+            for (let value = -MAX_FINE_ROTATE_DEGREES; value <= MAX_FINE_ROTATE_DEGREES + 0.0001; value += stepDegrees) {
               denseOffsets.push(roundMetric(value, 3));
             }
             return denseOffsets;
           }
-          return [-6, -4, -2, 0, 2, 4, 6];
+          return [-4, -2, 0, 2, 4];
         })();
     if (config.pairFineRotateEnabled === false) {
       return [0];
     }
-    return [...new Set(rawOffsets.map((value) => roundMetric(value, 3)))];
+    return normalizeFineRotateOffsets(rawOffsets);
   }
 
   _buildPairBodyStrategies(sizeName, baseLeft, baseRight, config, step) {

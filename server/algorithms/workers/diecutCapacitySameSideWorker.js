@@ -1,5 +1,6 @@
 import { parentPort } from 'worker_threads';
 import { CapacityTestSameSidePattern } from '../diecut/strategies/capacity/CapacityTestSameSidePattern.js';
+import { CapacityTestPrePairedSameSidePattern } from '../diecut/strategies/capacity/CapacityTestPrePairedSameSidePattern.js';
 
 if (!parentPort) {
   throw new Error('diecutCapacitySameSideWorker requires a parent port');
@@ -12,7 +13,9 @@ function getAlgorithm(config) {
   const configKey = JSON.stringify(config);
   if (configKey !== cachedConfigKey || !cachedAlgorithm) {
     cachedConfigKey = configKey;
-    cachedAlgorithm = new CapacityTestSameSidePattern(config);
+    cachedAlgorithm = config?.capacityLayoutMode === 'same-side-prepaired-tight'
+      ? new CapacityTestPrePairedSameSidePattern(config)
+      : new CapacityTestSameSidePattern(config);
   }
   return cachedAlgorithm;
 }

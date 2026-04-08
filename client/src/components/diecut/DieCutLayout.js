@@ -32,6 +32,7 @@ function applyRecommendedMode(config, importAnalysis) {
   const recommendation = importAnalysis?.recommendation;
   if (!recommendation?.autoApply) {
     if (
+      config.capacityLayoutMode === 'same-side-fine-rotate-5deg' ||
       config.capacityLayoutMode === 'same-side-prepaired-tight' ||
       config.capacityLayoutMode === 'same-side-orthogonal'
     ) {
@@ -77,6 +78,9 @@ function getCapacityModeLabel(config) {
   if (config.pairingStrategy === 'same-side') {
     if (config.capacityLayoutMode === 'same-side-prepaired-tight') {
       return 'Ghép Chiếc (Cùng bên) - Tối ưu file ghép sẵn';
+    }
+    if (config.capacityLayoutMode === 'same-side-fine-rotate-5deg') {
+      return 'Ghép Chiếc (Cùng bên) - Deep Search ±5°';
     }
     if (config.capacityLayoutMode === 'same-side-orthogonal') {
       return 'Ghép Chiếc (Cùng bên) - Hàng thẳng';
