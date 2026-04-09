@@ -174,7 +174,7 @@ const config = {
   pairingStrategy: 'pair',
   gridStep: 0.5,
   layers: 1,
-  nestingStrategy: 'mixed-size-area',
+  nestingStrategy: process.env.DIECUT_NESTING_STRATEGY || 'mixed-size-area',
   maxTimeMs: 60000
 };
 
@@ -189,6 +189,14 @@ const result = await runNestingMode({
   config,
   metadata: {}
 });
+const tailSheets = [...(result.sheets || [])]
+  .slice(-6)
+  .map((sheet) => ({
+    sheetIndex: sheet.sheetIndex,
+    efficiency: sheet.efficiency,
+    placedCount: sheet.placedCount,
+    spacingCheck: inspectSheetSpacing(sheet, config.spacing)
+  }));
 const lowestSheets = [...(result.sheets || [])]
   .sort((a, b) => a.efficiency - b.efficiency)
   .slice(0, 8)
@@ -204,5 +212,6 @@ console.log(JSON.stringify({
   totalSheets: result.totalSheets,
   efficiency: result.efficiency,
   placedCount: result.placedCount,
+  tailSheets,
   lowestSheets
 }, null, 2));

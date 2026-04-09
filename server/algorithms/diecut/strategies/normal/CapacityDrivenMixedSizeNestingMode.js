@@ -12,12 +12,12 @@ import { cachedPolygonsOverlap } from '../capacity/patternCapacityUtils.js';
 import { finalizeNestingResult, sortSizesByDescendingArea } from './nestingPlanUtils.js';
 
 const MIN_FREE_RECT_SIZE = 20;
-const MAX_FREE_RECT_DEPTH = 6;
+const MAX_FREE_RECT_DEPTH = 9;
 const MIN_BATCH_FULL_SHEETS = 4;
 const RESERVED_FULL_SHEETS_FOR_MIXING = 2;
-const MAX_SALVAGE_RECTS = 1;
-const MAX_SALVAGE_SIZE_CANDIDATES = 2;
-const MAX_SALVAGE_INSERTIONS = 1;
+const MAX_SALVAGE_RECTS = 3;
+const MAX_SALVAGE_SIZE_CANDIDATES = 4;
+const MAX_SALVAGE_INSERTIONS = 2;
 
 function toPairQuantity(size) {
   const raw = size?.quantity ?? size?.pairQuantity ?? 0;
@@ -31,6 +31,25 @@ function roundMetric(value, digits = 2) {
 
 function getRectArea(rect) {
   return Math.max(0, rect?.width || 0) * Math.max(0, rect?.height || 0);
+}
+
+function resolveMixedBehavior(config = {}) {
+  return {
+    minBatchFullSheets: MIN_BATCH_FULL_SHEETS,
+    reservedFullSheetsForMixing: RESERVED_FULL_SHEETS_FOR_MIXING,
+    candidateBoost: 0,
+    salvageRects: MAX_SALVAGE_RECTS,
+    salvageCandidateSizes: MAX_SALVAGE_SIZE_CANDIDATES,
+    salvageInsertions: MAX_SALVAGE_INSERTIONS,
+    salvageMinArea: 30000,
+    salvageEfficiencyThreshold: 86,
+    salvageFreeAreaThreshold: 45000,
+    stripFillWeight: 10000,
+    lookaheadWeight: 0.55,
+    fragmentationPenaltyWeight: 0.05,
+    emptyBoundsPenaltyWeight: 0.05,
+    irregular: true
+  };
 }
 
 function buildCapacityConfig(config = {}, width, height) {
@@ -549,14 +568,14 @@ function isStripLikeRect(rect) {
   return rect.width <= 260 || rect.height <= 260;
 }
 
-function resolveCandidateLimit(rect, activeCount) {
+function resolveCandidateLimit(rect, activeCount, behavior) {
   const area = getRectArea(rect);
-  if (area >= 700000) return Math.min(activeCount, 4);
-  if (area >= 250000) return Math.min(activeCount, 6);
-  return Math.min(activeCount, 8);
+  if (area >= 700000) return Math.min(activeCount, 6 + behavior.candidateBoost);
+  if (area >= 250000) return Math.min(activeCount, 8 + behavior.candidateBoost);
+  return Math.min(activeCount, 12 + behavior.candidateBoost);
 }
 
-function buildCandidateSizes(prioritizedSizes, remainingPieces, rect, config) {
+function buildCandidateSizes(prioritizedSizes, remainingPieces, rect, config, behavior) {
   const rectArea = Math.max(1, getRectArea(rect));
   const available = prioritizedSizes
     .filter((size) => (remainingPieces.get(size.sizeName) || 0) > 0)
@@ -583,7 +602,7 @@ function buildCandidateSizes(prioritizedSizes, remainingPieces, rect, config) {
     return available.map((entry) => entry.size);
   }
 
-  const limit = resolveCandidateLimit(rect, available.length);
+  const limit = resolveCandidateLimit(rect, available.length, behavior);
   const selected = [];
   const seen = new Set();
   const pushEntry = (entry) => {
@@ -600,7 +619,7 @@ function buildCandidateSizes(prioritizedSizes, remainingPieces, rect, config) {
   if (narrowStrip) {
     for (const entry of [...available].sort((left, right) => left.pieceArea - right.pieceArea)) {
       pushEntry(entry);
-      if (selected.length >= Math.max(limit + 2, 8)) break;
+      if (selected.length >= Math.max(limit + 2 + behavior.candidateBoost, 8 + behavior.candidateBoost)) break;
     }
   }
 
@@ -631,7 +650,7 @@ async function getCapacityLayoutForRect(size, rect, config, cache) {
   const template = await buildFullSheetTemplate(size, config, cache);
   let response = cropTemplateToRect(template, rect);
 
-  if (!response.placedCount && areaRatio >= 0.35) {
+  if (!response.placedCount && areaRatio >= 0.15) {
     const maxTimeMs = areaRatio >= 0.7
       ? Math.min(config.maxTimeMs || 60000, 9000)
       : Math.min(config.maxTimeMs || 60000, 3500);
@@ -907,7 +926,7 @@ function shouldAttemptClusterAdjustment(rect, bounds, existingPlacedIndex, sizeN
   return hasCrossSizeNeighbor(existingPlacedIndex, bounds, sizeName, spacing);
 }
 
-function shouldRunSheetSalvage(sheetPlaced, remainingPieces, config) {
+function shouldRunSheetSalvage(sheetPlaced, remainingPieces, config, behavior) {
   if (!sheetPlaced?.length) return false;
   const remainingTotal = [...remainingPieces.values()].reduce((sum, value) => sum + value, 0);
   if (remainingTotal <= 0) return false;
@@ -918,22 +937,22 @@ function shouldRunSheetSalvage(sheetPlaced, remainingPieces, config) {
   const freeArea = totalArea - usedArea;
   const efficiency = (usedArea / totalArea) * 100;
   const distinctRemaining = [...remainingPieces.values()].filter((value) => value > 0).length;
-  return freeArea >= 90000 && efficiency < 72 && distinctRemaining >= 1;
+  return freeArea >= behavior.salvageFreeAreaThreshold && efficiency < behavior.salvageEfficiencyThreshold && distinctRemaining >= 1;
 }
 
-function buildSalvageFreeRects(sheetPlaced, config) {
+function buildSalvageFreeRects(sheetPlaced, config, behavior) {
   const usableRect = getUsableSheetRect(config);
   if (!sheetPlaced?.length) return [usableRect];
 
   return splitFreeRectByBands(usableRect, sheetPlaced, config.spacing || 0)
-    .filter((rect) => getRectArea(rect) >= 35000)
-    .filter((rect) => isStripLikeRect(rect))
+    .filter((rect) => getRectArea(rect) >= behavior.salvageMinArea)
+    .filter((rect) => behavior.irregular || isStripLikeRect(rect))
     .sort((left, right) =>
       getRectArea(right) - getRectArea(left)
       || left.y - right.y
       || left.x - right.x
     )
-    .slice(0, MAX_SALVAGE_RECTS);
+    .slice(0, behavior.salvageRects);
 }
 
 async function runSheetSalvagePass({
@@ -942,22 +961,24 @@ async function runSheetSalvagePass({
   remainingPieces,
   prioritizedSizes,
   config,
-  capacityCache
+  capacityCache,
+  behavior
 }) {
-  if (!shouldRunSheetSalvage(sheetPlaced, remainingPieces, config)) {
+  if (!shouldRunSheetSalvage(sheetPlaced, remainingPieces, config, behavior)) {
     return false;
   }
 
   let insertedAnything = false;
 
-  for (let insertionIndex = 0; insertionIndex < MAX_SALVAGE_INSERTIONS; insertionIndex++) {
-    const salvageRects = buildSalvageFreeRects(sheetPlaced, config);
+  for (let insertionIndex = 0; insertionIndex < behavior.salvageInsertions; insertionIndex++) {
+    const salvageRects = buildSalvageFreeRects(sheetPlaced, config, behavior);
     let bestCandidate = null;
 
     for (const rect of salvageRects) {
-      const candidateSizes = buildSalvageCandidateSizes(prioritizedSizes, remainingPieces, rect, config);
+      const candidateSizes = buildSalvageCandidateSizes(prioritizedSizes, remainingPieces, rect, config)
+        .slice(0, behavior.salvageCandidateSizes);
       const rectArea = getRectArea(rect);
-      const shouldTryExact = rectArea <= 70000;
+      const shouldTryExact = rectArea <= (behavior.irregular ? 110000 : 70000);
 
       for (const size of candidateSizes) {
         const cachedLayout = await getCapacityLayoutForRect(size, rect, config, capacityCache);
@@ -973,7 +994,7 @@ async function runSheetSalvagePass({
         if (!isClusterSafeAgainstExisting(snapped.placed, sheetPlacedIndex, config.spacing || 0)) continue;
 
         const fillRatio = trimmed.usedArea / Math.max(1, rectArea);
-        const score = trimmed.usedArea + fillRatio * 9000 + trimmed.placedCount * 300;
+        const score = trimmed.usedArea + fillRatio * behavior.stripFillWeight + trimmed.placedCount * 300;
 
         if (
           !bestCandidate ||
@@ -1019,15 +1040,15 @@ function buildBatchSheetFromTemplate(sheetIndex, template, config) {
   return buildSheetResult(sheetIndex, layout.placed, config);
 }
 
-function resolveBatchCandidate(prioritizedSizes, remainingPieces, templateMap) {
+function resolveBatchCandidate(prioritizedSizes, remainingPieces, templateMap, behavior) {
   for (const size of prioritizedSizes) {
     const remaining = remainingPieces.get(size.sizeName) || 0;
     const template = templateMap.get(size.sizeName);
     const piecesPerSheet = template?.placedCount || 0;
     if (piecesPerSheet <= 0) continue;
     const fullSheetCount = Math.floor(remaining / piecesPerSheet);
-    if (fullSheetCount < MIN_BATCH_FULL_SHEETS) continue;
-    const batchCount = Math.max(0, fullSheetCount - RESERVED_FULL_SHEETS_FOR_MIXING);
+    if (fullSheetCount < behavior.minBatchFullSheets) continue;
+    const batchCount = Math.max(0, fullSheetCount - behavior.reservedFullSheetsForMixing);
     if (batchCount <= 0) continue;
     return {
       size,
@@ -1048,7 +1069,7 @@ async function estimateLookaheadUsedArea(rect, leftoverRects, candidateSizes, cu
   let bestUsedArea = 0;
   const followUpSizes = candidateSizes
     .filter((size) => size.sizeName !== currentSizeName)
-    .slice(0, 3);
+    .slice(0, 5);
 
   for (const size of followUpSizes) {
     const layout = await getCapacityLayoutForRect(size, targetRect, config, cache);
@@ -1071,10 +1092,11 @@ export async function runCapacityDrivenMixedSizeNestingMode({
   const placedSheets = [];
   const capacityCache = new Map();
   const startedAt = Date.now();
+  const behavior = resolveMixedBehavior(config);
   const fullTemplateMap = await buildFullSheetTemplateMap(prioritizedSizes, config, capacityCache);
 
   while ([...remainingPieces.values()].some((value) => value > 0)) {
-    const batchCandidate = resolveBatchCandidate(prioritizedSizes, remainingPieces, fullTemplateMap);
+    const batchCandidate = resolveBatchCandidate(prioritizedSizes, remainingPieces, fullTemplateMap, behavior);
     if (batchCandidate) {
       for (let index = 0; index < batchCandidate.batchCount; index++) {
         placedSheets.push(buildBatchSheetFromTemplate(placedSheets.length, batchCandidate.template, config));
@@ -1097,7 +1119,7 @@ export async function runCapacityDrivenMixedSizeNestingMode({
       const rect = freeRects.shift();
       if (!rect || rect.width <= MIN_FREE_RECT_SIZE || rect.height <= MIN_FREE_RECT_SIZE) continue;
 
-      const candidateSizes = buildCandidateSizes(prioritizedSizes, remainingPieces, rect, config);
+      const candidateSizes = buildCandidateSizes(prioritizedSizes, remainingPieces, rect, config, behavior);
       const rankedCandidates = [];
 
       for (const size of candidateSizes) {
@@ -1113,7 +1135,7 @@ export async function runCapacityDrivenMixedSizeNestingMode({
             : splitFreeRect(rect, trimmed.bounds, config.spacing || 0);
           const fragmentationPenalty = leftoverRects.reduce((sum, nextRect) => {
             const nextArea = getRectArea(nextRect);
-            return sum + (nextArea < 120000 ? nextArea * 0.08 : 0);
+            return sum + (nextArea < 120000 ? nextArea * behavior.fragmentationPenaltyWeight : 0);
           }, 0);
           const lookaheadUsedArea = await estimateLookaheadUsedArea(
             rect,
@@ -1126,12 +1148,12 @@ export async function runCapacityDrivenMixedSizeNestingMode({
           const rectArea = Math.max(1, getRectArea(rect));
           const fillRatio = trimmed.usedArea / rectArea;
           const stripFillBonus = isStripLikeRect(rect)
-            ? fillRatio * 12000 + trimmed.placedCount * 180
+            ? fillRatio * behavior.stripFillWeight + trimmed.placedCount * 180
             : 0;
           const score = trimmed.usedArea
             + stripFillBonus
-            + lookaheadUsedArea * 0.45
-            - (trimmed.bounds.width * trimmed.bounds.height - trimmed.usedArea) * 0.08
+            + lookaheadUsedArea * behavior.lookaheadWeight
+            - (trimmed.bounds.width * trimmed.bounds.height - trimmed.usedArea) * behavior.emptyBoundsPenaltyWeight
             - fragmentationPenalty;
           rankedCandidates.push({
             size,
@@ -1242,7 +1264,8 @@ export async function runCapacityDrivenMixedSizeNestingMode({
       remainingPieces,
       prioritizedSizes,
       config,
-      capacityCache
+      capacityCache,
+      behavior
     });
 
     placedSheets.push(buildSheetResult(placedSheets.length, sheetPlaced, config));
