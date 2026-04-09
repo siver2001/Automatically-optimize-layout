@@ -8,12 +8,16 @@ import {
 } from '../../core/polygonUtils.js';
 import { CapacityTestComplementaryPattern } from '../capacity/CapacityTestComplementaryPattern.js';
 import { CapacityTestSameSidePattern } from '../capacity/CapacityTestSameSidePattern.js';
+import { cachedPolygonsOverlap } from '../capacity/patternCapacityUtils.js';
 import { finalizeNestingResult, sortSizesByDescendingArea } from './nestingPlanUtils.js';
 
 const MIN_FREE_RECT_SIZE = 20;
 const MAX_FREE_RECT_DEPTH = 6;
 const MIN_BATCH_FULL_SHEETS = 4;
 const RESERVED_FULL_SHEETS_FOR_MIXING = 2;
+const MAX_SALVAGE_RECTS = 1;
+const MAX_SALVAGE_SIZE_CANDIDATES = 2;
+const MAX_SALVAGE_INSERTIONS = 1;
 
 function toPairQuantity(size) {
   const raw = size?.quantity ?? size?.pairQuantity ?? 0;
@@ -131,6 +135,15 @@ function computePlacedBounds(placed = []) {
     maxY: roundMetric(maxY),
     width: roundMetric(maxX - minX),
     height: roundMetric(maxY - minY)
+  };
+}
+
+function getUsableSheetRect(config = {}) {
+  return {
+    x: config.marginX || 0,
+    y: config.marginY || 0,
+    width: (config.sheetWidth || 0) - 2 * (config.marginX || 0),
+    height: (config.sheetHeight || 0) - 2 * (config.marginY || 0)
   };
 }
 
@@ -499,6 +512,43 @@ function canSizePotentiallyFit(size, rect, config) {
   return fitsNormal || fitsRotated;
 }
 
+function buildSalvageCandidateSizes(prioritizedSizes, remainingPieces, rect, config) {
+  const fitSizes = prioritizedSizes
+    .filter((size) => (remainingPieces.get(size.sizeName) || 0) > 0)
+    .filter((size) => canSizePotentiallyFit(size, rect, config))
+    .map((size) => {
+      const pieceArea = Math.max(1, polygonArea(size.polygon));
+      const rectArea = Math.max(1, getRectArea(rect));
+      return {
+        size,
+        pieceArea,
+        fitRatio: pieceArea / rectArea,
+        remaining: remainingPieces.get(size.sizeName) || 0
+      };
+    });
+
+  const selected = [];
+  const seen = new Set();
+  const pushEntry = (entry) => {
+    if (!entry || seen.has(entry.size.sizeName)) return;
+    seen.add(entry.size.sizeName);
+    selected.push(entry.size);
+  };
+
+  for (const entry of [...fitSizes].sort((left, right) =>
+    left.pieceArea - right.pieceArea || right.remaining - left.remaining
+  )) {
+    pushEntry(entry);
+    if (selected.length >= MAX_SALVAGE_SIZE_CANDIDATES) break;
+  }
+
+  return selected;
+}
+
+function isStripLikeRect(rect) {
+  return rect.width <= 260 || rect.height <= 260;
+}
+
 function resolveCandidateLimit(rect, activeCount) {
   const area = getRectArea(rect);
   if (area >= 700000) return Math.min(activeCount, 4);
@@ -606,6 +656,45 @@ async function getCapacityLayoutForRect(size, rect, config, cache) {
   return response;
 }
 
+async function getExactCapacityLayoutForRect(size, rect, config, cache) {
+  const rectWidth = Math.max(5, Math.floor(rect.width / 5) * 5);
+  const rectHeight = Math.max(5, Math.floor(rect.height / 5) * 5);
+  const cacheKey = [
+    'exact',
+    size.sizeName,
+    rectWidth,
+    rectHeight,
+    config.pairingStrategy,
+    config.spacing,
+    config.gridStep,
+    config.allowRotate90,
+    config.allowRotate180
+  ].join('|');
+
+  if (cache.has(cacheKey)) {
+    return cache.get(cacheKey);
+  }
+
+  const capacityConfig = {
+    ...buildCapacityConfig(config, rectWidth, rectHeight),
+    maxTimeMs: Math.min(config.maxTimeMs || 60000, 2200)
+  };
+  const nester = createCapacityNester(capacityConfig);
+  const result = await nester.testCapacity([size], capacityConfig);
+  const sheet = result?.sheetsBySize?.[size.sizeName] || null;
+  const materializedPlaced = materializeCapacityItems(size, rect, sheet).sort(comparePlacedTopLeft);
+  const response = {
+    sheet,
+    placedCount: sheet?.placedCount || 0,
+    placed: materializedPlaced,
+    bounds: computePlacedBounds(materializedPlaced),
+    usedArea: (sheet?.placedCount || 0) * polygonArea(size.polygon)
+  };
+
+  cache.set(cacheKey, response);
+  return response;
+}
+
 function trimPlacementToRemaining(capacityPlacement, remainingPieces) {
   if (!capacityPlacement?.placedCount || remainingPieces <= 0) return null;
   const takeCount = Math.min(remainingPieces, capacityPlacement.placedCount);
@@ -671,14 +760,261 @@ function buildSheetResult(sheetIndex, placed, config) {
   };
 }
 
+function shiftPlacedCluster(placed = [], dx = 0, dy = 0) {
+  if ((!dx && !dy) || !placed.length) return placed;
+  return placed.map((item) => ({
+    ...item,
+    x: roundMetric(item.x + dx),
+    y: roundMetric(item.y + dy),
+    polygon: translate(item.polygon, dx, dy)
+  }));
+}
+
+function snapPlacedClusterToRect(placed, rect) {
+  if (!placed?.length) return null;
+  const bounds = computePlacedBounds(placed);
+  if (!bounds) return null;
+  const dx = roundMetric(rect.x - bounds.minX);
+  const dy = roundMetric(rect.y - bounds.minY);
+  const snapped = shiftPlacedCluster(placed, dx, dy);
+  const snappedBounds = computePlacedBounds(snapped);
+  if (!snappedBounds) return null;
+  if (
+    snappedBounds.minX < rect.x - 1e-6 ||
+    snappedBounds.minY < rect.y - 1e-6 ||
+    snappedBounds.maxX > rect.x + rect.width + 1e-6 ||
+    snappedBounds.maxY > rect.y + rect.height + 1e-6
+  ) {
+    return null;
+  }
+  return {
+    placed: snapped,
+    bounds: snappedBounds
+  };
+}
+
+function buildNearbyExistingPlacements(existingPlacedIndex, bounds, spacing = 0) {
+  if (!existingPlacedIndex?.length || !bounds) return [];
+  const expandedBounds = {
+    minX: bounds.minX - spacing,
+    minY: bounds.minY - spacing,
+    maxX: bounds.maxX + spacing,
+    maxY: bounds.maxY + spacing
+  };
+
+  return existingPlacedIndex
+    .filter(({ bb }) => !(
+      bb.maxX < expandedBounds.minX ||
+      bb.minX > expandedBounds.maxX ||
+      bb.maxY < expandedBounds.minY ||
+      bb.minY > expandedBounds.maxY
+    ));
+}
+
+function hasCrossSizeNeighbor(existingPlacedIndex, bounds, sizeName, spacing = 0) {
+  return buildNearbyExistingPlacements(existingPlacedIndex, bounds, spacing)
+    .some(({ item }) => item.sizeName !== sizeName);
+}
+
+function isClusterSafeAgainstExisting(placed, existingPlacedIndex, spacing = 0) {
+  if (!placed?.length) return false;
+  if (!existingPlacedIndex?.length) return true;
+
+  const candidateEntries = placed.map((item) => ({
+    item,
+    bb: getBoundingBox(item.polygon)
+  }));
+  const clusterBounds = computePlacedBounds(placed);
+  const nearbyExisting = buildNearbyExistingPlacements(existingPlacedIndex, clusterBounds, spacing);
+  if (!nearbyExisting.length) return true;
+
+  for (const candidate of candidateEntries) {
+    for (const existing of nearbyExisting) {
+      if (
+        candidate.bb.maxX + spacing < existing.bb.minX ||
+        candidate.bb.minX - spacing > existing.bb.maxX ||
+        candidate.bb.maxY + spacing < existing.bb.minY ||
+        candidate.bb.minY - spacing > existing.bb.maxY
+      ) {
+        continue;
+      }
+
+      if (
+        cachedPolygonsOverlap(
+          candidate.item.polygon,
+          existing.item.polygon,
+          { x: 0, y: 0 },
+          { x: 0, y: 0 },
+          spacing,
+          candidate.bb,
+          existing.bb
+        )
+      ) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
+function adjustClusterWithinRect(placed, rect, existingPlacedIndex, config) {
+  if (!placed?.length) return null;
+
+  const step = Math.max(0.5, config.gridStep || 0.5);
+  const spacing = config.spacing || 0;
+  const snapped = snapPlacedClusterToRect(placed, rect);
+  if (!snapped) return null;
+  if (isClusterSafeAgainstExisting(snapped.placed, existingPlacedIndex, spacing)) {
+    return snapped;
+  }
+
+  const slackX = Math.max(0, roundMetric(rect.x + rect.width - snapped.bounds.maxX, 3));
+  const slackY = Math.max(0, roundMetric(rect.y + rect.height - snapped.bounds.maxY, 3));
+  const maxShiftX = Math.min(slackX, Math.max(step * 8, spacing * 2));
+  const maxShiftY = Math.min(slackY, Math.max(step * 24, spacing * 4));
+  const shiftCandidatesX = [0];
+  const shiftCandidatesY = [0];
+
+  for (let value = step; value <= maxShiftX + 1e-6; value += step) {
+    shiftCandidatesX.push(roundMetric(value, 3));
+  }
+  for (let value = step; value <= maxShiftY + 1e-6; value += step) {
+    shiftCandidatesY.push(roundMetric(value, 3));
+  }
+
+  for (const dy of shiftCandidatesY) {
+    for (const dx of shiftCandidatesX) {
+      if (dx === 0 && dy === 0) continue;
+      const shifted = shiftPlacedCluster(snapped.placed, dx, dy);
+      if (!isClusterSafeAgainstExisting(shifted, existingPlacedIndex, spacing)) continue;
+      const shiftedBounds = computePlacedBounds(shifted);
+      if (!shiftedBounds) continue;
+      return {
+        placed: shifted,
+        bounds: shiftedBounds
+      };
+    }
+  }
+
+  return null;
+}
+
+function shouldAttemptClusterAdjustment(rect, bounds, existingPlacedIndex, sizeName, spacing = 0) {
+  if (!bounds || !existingPlacedIndex?.length) return false;
+  const narrowRect = rect.width <= 260 || rect.height <= 260 || (rect.depth || 0) > 0;
+  if (!narrowRect) return false;
+  return hasCrossSizeNeighbor(existingPlacedIndex, bounds, sizeName, spacing);
+}
+
+function shouldRunSheetSalvage(sheetPlaced, remainingPieces, config) {
+  if (!sheetPlaced?.length) return false;
+  const remainingTotal = [...remainingPieces.values()].reduce((sum, value) => sum + value, 0);
+  if (remainingTotal <= 0) return false;
+
+  const usableRect = getUsableSheetRect(config);
+  const totalArea = Math.max(1, usableRect.width * usableRect.height);
+  const usedArea = sheetPlaced.reduce((sum, item) => sum + polygonArea(item.polygon), 0);
+  const freeArea = totalArea - usedArea;
+  const efficiency = (usedArea / totalArea) * 100;
+  const distinctRemaining = [...remainingPieces.values()].filter((value) => value > 0).length;
+  return freeArea >= 90000 && efficiency < 72 && distinctRemaining >= 1;
+}
+
+function buildSalvageFreeRects(sheetPlaced, config) {
+  const usableRect = getUsableSheetRect(config);
+  if (!sheetPlaced?.length) return [usableRect];
+
+  return splitFreeRectByBands(usableRect, sheetPlaced, config.spacing || 0)
+    .filter((rect) => getRectArea(rect) >= 35000)
+    .filter((rect) => isStripLikeRect(rect))
+    .sort((left, right) =>
+      getRectArea(right) - getRectArea(left)
+      || left.y - right.y
+      || left.x - right.x
+    )
+    .slice(0, MAX_SALVAGE_RECTS);
+}
+
+async function runSheetSalvagePass({
+  sheetPlaced,
+  sheetPlacedIndex,
+  remainingPieces,
+  prioritizedSizes,
+  config,
+  capacityCache
+}) {
+  if (!shouldRunSheetSalvage(sheetPlaced, remainingPieces, config)) {
+    return false;
+  }
+
+  let insertedAnything = false;
+
+  for (let insertionIndex = 0; insertionIndex < MAX_SALVAGE_INSERTIONS; insertionIndex++) {
+    const salvageRects = buildSalvageFreeRects(sheetPlaced, config);
+    let bestCandidate = null;
+
+    for (const rect of salvageRects) {
+      const candidateSizes = buildSalvageCandidateSizes(prioritizedSizes, remainingPieces, rect, config);
+      const rectArea = getRectArea(rect);
+      const shouldTryExact = rectArea <= 70000;
+
+      for (const size of candidateSizes) {
+        const cachedLayout = await getCapacityLayoutForRect(size, rect, config, capacityCache);
+        let trimmed = trimPlacementToRemaining(cachedLayout, remainingPieces.get(size.sizeName) || 0);
+        if ((!trimmed?.placedCount || trimmed.placedCount <= 1) && shouldTryExact) {
+          const exactLayout = await getExactCapacityLayoutForRect(size, rect, config, capacityCache);
+          trimmed = trimPlacementToRemaining(exactLayout, remainingPieces.get(size.sizeName) || 0);
+        }
+        if (!trimmed?.placedCount || !trimmed.bounds) continue;
+
+        const snapped = snapPlacedClusterToRect(trimmed.placed, rect);
+        if (!snapped) continue;
+        if (!isClusterSafeAgainstExisting(snapped.placed, sheetPlacedIndex, config.spacing || 0)) continue;
+
+        const fillRatio = trimmed.usedArea / Math.max(1, rectArea);
+        const score = trimmed.usedArea + fillRatio * 9000 + trimmed.placedCount * 300;
+
+        if (
+          !bestCandidate ||
+          score > bestCandidate.score ||
+          (score === bestCandidate.score && trimmed.placedCount > bestCandidate.trimmed.placedCount)
+        ) {
+          bestCandidate = {
+            size,
+            score,
+            trimmed: {
+              ...trimmed,
+              placed: snapped.placed,
+              bounds: snapped.bounds
+            }
+          };
+        }
+      }
+    }
+
+    if (!bestCandidate) break;
+
+    for (const item of bestCandidate.trimmed.placed) {
+      sheetPlaced.push(item);
+      sheetPlacedIndex.push({
+        item,
+        bb: getBoundingBox(item.polygon)
+      });
+    }
+    remainingPieces.set(
+      bestCandidate.size.sizeName,
+      Math.max(0, (remainingPieces.get(bestCandidate.size.sizeName) || 0) - bestCandidate.trimmed.placedCount)
+    );
+    insertedAnything = true;
+  }
+
+  return insertedAnything;
+}
+
 
 function buildBatchSheetFromTemplate(sheetIndex, template, config) {
-  const rect = {
-    x: config.marginX || 0,
-    y: config.marginY || 0,
-    width: (config.sheetWidth || 0) - 2 * (config.marginX || 0),
-    height: (config.sheetHeight || 0) - 2 * (config.marginY || 0)
-  };
+  const rect = getUsableSheetRect(config);
   const layout = cropTemplateToRect(template, rect);
   return buildSheetResult(sheetIndex, layout.placed, config);
 }
@@ -751,13 +1087,8 @@ export async function runCapacityDrivenMixedSizeNestingMode({
     }
 
     const sheetPlaced = [];
-    const freeRects = [{
-      x: config.marginX || 0,
-      y: config.marginY || 0,
-      width: (config.sheetWidth || 0) - 2 * (config.marginX || 0),
-      height: (config.sheetHeight || 0) - 2 * (config.marginY || 0),
-      depth: 0
-    }];
+    const sheetPlacedIndex = [];
+    const freeRects = [{ ...getUsableSheetRect(config), depth: 0 }];
 
     let placedSomething = false;
 
@@ -767,8 +1098,7 @@ export async function runCapacityDrivenMixedSizeNestingMode({
       if (!rect || rect.width <= MIN_FREE_RECT_SIZE || rect.height <= MIN_FREE_RECT_SIZE) continue;
 
       const candidateSizes = buildCandidateSizes(prioritizedSizes, remainingPieces, rect, config);
-
-      let bestCandidate = null;
+      const rankedCandidates = [];
 
       for (const size of candidateSizes) {
         const layout = await getCapacityLayoutForRect(size, rect, config, capacityCache);
@@ -793,24 +1123,72 @@ export async function runCapacityDrivenMixedSizeNestingMode({
             config,
             capacityCache
           );
+          const rectArea = Math.max(1, getRectArea(rect));
+          const fillRatio = trimmed.usedArea / rectArea;
+          const stripFillBonus = isStripLikeRect(rect)
+            ? fillRatio * 12000 + trimmed.placedCount * 180
+            : 0;
           const score = trimmed.usedArea
+            + stripFillBonus
             + lookaheadUsedArea * 0.45
             - (trimmed.bounds.width * trimmed.bounds.height - trimmed.usedArea) * 0.08
             - fragmentationPenalty;
-          if (!bestCandidate || score > bestCandidate.score) {
-            bestCandidate = {
-              size,
-              score,
-              trimmed,
-              leftoverRects
-            };
-          }
+          rankedCandidates.push({
+            size,
+            score,
+            trimmed,
+            leftoverRects
+          });
         }
+      }
+
+      rankedCandidates.sort((left, right) =>
+        right.score - left.score
+        || right.trimmed.placedCount - left.trimmed.placedCount
+      );
+
+      let bestCandidate = null;
+      for (const candidate of rankedCandidates.slice(0, 2)) {
+        const snapped = snapPlacedClusterToRect(candidate.trimmed.placed, rect);
+        if (!snapped) continue;
+        const requiresAdjustment = shouldAttemptClusterAdjustment(
+          rect,
+          snapped.bounds,
+          sheetPlacedIndex,
+          candidate.size.sizeName,
+          config.spacing || 0
+        );
+        const adjusted = requiresAdjustment
+          ? adjustClusterWithinRect(candidate.trimmed.placed, rect, sheetPlacedIndex, config)
+          : snapped;
+        if (!adjusted) continue;
+        bestCandidate = {
+          ...candidate,
+          trimmed: {
+            ...candidate.trimmed,
+            placed: adjusted.placed,
+            bounds: adjusted.bounds
+          },
+          leftoverRects: rect.depth <= 1
+            ? splitFreeRectByBands(rect, adjusted.placed, config.spacing || 0)
+            : splitFreeRect(rect, adjusted.bounds, config.spacing || 0)
+        };
+        break;
+      }
+
+      if (!bestCandidate) {
+        bestCandidate = rankedCandidates[0] || null;
       }
 
       if (!bestCandidate) continue;
 
-      sheetPlaced.push(...bestCandidate.trimmed.placed);
+      for (const item of bestCandidate.trimmed.placed) {
+        sheetPlaced.push(item);
+        sheetPlacedIndex.push({
+          item,
+          bb: getBoundingBox(item.polygon)
+        });
+      }
       remainingPieces.set(
         bestCandidate.size.sizeName,
         Math.max(0, (remainingPieces.get(bestCandidate.size.sizeName) || 0) - bestCandidate.trimmed.placedCount)
@@ -857,6 +1235,15 @@ export async function runCapacityDrivenMixedSizeNestingMode({
       }
       continue;
     }
+
+    await runSheetSalvagePass({
+      sheetPlaced,
+      sheetPlacedIndex,
+      remainingPieces,
+      prioritizedSizes,
+      config,
+      capacityCache
+    });
 
     placedSheets.push(buildSheetResult(placedSheets.length, sheetPlaced, config));
   }

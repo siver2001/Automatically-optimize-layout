@@ -84,3 +84,17 @@ export function getDieCutNestingSheetDetail(resultId, sheetIndex) {
   const sheet = result.sheets?.[normalizedIndex];
   return sheet ? cloneValue(sheet) : null;
 }
+
+export function getDieCutNestingSheetDetails(resultId, sheetIndexes = []) {
+  const result = getDieCutNestingResult(resultId);
+  if (!result) return [];
+
+  const normalizedIndexes = [...new Set(
+    (sheetIndexes || [])
+      .map((value) => Math.max(0, Number(value) || 0))
+  )];
+
+  return normalizedIndexes
+    .map((index) => result.sheets?.[index] ? { sheetIndex: index, sheet: cloneValue(result.sheets[index]) } : null)
+    .filter(Boolean);
+}

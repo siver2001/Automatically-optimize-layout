@@ -64,6 +64,7 @@ function getItemPathTransform(item, renderTemplates) {
 const SheetCanvas = React.memo(({ sheet, sizeColorMap, scale, compactMode, isRotated }) => {
   const { sheetWidth, sheetHeight, placed, renderTemplates } = sheet;
   const [hovered, setHovered] = useState(null);
+  const [showLabels, setShowLabels] = useState(false);
 
   // States cho Pan & Zoom
   const containerRef = React.useRef(null);
@@ -107,11 +108,18 @@ const SheetCanvas = React.memo(({ sheet, sizeColorMap, scale, compactMode, isRot
     if (!compactMode) setZoom(scale);
   }, [scale, compactMode]);
 
+  React.useEffect(() => {
+    setShowLabels(false);
+    const frameId = window.requestAnimationFrame(() => {
+      setShowLabels(true);
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [sheet, isRotated]);
+
   const renderedPlaced = React.useMemo(() => (
     placed.map((item) => ({
       ...item,
       svgPath: getItemRenderPath(item, renderTemplates),
-      labelPos: getItemLabelPos(item, renderTemplates),
       pathTransform: getItemPathTransform(item, renderTemplates),
       fillColor: sizeColorMap[item.sizeName] || '#888'
     }))
@@ -182,13 +190,13 @@ const SheetCanvas = React.memo(({ sheet, sizeColorMap, scale, compactMode, isRot
           {renderedPlaced.map((item) => {
             const fillColor  = item.fillColor;
             const svgPath    = item.svgPath;
-            const cent       = item.labelPos;
             const pathTransform = item.pathTransform;
             const isHov      = hovered === item.id;
 
             const strokeColor = item.isFlipped ? '#fbbf24' : 'rgba(255,255,255,0.85)';
             const strokeW     = isHov ? 3 : (item.isFlipped ? 2 : 1.2);
             const fillOp      = isHov ? 0.85 : 0.62;
+            const cent = showLabels ? getItemLabelPos(item, renderTemplates) : null;
 
             return (
               <g
@@ -212,7 +220,7 @@ const SheetCanvas = React.memo(({ sheet, sizeColorMap, scale, compactMode, isRot
                 />
                 
                 {/* Wrap các text vào subgroup để counter-rotate nếu board bị xoay ngang */}
-                <g transform={isRotated ? `rotate(90, ${cent.x}, ${cent.y})` : undefined}>
+                {showLabels && cent ? <g transform={isRotated ? `rotate(90, ${cent.x}, ${cent.y})` : undefined}>
                   <text
                     x={cent.x} y={cent.y}
                     fontSize={7} fill="white" fillOpacity={0.9}
@@ -231,7 +239,7 @@ const SheetCanvas = React.memo(({ sheet, sizeColorMap, scale, compactMode, isRot
                       ↺180°
                     </text>
                   )}
-                </g>
+                </g> : null}
               </g>
             );
           })}
@@ -300,6 +308,7 @@ const DieCutNestingBoard = ({ nestingResult, sizeList, compactMode = false }) =>
     setSelectedSheet(0);
     setSheetDetails({});
     setLoadingSheetIndex(null);
+    diecutExportService.clearNestingSheetDetailCache();
   }, [nestingResult?.resultId, nestingResult?.totalSheets]);
 
   useEffect(() => {
@@ -330,11 +339,61 @@ const DieCutNestingBoard = ({ nestingResult, sizeList, compactMode = false }) =>
   }, [nestingResult?.resultId, nestingResult?.sheets, selectedSheet, sheetDetails]);
 
   useEffect(() => {
+    if (!nestingResult?.resultId || !sheets.length) return;
+    const preloadIndexes = [];
+    for (let index = 0; index < Math.min(4, sheets.length); index++) {
+      const summarySheet = sheets[index];
+      if (!summarySheet?.placed?.length && !sheetDetails[index]?.placed?.length) {
+        preloadIndexes.push(index);
+      }
+    }
+    if (!preloadIndexes.length) return;
+
+    diecutExportService.fetchNestingSheetDetails(nestingResult.resultId, preloadIndexes)
+      .then((loadedSheets) => {
+        if (!loadedSheets?.length) return;
+        setSheetDetails((current) => {
+          const next = { ...current };
+          for (const entry of loadedSheets) {
+            const index = Number(entry?.sheetIndex);
+            if (Number.isFinite(index)) {
+              next[index] = entry.sheet;
+            }
+          }
+          return next;
+        });
+      })
+      .catch(() => {});
+  }, [nestingResult?.resultId, sheets, sheetDetails]);
+
+  useEffect(() => {
     if (!sheetTabsRef.current) return;
     const tabEl = sheetTabsRef.current.querySelector(`[data-sheet-index="${selectedSheet}"]`);
     if (!tabEl) return;
     tabEl.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
   }, [selectedSheet]);
+
+  useEffect(() => {
+    if (!nestingResult?.resultId || !sheets.length) return;
+    const neighborIndexes = [selectedSheet - 1, selectedSheet + 1]
+      .filter((index) => index >= 0 && index < sheets.length);
+
+    for (const index of neighborIndexes) {
+      const summarySheet = sheets[index];
+      if (!summarySheet || summarySheet.placed?.length || sheetDetails[index]?.placed?.length) continue;
+
+      diecutExportService.fetchNestingSheetDetail(nestingResult.resultId, index)
+        .then((sheet) => {
+          if (!sheet) return;
+          setSheetDetails((current) => (
+            current[index]?.placed?.length
+              ? current
+              : { ...current, [index]: sheet }
+          ));
+        })
+        .catch(() => {});
+    }
+  }, [nestingResult?.resultId, selectedSheet, sheetDetails, sheets]);
 
   // Map sizeName → fill color
   const sizeColorMap = memoizedSizeColorMap;

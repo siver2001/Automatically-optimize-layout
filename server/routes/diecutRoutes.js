@@ -32,6 +32,7 @@ import { sanitizeExportFileName } from '../utils/diecutExportUtils.js';
 import {
   getDieCutNestingResult,
   getDieCutNestingSheetDetail,
+  getDieCutNestingSheetDetails,
   storeDieCutNestingResult
 } from '../utils/diecutNestingResultCache.js';
 
@@ -339,6 +340,21 @@ router.post('/nest-sheet-detail', async (req, res) => {
     res.json({ success: true, sheet });
   } catch (err) {
     console.error('[DieCut] nest-sheet-detail error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/nest-sheet-details', async (req, res) => {
+  try {
+    const { resultId, sheetIndexes } = req.body || {};
+    if (!resultId) {
+      return res.status(400).json({ error: 'Thieu resultId de tai chi tiet tam.' });
+    }
+
+    const sheets = getDieCutNestingSheetDetails(resultId, sheetIndexes);
+    res.json({ success: true, sheets });
+  } catch (err) {
+    console.error('[DieCut] nest-sheet-details error:', err);
     res.status(500).json({ error: err.message });
   }
 });

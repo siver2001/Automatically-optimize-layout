@@ -38,6 +38,11 @@ async function downloadBlob(endpoint, payload, fallbackName) {
 }
 
 class DieCutExportService {
+  constructor() {
+    this.sheetDetailCache = new Map();
+    this.sheetDetailPromiseCache = new Map();
+  }
+
   async exportPdf(payload) {
     return downloadBlob('export-pdf', payload, 'diecut-layouts.pdf');
   }
@@ -47,19 +52,72 @@ class DieCutExportService {
   }
 
   async fetchNestingSheetDetail(resultId, sheetIndex) {
-    const response = await fetch(`${API_BASE_URL}/diecut/nest-sheet-detail`, {
+    const cacheKey = `${resultId}:${sheetIndex}`;
+    if (this.sheetDetailCache.has(cacheKey)) {
+      return this.sheetDetailCache.get(cacheKey);
+    }
+    if (this.sheetDetailPromiseCache.has(cacheKey)) {
+      return this.sheetDetailPromiseCache.get(cacheKey);
+    }
+
+    const request = fetch(`${API_BASE_URL}/diecut/nest-sheet-detail`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({ resultId, sheetIndex })
-    });
+    })
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data?.error || 'Khong the tai chi tiet tam.');
+        }
+        const sheet = data?.sheet || null;
+        this.sheetDetailCache.set(cacheKey, sheet);
+        return sheet;
+      })
+      .finally(() => {
+        this.sheetDetailPromiseCache.delete(cacheKey);
+      });
 
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data?.error || 'Khong the tai chi tiet tam.');
+    this.sheetDetailPromiseCache.set(cacheKey, request);
+    return request;
+  }
+
+  async fetchNestingSheetDetails(resultId, sheetIndexes = []) {
+    const uniqueIndexes = [...new Set((sheetIndexes || []).map((value) => Math.max(0, Number(value) || 0)))];
+    const missingIndexes = uniqueIndexes.filter((index) => !this.sheetDetailCache.has(`${resultId}:${index}`));
+
+    if (missingIndexes.length) {
+      const response = await fetch(`${API_BASE_URL}/diecut/nest-sheet-details`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ resultId, sheetIndexes: missingIndexes })
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error || 'Khong the tai chi tiet tam.');
+      }
+
+      for (const entry of data?.sheets || []) {
+        this.sheetDetailCache.set(`${resultId}:${entry.sheetIndex}`, entry.sheet || null);
+      }
     }
-    return data?.sheet || null;
+
+    return uniqueIndexes
+      .map((index) => ({
+        sheetIndex: index,
+        sheet: this.sheetDetailCache.get(`${resultId}:${index}`)
+      }))
+      .filter((entry) => entry.sheet);
+  }
+
+  clearNestingSheetDetailCache() {
+    this.sheetDetailCache.clear();
+    this.sheetDetailPromiseCache.clear();
   }
 }
 

@@ -1701,8 +1701,8 @@ export class CapacityTestComplementaryPattern extends BaseNesting {
         id: `${sizeName}_${placement.orient.foot}_${index}`,
         sizeName,
         foot: placement.orient.foot,
-        x: roundMetric(worldX),
-        y: roundMetric(worldY),
+        x: roundMetric(worldX, 3),
+        y: roundMetric(worldY, 3),
         angle: placement.orient.angle,
         renderKey
       };

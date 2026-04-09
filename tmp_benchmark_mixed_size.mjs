@@ -138,6 +138,7 @@ function mergeShapesAndQuantities(shapes, quantities) {
 function inspectSheetSpacing(sheet, spacing) {
   const placed = sheet?.placed || [];
   let violations = 0;
+  const samples = [];
   for (let i = 0; i < placed.length; i++) {
     const a = placed[i];
     const bbA = getBoundingBox(a.polygon);
@@ -146,10 +147,16 @@ function inspectSheetSpacing(sheet, spacing) {
       const bbB = getBoundingBox(b.polygon);
       if (polygonsOverlap(a.polygon, b.polygon, { x: 0, y: 0 }, { x: 0, y: 0 }, spacing, bbA, bbB)) {
         violations += 1;
+        if (samples.length < 6) {
+          samples.push({
+            a: { sizeName: a.sizeName, foot: a.foot, x: a.x, y: a.y, angle: a.angle },
+            b: { sizeName: b.sizeName, foot: b.foot, x: b.x, y: b.y, angle: b.angle }
+          });
+        }
       }
     }
   }
-  return violations;
+  return { violations, samples };
 }
 
 const dxfPath = './SOLEWORK-DC-UN-001-MS FS-AUGUST SPORTS-D-0704-ATOM-2026-03-09.dxf';
@@ -189,7 +196,7 @@ const lowestSheets = [...(result.sheets || [])]
     sheetIndex: sheet.sheetIndex,
     efficiency: sheet.efficiency,
     placedCount: sheet.placedCount,
-    spacingViolations: inspectSheetSpacing(sheet, config.spacing)
+    spacingCheck: inspectSheetSpacing(sheet, config.spacing)
   }));
 
 console.log(JSON.stringify({
