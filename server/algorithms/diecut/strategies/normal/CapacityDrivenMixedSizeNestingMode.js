@@ -48,7 +48,8 @@ function resolveMixedBehavior(config = {}) {
     lookaheadWeight: 0.55,
     fragmentationPenaltyWeight: 0.05,
     emptyBoundsPenaltyWeight: 0.05,
-    irregular: true
+    irregular: true,
+    orderingMode: config.nestingOrderingMode === 'input' ? 'input' : 'area'
   };
 }
 
@@ -577,7 +578,7 @@ function resolveCandidateLimit(rect, activeCount, behavior) {
 
 function buildCandidateSizes(prioritizedSizes, remainingPieces, rect, config, behavior) {
   const rectArea = Math.max(1, getRectArea(rect));
-  const available = prioritizedSizes
+  const orderedEntries = prioritizedSizes
     .filter((size) => (remainingPieces.get(size.sizeName) || 0) > 0)
     .filter((size) => canSizePotentiallyFit(size, rect, config))
     .map((size) => {
@@ -591,12 +592,15 @@ function buildCandidateSizes(prioritizedSizes, remainingPieces, rect, config, be
         pieceArea,
         remaining
       };
-    })
-    .sort((left, right) =>
-      right.estimatedUseArea - left.estimatedUseArea
-      || right.remaining - left.remaining
-      || right.pieceArea - left.pieceArea
-    );
+    });
+
+  const available = behavior.orderingMode === 'input'
+    ? orderedEntries
+    : orderedEntries.sort((left, right) =>
+        right.estimatedUseArea - left.estimatedUseArea
+        || right.remaining - left.remaining
+        || right.pieceArea - left.pieceArea
+      );
 
   if (available.length <= 1) {
     return available.map((entry) => entry.size);
@@ -616,7 +620,7 @@ function buildCandidateSizes(prioritizedSizes, remainingPieces, rect, config, be
   }
 
   const narrowStrip = rect.width <= 180 || rect.height <= 180;
-  if (narrowStrip) {
+  if (narrowStrip && behavior.orderingMode !== 'input') {
     for (const entry of [...available].sort((left, right) => left.pieceArea - right.pieceArea)) {
       pushEntry(entry);
       if (selected.length >= Math.max(limit + 2 + behavior.candidateBoost, 8 + behavior.candidateBoost)) break;
@@ -1087,12 +1091,15 @@ export async function runCapacityDrivenMixedSizeNestingMode({
   config,
   metadata = {}
 }) {
-  const prioritizedSizes = sortSizesByDescendingArea(sizeList).filter((size) => toPairQuantity(size) > 0);
+  const behavior = resolveMixedBehavior(config);
+  const prioritizedSizes = (behavior.orderingMode === 'input'
+    ? [...sizeList]
+    : sortSizesByDescendingArea(sizeList)
+  ).filter((size) => toPairQuantity(size) > 0);
   const remainingPieces = new Map(prioritizedSizes.map((size) => [size.sizeName, toPairQuantity(size) * 2]));
   const placedSheets = [];
   const capacityCache = new Map();
   const startedAt = Date.now();
-  const behavior = resolveMixedBehavior(config);
   const fullTemplateMap = await buildFullSheetTemplateMap(prioritizedSizes, config, capacityCache);
 
   while ([...remainingPieces.values()].some((value) => value > 0)) {

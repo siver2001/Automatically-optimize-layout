@@ -559,6 +559,7 @@ const NormalNestingResult = ({
   setShowEmptySizeRows,
   onExportPdf,
   onExportDxf,
+  onResultChange,
   onClose
 }) => {
   const totalPairs = Math.floor((nestingResult?.placedCount || 0) / 2);
@@ -680,7 +681,14 @@ const NormalNestingResult = ({
         </div>
 
         <div className="min-w-0">
-          <DieCutNestingBoard nestingResult={nestingResult} sizeList={sizeList} compactMode />
+          <DieCutNestingBoard
+            nestingResult={nestingResult}
+            sizeList={sizeList}
+            compactMode
+            allowEdit
+            editConfig={config}
+            onResultChange={onResultChange}
+          />
         </div>
       </div>
     </div>
@@ -734,6 +742,119 @@ function getNestingStrategyLabel(strategy) {
 // ─────────────────────────────────────────
 // MAIN COMPONENT
 // ─────────────────────────────────────────
+const ExportSheetPickerModal = ({
+  isOpen,
+  format,
+  sheets,
+  selectedSheetIndexes,
+  isSubmitting,
+  onClose,
+  onToggleSheet,
+  onSelectAll,
+  onClearAll,
+  onConfirm
+}) => {
+  if (!isOpen) return null;
+
+  const selectedCount = selectedSheetIndexes.length;
+  const formatLabel = format === 'dxf' ? 'DXF' : 'PDF';
+
+  return (
+    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 backdrop-blur-sm px-4">
+      <div className="w-full max-w-2xl rounded-2xl border border-white/10 bg-[#111827] shadow-2xl overflow-hidden">
+        <div className="flex items-center justify-between gap-4 border-b border-white/10 px-5 py-4">
+          <div>
+            <h3 className="text-white font-bold text-base">Chọn tấm để xuất {formatLabel}</h3>
+            <p className="text-white/45 text-xs mt-1">
+              Có thể chọn 1 tấm, nhiều tấm hoặc toàn bộ. Hiện đang chọn {selectedCount}/{sheets.length} tấm.
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            disabled={isSubmitting}
+            className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white/70 text-sm disabled:opacity-40"
+          >
+            Đóng
+          </button>
+        </div>
+
+        <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-white/10 bg-white/[0.03]">
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={onSelectAll}
+              disabled={isSubmitting}
+              className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 text-xs border border-emerald-400/20 disabled:opacity-40"
+            >
+              Chọn tất cả
+            </button>
+            <button
+              onClick={onClearAll}
+              disabled={isSubmitting}
+              className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white/70 text-xs border border-white/10 disabled:opacity-40"
+            >
+              Bỏ chọn tất cả
+            </button>
+          </div>
+          <div className="text-white/45 text-xs">
+            {selectedCount === 0 ? 'Chưa chọn tấm nào' : `Sẽ xuất ${selectedCount} tấm`}
+          </div>
+        </div>
+
+        <div className="max-h-[55vh] overflow-y-auto custom-scrollbar px-5 py-4 space-y-2">
+          {sheets.map((sheet, index) => {
+            const isSelected = selectedSheetIndexes.includes(index);
+            return (
+              <label
+                key={index}
+                className={`flex items-center gap-3 rounded-xl border px-4 py-3 cursor-pointer transition-colors ${
+                  isSelected
+                    ? 'border-sky-400/30 bg-sky-500/10'
+                    : 'border-white/10 bg-white/[0.03] hover:bg-white/[0.05]'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={isSelected}
+                  onChange={() => onToggleSheet(index)}
+                  disabled={isSubmitting}
+                  className="h-4 w-4 rounded border-white/20 bg-black/20 text-sky-500 focus:ring-sky-500/40"
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="text-white font-medium text-sm">Tấm {index + 1}</div>
+                  <div className="text-white/45 text-xs mt-1 flex items-center gap-2 flex-wrap">
+                    <span>{sheet?.sheetWidth || 0}×{sheet?.sheetHeight || 0} mm</span>
+                    <span className="w-1 h-1 rounded-full bg-white/20" />
+                    <span>{sheet?.placedCount || 0} chiếc</span>
+                    <span className="w-1 h-1 rounded-full bg-white/20" />
+                    <span>{sheet?.efficiency || 0}% hiệu suất</span>
+                  </div>
+                </div>
+              </label>
+            );
+          })}
+        </div>
+
+        <div className="flex items-center justify-end gap-3 border-t border-white/10 px-5 py-4">
+          <button
+            onClick={onClose}
+            disabled={isSubmitting}
+            className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white/70 text-sm disabled:opacity-40"
+          >
+            Hủy
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={isSubmitting || selectedCount === 0}
+            className="px-4 py-2 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 text-sky-200 text-sm border border-sky-400/20 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {isSubmitting ? 'Đang xuất...' : `Xuất ${formatLabel}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const DieCutLayout = () => {
   const buildExportSubtitle = (configValue, extraText = '') => {
     if (!configValue) return extraText || '';
@@ -761,6 +882,12 @@ const DieCutLayout = () => {
   const [isTestRunning, setIsTestRunning] = useState(false);
   const [testError, setTestError] = useState(null);
   const [showEmptySizeRows, setShowEmptySizeRows] = useState(false);
+  const [exportPicker, setExportPicker] = useState({
+    isOpen: false,
+    format: 'pdf',
+    selectedSheetIndexes: [],
+    isSubmitting: false
+  });
   const [config, setConfig] = useState({
     sheetWidth: 1100,
     sheetHeight: 2000,
@@ -845,12 +972,92 @@ const DieCutLayout = () => {
     setShowEmptySizeRows(false);
   }, [nestingResult]);
 
-  const handleExportNestingPdf = async () => {
-    if (!nestingResult?.sheets?.length) return;
+  useEffect(() => {
+    setExportPicker((current) => ({
+      ...current,
+      isOpen: false,
+      isSubmitting: false,
+      selectedSheetIndexes: []
+    }));
+  }, [nestingResult?.resultId, nestingResult?.totalSheets]);
+
+  const openExportPicker = (format) => {
+    const sheetIndexes = (nestingResult?.sheets || []).map((_, index) => index);
+    if (!sheetIndexes.length) return;
+
+    setExportPicker({
+      isOpen: true,
+      format,
+      selectedSheetIndexes: sheetIndexes,
+      isSubmitting: false
+    });
+  };
+
+  const closeExportPicker = () => {
+    setExportPicker((current) => ({
+      ...current,
+      isOpen: false,
+      isSubmitting: false
+    }));
+  };
+
+  const toggleExportSheetIndex = (sheetIndex) => {
+    setExportPicker((current) => {
+      const exists = current.selectedSheetIndexes.includes(sheetIndex);
+      return {
+        ...current,
+        selectedSheetIndexes: exists
+          ? current.selectedSheetIndexes.filter((index) => index !== sheetIndex)
+          : [...current.selectedSheetIndexes, sheetIndex].sort((left, right) => left - right)
+      };
+    });
+  };
+
+  const selectAllExportSheets = () => {
+    setExportPicker((current) => ({
+      ...current,
+      selectedSheetIndexes: (nestingResult?.sheets || []).map((_, index) => index)
+    }));
+  };
+
+  const clearAllExportSheets = () => {
+    setExportPicker((current) => ({
+      ...current,
+      selectedSheetIndexes: []
+    }));
+  };
+
+  const resolveSelectedNestingSheets = async (selectedSheetIndexes) => {
+    const summarySheets = nestingResult?.sheets || [];
+    const detailMap = new Map();
+    const missingIndexes = selectedSheetIndexes.filter((index) => !(summarySheets[index]?.placed?.length));
+
+    if (missingIndexes.length && nestingResult?.resultId) {
+      const loadedSheets = await diecutExportService.fetchNestingSheetDetails(nestingResult.resultId, missingIndexes);
+      for (const entry of loadedSheets) {
+        detailMap.set(entry.sheetIndex, entry.sheet);
+      }
+    }
+
+    return selectedSheetIndexes
+      .map((index) => detailMap.get(index) || summarySheets[index])
+      .filter((sheet) => sheet?.placed?.length);
+  };
+
+  const handleConfirmExportSheets = async () => {
+    const selectedSheetIndexes = [...exportPicker.selectedSheetIndexes].sort((left, right) => left - right);
+    if (!selectedSheetIndexes.length || !nestingResult?.sheets?.length) return;
+
+    setExportPicker((current) => ({ ...current, isSubmitting: true }));
+
     try {
-      await diecutExportService.exportPdf({
-        sheets: nestingResult.hasLazySheetDetails ? undefined : nestingResult.sheets,
-        resultId: nestingResult.resultId,
+      const selectedSheets = await resolveSelectedNestingSheets(selectedSheetIndexes);
+      if (!selectedSheets.length) {
+        throw new Error('Không lấy được dữ liệu chi tiết của các tấm đã chọn.');
+      }
+
+      const exportPayload = {
+        sheets: selectedSheets,
         sheetWidth: config.sheetWidth,
         sheetHeight: config.sheetHeight,
         sizeList,
@@ -860,35 +1067,32 @@ const DieCutLayout = () => {
           activeSizes: activeExportSizes
         }),
         title: 'Die-Cut Nesting Result',
-        subtitle: buildExportSubtitle(config, `${nestingResult.placedCount || 0} pieces`)
-      });
+        subtitle: buildExportSubtitle(
+          config,
+          `${selectedSheets.reduce((sum, sheet) => sum + (sheet.placedCount || 0), 0)} pieces | ${selectedSheets.length} sheets`
+        )
+      };
+
+      if (exportPicker.format === 'dxf') {
+        await diecutExportService.exportDxf(exportPayload);
+      } else {
+        await diecutExportService.exportPdf(exportPayload);
+      }
+
+      closeExportPicker();
     } catch (err) {
-      console.error('[DieCut] export nesting pdf error:', err);
-      window.alert(err.message || 'Không thể xuất file PDF.');
+      console.error(`[DieCut] export nesting ${exportPicker.format} error:`, err);
+      window.alert(err.message || `Không thể xuất file ${exportPicker.format === 'dxf' ? 'DXF' : 'PDF'}.`);
+      setExportPicker((current) => ({ ...current, isSubmitting: false }));
     }
   };
 
+  const handleExportNestingPdf = async () => {
+    openExportPicker('pdf');
+  };
+
   const handleExportNestingDxf = async () => {
-    if (!nestingResult?.sheets?.length) return;
-    try {
-      await diecutExportService.exportDxf({
-        sheets: nestingResult.hasLazySheetDetails ? undefined : nestingResult.sheets,
-        resultId: nestingResult.resultId,
-        sheetWidth: config.sheetWidth,
-        sheetHeight: config.sheetHeight,
-        sizeList,
-        fileNameBase: buildExportFileBase({
-          orderNames: exportOrderNames,
-          mode: 'nesting',
-          activeSizes: activeExportSizes
-        }),
-        title: 'Die-Cut Nesting Result',
-        subtitle: buildExportSubtitle(config, `${nestingResult.placedCount || 0} pieces`)
-      });
-    } catch (err) {
-      console.error('[DieCut] export nesting dxf error:', err);
-      window.alert(err.message || 'Không thể xuất file DXF.');
-    }
+    openExportPicker('dxf');
   };
 
   const handleExportTestPdf = async ({ selectedSizeName, selectedSheet, selectedSummary } = {}) => {
@@ -1366,6 +1570,7 @@ const DieCutLayout = () => {
                   setShowEmptySizeRows={setShowEmptySizeRows}
                   onExportPdf={handleExportNestingPdf}
                   onExportDxf={handleExportNestingDxf}
+                  onResultChange={setNestingResult}
                   onClose={() => { setActiveStep(3); setNestingResult(null); }}
                 />
                 {false && (
@@ -1458,7 +1663,14 @@ const DieCutLayout = () => {
                     </button>
                   </div>
                 </div>
-                <DieCutNestingBoard nestingResult={nestingResult} sizeList={sizeList} compactMode />
+                <DieCutNestingBoard
+                  nestingResult={nestingResult}
+                  sizeList={sizeList}
+                  compactMode
+                  allowEdit
+                  editConfig={config}
+                  onResultChange={setNestingResult}
+                />
                   </>
                 )}
               </>
@@ -1466,6 +1678,18 @@ const DieCutLayout = () => {
           </div>
         )}
       </div>
+      <ExportSheetPickerModal
+        isOpen={exportPicker.isOpen}
+        format={exportPicker.format}
+        sheets={nestingResult?.sheets || []}
+        selectedSheetIndexes={exportPicker.selectedSheetIndexes}
+        isSubmitting={exportPicker.isSubmitting}
+        onClose={closeExportPicker}
+        onToggleSheet={toggleExportSheetIndex}
+        onSelectAll={selectAllExportSheets}
+        onClearAll={clearAllExportSheets}
+        onConfirm={handleConfirmExportSheets}
+      />
     </div>
   );
 };

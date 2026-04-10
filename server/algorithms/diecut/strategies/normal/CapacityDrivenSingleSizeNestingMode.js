@@ -42,7 +42,25 @@ function createCapacityNester(config = {}) {
   });
 }
 
-function trimSheet(sheet, targetPlacedCount, pieceArea, config, sheetIndex) {
+function createFullSheet(sheet, pieceArea, config, sheetIndex, sizeName) {
+  const placedCount = sheet?.placedCount || 0;
+  const usedArea = placedCount * Math.max(0, pieceArea || 0);
+  const totalArea = (config.sheetWidth || 0) * (config.sheetHeight || 0);
+
+  return {
+    ...sheet,
+    sheetIndex,
+    sizeScope: sizeName,
+    placed: sheet?.placed || [],
+    placedCount,
+    usedArea,
+    efficiency: totalArea > 0
+      ? parseFloat(((usedArea / totalArea) * 100).toFixed(1))
+      : 0
+  };
+}
+
+function trimSheet(sheet, targetPlacedCount, pieceArea, config, sheetIndex, sizeName) {
   const nextPlaced = (sheet?.placed || []).slice(0, targetPlacedCount);
   const usedArea = targetPlacedCount * Math.max(0, pieceArea || 0);
   const totalArea = (config.sheetWidth || 0) * (config.sheetHeight || 0);
@@ -50,6 +68,7 @@ function trimSheet(sheet, targetPlacedCount, pieceArea, config, sheetIndex) {
   return {
     ...sheet,
     sheetIndex,
+    sizeScope: sizeName,
     placed: nextPlaced,
     placedCount: nextPlaced.length,
     usedArea,
@@ -59,10 +78,24 @@ function trimSheet(sheet, targetPlacedCount, pieceArea, config, sheetIndex) {
   };
 }
 
-async function buildCapacitySheet(size, config) {
-  const nester = createCapacityNester(config);
-  const result = await nester.testCapacity([size], config);
-  return result?.sheetsBySize?.[size.sizeName] || null;
+async function buildCapacitySheetMap(sizeList, config) {
+  if (!sizeList.length) {
+    return new Map();
+  }
+
+  const batchConfig = {
+    ...config,
+    parallelSizes: sizeList.length > 1
+  };
+  const nester = createCapacityNester(batchConfig);
+  const result = await nester.testCapacity(sizeList, batchConfig);
+  const sheetMap = new Map();
+
+  for (const size of sizeList) {
+    sheetMap.set(size.sizeName, result?.sheetsBySize?.[size.sizeName] || null);
+  }
+
+  return sheetMap;
 }
 
 export async function runCapacityDrivenSingleSizeNestingMode({
@@ -78,22 +111,31 @@ export async function runCapacityDrivenSingleSizeNestingMode({
   let timeMs = 0;
   let nextSheetIndex = 0;
   const capacityConfig = buildCapacityConfig(config);
+  const capacityStartedAt = Date.now();
+  const capacitySheetMap = await buildCapacitySheetMap(scopedSizes, capacityConfig);
+  timeMs += Date.now() - capacityStartedAt;
 
   for (const size of scopedSizes) {
     const totalPiecesForSize = toPairQuantity(size) * 2;
     totalItems += totalPiecesForSize;
 
-    let remainingPieces = totalPiecesForSize;
     const startedAt = Date.now();
-    const capacitySheet = await buildCapacitySheet(size, capacityConfig);
+    const capacitySheet = capacitySheetMap.get(size.sizeName);
 
     if (capacitySheet?.placedCount) {
       const pieceArea = polygonArea(size.polygon);
-      while (remainingPieces > 0) {
-        const takeCount = Math.min(remainingPieces, capacitySheet.placedCount);
-        mergedSheets.push(trimSheet(capacitySheet, takeCount, pieceArea, config, nextSheetIndex));
-        placedCount += takeCount;
-        remainingPieces -= takeCount;
+      const fullSheetCount = Math.floor(totalPiecesForSize / capacitySheet.placedCount);
+      const remainderPieces = totalPiecesForSize % capacitySheet.placedCount;
+
+      for (let index = 0; index < fullSheetCount; index++) {
+        mergedSheets.push(createFullSheet(capacitySheet, pieceArea, config, nextSheetIndex, size.sizeName));
+        placedCount += capacitySheet.placedCount;
+        nextSheetIndex += 1;
+      }
+
+      if (remainderPieces > 0) {
+        mergedSheets.push(trimSheet(capacitySheet, remainderPieces, pieceArea, config, nextSheetIndex, size.sizeName));
+        placedCount += remainderPieces;
         nextSheetIndex += 1;
       }
 

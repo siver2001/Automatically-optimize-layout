@@ -1,6 +1,13 @@
-import { finalizeNestingResult } from './nestingPlanUtils.js';
+import { runCapacityDrivenMixedSizeNestingMode } from './CapacityDrivenMixedSizeNestingMode.js';
 
 export async function runOrderedNestingMode({ sizeList, createNester, config, metadata = {} }) {
-  const result = await createNester().nest(sizeList, config);
-  return finalizeNestingResult(result, config, metadata);
+  return runCapacityDrivenMixedSizeNestingMode({
+    sizeList,
+    createNester,
+    config: {
+      ...config,
+      nestingOrderingMode: 'input'
+    },
+    metadata
+  });
 }

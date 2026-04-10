@@ -21,6 +21,216 @@ const FILL_PALETTE = [
 ];
 const EMPTY_SHEETS = [];
 
+function clonePolygon(polygon = []) {
+  return polygon.map((point) => ({ ...point }));
+}
+
+function clonePlacedItem(item = {}) {
+  return {
+    ...item,
+    polygon: clonePolygon(item.polygon),
+    labelPos: item.labelPos ? { ...item.labelPos } : item.labelPos
+  };
+}
+
+function cloneSheet(sheet = {}) {
+  return {
+    ...sheet,
+    placed: (sheet.placed || []).map(clonePlacedItem)
+  };
+}
+
+function getPolygonBounds(polygon = []) {
+  if (!polygon.length) {
+    return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+  }
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  for (const point of polygon) {
+    minX = Math.min(minX, point.x);
+    minY = Math.min(minY, point.y);
+    maxX = Math.max(maxX, point.x);
+    maxY = Math.max(maxY, point.y);
+  }
+
+  return { minX, minY, maxX, maxY };
+}
+
+function boxesCanConflict(boundsA, boundsB, minGap = 0) {
+  return !(
+    boundsA.maxX + minGap <= boundsB.minX ||
+    boundsB.maxX + minGap <= boundsA.minX ||
+    boundsA.maxY + minGap <= boundsB.minY ||
+    boundsB.maxY + minGap <= boundsA.minY
+  );
+}
+
+function pointInPolygon(point, polygon = []) {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i].x;
+    const yi = polygon[i].y;
+    const xj = polygon[j].x;
+    const yj = polygon[j].y;
+    const intersects = ((yi > point.y) !== (yj > point.y))
+      && (point.x < ((xj - xi) * (point.y - yi)) / ((yj - yi) || 1e-9) + xi);
+    if (intersects) inside = !inside;
+  }
+  return inside;
+}
+
+function pointToSegmentDistance(point, segStart, segEnd) {
+  const dx = segEnd.x - segStart.x;
+  const dy = segEnd.y - segStart.y;
+  if (Math.abs(dx) < 1e-9 && Math.abs(dy) < 1e-9) {
+    return Math.hypot(point.x - segStart.x, point.y - segStart.y);
+  }
+
+  const t = Math.max(
+    0,
+    Math.min(
+      1,
+      ((point.x - segStart.x) * dx + (point.y - segStart.y) * dy) / (dx * dx + dy * dy)
+    )
+  );
+
+  const projX = segStart.x + t * dx;
+  const projY = segStart.y + t * dy;
+  return Math.hypot(point.x - projX, point.y - projY);
+}
+
+function orientation(a, b, c) {
+  const value = (b.y - a.y) * (c.x - b.x) - (b.x - a.x) * (c.y - b.y);
+  if (Math.abs(value) < 1e-9) return 0;
+  return value > 0 ? 1 : 2;
+}
+
+function onSegment(a, b, c) {
+  return (
+    Math.min(a.x, c.x) - 1e-9 <= b.x &&
+    b.x <= Math.max(a.x, c.x) + 1e-9 &&
+    Math.min(a.y, c.y) - 1e-9 <= b.y &&
+    b.y <= Math.max(a.y, c.y) + 1e-9
+  );
+}
+
+function segmentsIntersect(a1, a2, b1, b2) {
+  const o1 = orientation(a1, a2, b1);
+  const o2 = orientation(a1, a2, b2);
+  const o3 = orientation(b1, b2, a1);
+  const o4 = orientation(b1, b2, a2);
+
+  if (o1 !== o2 && o3 !== o4) return true;
+  if (o1 === 0 && onSegment(a1, b1, a2)) return true;
+  if (o2 === 0 && onSegment(a1, b2, a2)) return true;
+  if (o3 === 0 && onSegment(b1, a1, b2)) return true;
+  if (o4 === 0 && onSegment(b1, a2, b2)) return true;
+  return false;
+}
+
+function polygonDistance(polygonA = [], polygonB = []) {
+  if (!polygonA.length || !polygonB.length) return Infinity;
+
+  for (let i = 0; i < polygonA.length; i++) {
+    const a1 = polygonA[i];
+    const a2 = polygonA[(i + 1) % polygonA.length];
+    for (let j = 0; j < polygonB.length; j++) {
+      const b1 = polygonB[j];
+      const b2 = polygonB[(j + 1) % polygonB.length];
+      if (segmentsIntersect(a1, a2, b1, b2)) return 0;
+    }
+  }
+
+  if (pointInPolygon(polygonA[0], polygonB) || pointInPolygon(polygonB[0], polygonA)) {
+    return 0;
+  }
+
+  let minDistance = Infinity;
+  for (let i = 0; i < polygonA.length; i++) {
+    const a1 = polygonA[i];
+    const a2 = polygonA[(i + 1) % polygonA.length];
+    for (const point of polygonB) {
+      minDistance = Math.min(minDistance, pointToSegmentDistance(point, a1, a2));
+    }
+  }
+  for (let i = 0; i < polygonB.length; i++) {
+    const b1 = polygonB[i];
+    const b2 = polygonB[(i + 1) % polygonB.length];
+    for (const point of polygonA) {
+      minDistance = Math.min(minDistance, pointToSegmentDistance(point, b1, b2));
+    }
+  }
+
+  return minDistance;
+}
+
+function translatePlacedItem(item, dx, dy) {
+  return {
+    ...clonePlacedItem(item),
+    x: (item.x || 0) + dx,
+    y: (item.y || 0) + dy,
+    polygon: (item.polygon || []).map((point) => ({
+      x: point.x + dx,
+      y: point.y + dy
+    })),
+    labelPos: item.labelPos
+      ? { x: item.labelPos.x + dx, y: item.labelPos.y + dy }
+      : item.labelPos
+  };
+}
+
+function snapCoordinate(value, step) {
+  const resolvedStep = Number(step) > 0 ? Number(step) : 0;
+  if (!resolvedStep) return value;
+  return Math.round(value / resolvedStep) * resolvedStep;
+}
+
+function buildSheetValidation(sheet, spacing) {
+  const invalidItemIds = new Set();
+  const items = sheet?.placed || [];
+  const resolvedSpacing = Math.max(0, Number(spacing) || 0);
+  const boundsById = new Map(items.map((item) => [item.id, getPolygonBounds(item.polygon)]));
+
+  for (const item of items) {
+    const bounds = boundsById.get(item.id);
+    if (!bounds) continue;
+    if (
+      bounds.minX < -1e-6 ||
+      bounds.minY < -1e-6 ||
+      bounds.maxX > (sheet.sheetWidth || 0) + 1e-6 ||
+      bounds.maxY > (sheet.sheetHeight || 0) + 1e-6
+    ) {
+      invalidItemIds.add(item.id);
+    }
+  }
+
+  for (let index = 0; index < items.length; index++) {
+    for (let nextIndex = index + 1; nextIndex < items.length; nextIndex++) {
+      const first = items[index];
+      const second = items[nextIndex];
+      const firstBounds = boundsById.get(first.id);
+      const secondBounds = boundsById.get(second.id);
+      if (!firstBounds || !secondBounds) continue;
+      if (!boxesCanConflict(firstBounds, secondBounds, resolvedSpacing)) continue;
+
+      const distance = polygonDistance(first.polygon, second.polygon);
+      if (distance + 1e-6 < resolvedSpacing) {
+        invalidItemIds.add(first.id);
+        invalidItemIds.add(second.id);
+      }
+    }
+  }
+
+  return {
+    invalidItemIds,
+    invalidCount: invalidItemIds.size
+  };
+}
+
 // Palette màu viền cho cặp (index pairId % n)
 function polygonToSVGPath(polygon) {
   if (!polygon || polygon.length < 2) return '';
@@ -61,17 +271,31 @@ function getItemPathTransform(item, renderTemplates) {
 // ─────────────────────────────────────────────────────────
 // SheetCanvas: vẽ 1 tấm PU, hỗ trợ Pan & Zoom
 // ─────────────────────────────────────────────────────────
-const SheetCanvas = React.memo(({ sheet, sizeColorMap, scale, compactMode, isRotated }) => {
+const SheetCanvas = React.memo(({
+  sheet,
+  sizeColorMap,
+  scale,
+  compactMode,
+  isRotated,
+  isEditMode,
+  selectedItemId,
+  invalidItemIds,
+  gridStep,
+  onSelectItem,
+  onMoveItem
+}) => {
   const { sheetWidth, sheetHeight, placed, renderTemplates } = sheet;
   const [hovered, setHovered] = useState(null);
   const [showLabels, setShowLabels] = useState(false);
 
   // States cho Pan & Zoom
   const containerRef = React.useRef(null);
+  const svgRef = React.useRef(null);
   const [zoom, setZoom] = useState(compactMode ? 1 : scale || 0.5);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const dragStart = React.useRef({ x: 0, y: 0 });
+  const itemDragRef = React.useRef(null);
 
   // Gắn event wheel non-passive để chặn Scroll web
   React.useEffect(() => {
@@ -87,13 +311,46 @@ const SheetCanvas = React.memo(({ sheet, sizeColorMap, scale, compactMode, isRot
     return () => el.removeEventListener('wheel', handleWheel);
   }, []);
 
+  const getSvgPoint = React.useCallback((event) => {
+    const svgElement = svgRef.current;
+    if (!svgElement) return null;
+
+    const point = svgElement.createSVGPoint();
+    point.x = event.clientX;
+    point.y = event.clientY;
+
+    const ctm = svgElement.getScreenCTM();
+    if (!ctm) return null;
+    const localPoint = point.matrixTransform(ctm.inverse());
+
+    if (!isRotated) {
+      return { x: localPoint.x, y: localPoint.y };
+    }
+
+    return {
+      x: sheetWidth - localPoint.y,
+      y: localPoint.x
+    };
+  }, [isRotated, sheetWidth]);
+
   const handleMouseDown = (e) => {
     if (e.button !== 0) return; // Chỉ chuột trái
+    if (isEditMode) onSelectItem?.(null);
     setIsDragging(true);
     dragStart.current = { x: e.clientX - offset.x, y: e.clientY - offset.y };
   };
 
   const handleMouseMove = (e) => {
+    if (itemDragRef.current) {
+      const point = getSvgPoint(e);
+      if (!point) return;
+      const { item, startPoint } = itemDragRef.current;
+      const nextX = snapCoordinate(item.x + (point.x - startPoint.x), gridStep);
+      const nextY = snapCoordinate(item.y + (point.y - startPoint.y), gridStep);
+      onMoveItem?.(item.id, nextX, nextY, item);
+      return;
+    }
+
     if (!isDragging) return;
     setOffset({
       x: e.clientX - dragStart.current.x,
@@ -101,7 +358,25 @@ const SheetCanvas = React.memo(({ sheet, sizeColorMap, scale, compactMode, isRot
     });
   };
 
-  const handleMouseUp = () => setIsDragging(false);
+  const handleMouseUp = () => {
+    itemDragRef.current = null;
+    setIsDragging(false);
+  };
+
+  const handleItemMouseDown = React.useCallback((event, item) => {
+    if (!isEditMode || event.button !== 0) return;
+    event.stopPropagation();
+    event.preventDefault();
+
+    const startPoint = getSvgPoint(event);
+    if (!startPoint) return;
+
+    onSelectItem?.(item.id);
+    itemDragRef.current = {
+      item: clonePlacedItem(item),
+      startPoint
+    };
+  }, [getSvgPoint, isEditMode, onSelectItem]);
 
   // Update zoom khi nhấn nút zoom ở ngoài (Full Mode)
   React.useEffect(() => {
@@ -166,7 +441,7 @@ const SheetCanvas = React.memo(({ sheet, sizeColorMap, scale, compactMode, isRot
           display: 'flex', justifyContent: 'center', alignItems: 'center'
         }}
       >
-        <svg {...svgProps}>
+        <svg ref={svgRef} {...svgProps}>
           {/* Nút reset view nổi đè lên trên khi có thay đổi zoom/pan */}
           {/* (Note: Các nút reset có thể nằm ngoài SVG nếu cần) */}
           {/* Nếu xoay ngang, đưa toàn bộ coordinate system quay -90 độ (swap width height) */}
@@ -192,10 +467,14 @@ const SheetCanvas = React.memo(({ sheet, sizeColorMap, scale, compactMode, isRot
             const svgPath    = item.svgPath;
             const pathTransform = item.pathTransform;
             const isHov      = hovered === item.id;
+            const isSelected = selectedItemId === item.id;
+            const isInvalid = invalidItemIds?.has(item.id);
 
-            const strokeColor = item.isFlipped ? '#fbbf24' : 'rgba(255,255,255,0.85)';
-            const strokeW     = isHov ? 3 : (item.isFlipped ? 2 : 1.2);
-            const fillOp      = isHov ? 0.85 : 0.62;
+            const strokeColor = isInvalid
+              ? '#f87171'
+              : item.isFlipped ? '#fbbf24' : 'rgba(255,255,255,0.85)';
+            const strokeW     = isInvalid ? 3.5 : isSelected ? 3 : isHov ? 3 : (item.isFlipped ? 2 : 1.2);
+            const fillOp      = isInvalid ? 0.9 : isHov ? 0.85 : 0.62;
             const cent = showLabels ? getItemLabelPos(item, renderTemplates) : null;
 
             return (
@@ -203,11 +482,17 @@ const SheetCanvas = React.memo(({ sheet, sizeColorMap, scale, compactMode, isRot
                 key={item.id}
                 onMouseEnter={() => setHovered(item.id)}
                 onMouseLeave={() => setHovered(null)}
-                style={{ cursor: 'default' }}
+                onMouseDown={(event) => handleItemMouseDown(event, item)}
+                onClick={(event) => {
+                  if (!isEditMode) return;
+                  event.stopPropagation();
+                  onSelectItem?.(item.id);
+                }}
+                style={{ cursor: isEditMode ? 'move' : 'default' }}
               >
-                {isHov && (
+                {(isHov || isSelected || isInvalid) && (
                   <path d={svgPath} transform={pathTransform} fill="white" fillOpacity={0.12}
-                    stroke="white" strokeWidth={6} strokeOpacity={0.4} />
+                    stroke={isInvalid ? '#f87171' : 'white'} strokeWidth={6} strokeOpacity={0.4} />
                 )}
                 <path
                   d={svgPath}
@@ -217,6 +502,7 @@ const SheetCanvas = React.memo(({ sheet, sizeColorMap, scale, compactMode, isRot
                   stroke={strokeColor}
                   strokeWidth={strokeW}
                   strokeLinejoin="round"
+                  strokeDasharray={isInvalid ? '10 6' : undefined}
                 />
                 
                 {/* Wrap các text vào subgroup để counter-rotate nếu board bị xoay ngang */}
@@ -276,10 +562,21 @@ const SheetCanvas = React.memo(({ sheet, sizeColorMap, scale, compactMode, isRot
 // ─────────────────────────────────────────────────────────
 // DieCutNestingBoard: component chính
 // ─────────────────────────────────────────────────────────
-const DieCutNestingBoard = ({ nestingResult, sizeList, compactMode = false }) => {
+const DieCutNestingBoard = ({
+  nestingResult,
+  sizeList,
+  compactMode = false,
+  allowEdit = false,
+  editConfig = null,
+  onResultChange = null
+}) => {
   const [selectedSheet, setSelectedSheet] = useState(0);
   const [scale, setScale] = useState(0.5);
   const [isRotated, setIsRotated] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [selectedItemId, setSelectedItemId] = useState(null);
+  const [editedSheets, setEditedSheets] = useState({});
+  const [dirtySheetIndexes, setDirtySheetIndexes] = useState({});
   const [sheetDetails, setSheetDetails] = useState({});
   const [loadingSheetIndex, setLoadingSheetIndex] = useState(null);
   const sheetTabsRef = useRef(null);
@@ -308,6 +605,10 @@ const DieCutNestingBoard = ({ nestingResult, sizeList, compactMode = false }) =>
     setSelectedSheet(0);
     setSheetDetails({});
     setLoadingSheetIndex(null);
+    setIsEditMode(false);
+    setSelectedItemId(null);
+    setEditedSheets({});
+    setDirtySheetIndexes({});
     diecutExportService.clearNestingSheetDetailCache();
   }, [nestingResult?.resultId, nestingResult?.totalSheets]);
 
@@ -374,6 +675,10 @@ const DieCutNestingBoard = ({ nestingResult, sizeList, compactMode = false }) =>
   }, [selectedSheet]);
 
   useEffect(() => {
+    setSelectedItemId(null);
+  }, [selectedSheet]);
+
+  useEffect(() => {
     if (!nestingResult?.resultId || !sheets.length) return;
     const neighborIndexes = [selectedSheet - 1, selectedSheet + 1]
       .filter((index) => index >= 0 && index < sheets.length);
@@ -403,8 +708,104 @@ const DieCutNestingBoard = ({ nestingResult, sizeList, compactMode = false }) =>
     () => sheets.map((sheet, index) => sheetDetails[index] || sheet),
     [sheetDetails, sheets]
   );
-  const currentSheet = resolvedSheets[selectedSheet] || resolvedSheets[0];
+  const displaySheets = useMemo(
+    () => resolvedSheets.map((sheet, index) => editedSheets[index] || sheet),
+    [editedSheets, resolvedSheets]
+  );
+  const currentSheet = displaySheets[selectedSheet] || displaySheets[0];
+  const sourceSheet = resolvedSheets[selectedSheet] || resolvedSheets[0];
+  const resolvedSpacing = editConfig?.spacing ?? nestingResult?.spacing ?? 0;
+  const resolvedGridStep = editConfig?.gridStep ?? nestingResult?.gridStep ?? 0.5;
+  const validation = useMemo(
+    () => buildSheetValidation(currentSheet, resolvedSpacing),
+    [currentSheet, resolvedSpacing]
+  );
+  const currentSheetDirty = !!dirtySheetIndexes[selectedSheet];
   const pairCount = Math.floor(placedCount / 2);
+
+  const updateCurrentEditedSheet = React.useCallback((updater) => {
+    setEditedSheets((current) => {
+      const baseSheet = current[selectedSheet] || cloneSheet(sourceSheet || currentSheet || {});
+      const nextSheet = typeof updater === 'function' ? updater(baseSheet) : baseSheet;
+      return {
+        ...current,
+        [selectedSheet]: nextSheet
+      };
+    });
+    setDirtySheetIndexes((current) => ({ ...current, [selectedSheet]: true }));
+  }, [currentSheet, selectedSheet, sourceSheet]);
+
+  const handleMoveItem = React.useCallback((itemId, nextX, nextY, originalItem) => {
+    if (!allowEdit || !isEditMode) return;
+
+    updateCurrentEditedSheet((sheet) => {
+      const dx = nextX - (originalItem?.x || 0);
+      const dy = nextY - (originalItem?.y || 0);
+      return {
+        ...sheet,
+        placed: (sheet.placed || []).map((item) => (
+          item.id === itemId ? translatePlacedItem(originalItem || item, dx, dy) : item
+        ))
+      };
+    });
+  }, [allowEdit, isEditMode, updateCurrentEditedSheet]);
+
+  const handleToggleEditMode = React.useCallback(() => {
+    if (!allowEdit) return;
+    if (isEditMode) {
+      setIsEditMode(false);
+      setSelectedItemId(null);
+      return;
+    }
+
+    setEditedSheets((current) => (
+      current[selectedSheet]
+        ? current
+        : { ...current, [selectedSheet]: cloneSheet(sourceSheet || currentSheet || {}) }
+    ));
+    setIsEditMode(true);
+  }, [allowEdit, currentSheet, isEditMode, selectedSheet, sourceSheet]);
+
+  const handleCancelEdit = React.useCallback(() => {
+    setEditedSheets((current) => {
+      const next = { ...current };
+      delete next[selectedSheet];
+      return next;
+    });
+    setDirtySheetIndexes((current) => {
+      const next = { ...current };
+      delete next[selectedSheet];
+      return next;
+    });
+    setSelectedItemId(null);
+    setIsEditMode(false);
+  }, [selectedSheet]);
+
+  const handleSaveEdit = React.useCallback(() => {
+    if (!onResultChange || validation.invalidCount > 0 || !currentSheetDirty || !currentSheet) return;
+
+    const nextSheets = resolvedSheets.map((sheet, index) => (
+      index === selectedSheet ? cloneSheet(currentSheet) : sheet
+    ));
+
+    onResultChange((previous) => previous ? {
+      ...previous,
+      sheets: nextSheets
+    } : previous);
+
+    setEditedSheets((current) => {
+      const next = { ...current };
+      delete next[selectedSheet];
+      return next;
+    });
+    setDirtySheetIndexes((current) => {
+      const next = { ...current };
+      delete next[selectedSheet];
+      return next;
+    });
+    setSelectedItemId(null);
+    setIsEditMode(false);
+  }, [currentSheet, currentSheetDirty, onResultChange, resolvedSheets, selectedSheet, validation.invalidCount]);
 
   if (sheets.length === 0) {
     return emptyState;
@@ -428,6 +829,37 @@ const DieCutNestingBoard = ({ nestingResult, sizeList, compactMode = false }) =>
             </span>
           </div>
           <div className="flex items-center gap-4">
+            {allowEdit && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleToggleEditMode}
+                  className={`px-2 py-1 rounded text-[11px] border transition-colors ${
+                    isEditMode
+                      ? 'bg-amber-500/20 border-amber-400/30 text-amber-200'
+                      : 'bg-white/10 border-white/10 text-white/70 hover:bg-white/20'
+                  }`}
+                >
+                  {isEditMode ? 'Thoát edit' : 'Edit layout'}
+                </button>
+                {isEditMode && (
+                  <>
+                    <button
+                      onClick={handleSaveEdit}
+                      disabled={!currentSheetDirty || validation.invalidCount > 0}
+                      className="px-2 py-1 rounded text-[11px] border border-emerald-400/30 bg-emerald-500/20 text-emerald-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      Lưu
+                    </button>
+                    <button
+                      onClick={handleCancelEdit}
+                      className="px-2 py-1 rounded text-[11px] border border-white/10 bg-white/10 text-white/70 hover:bg-white/20"
+                    >
+                      Hủy
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
             <label className="flex items-center gap-2 cursor-pointer group">
               <div className={`w-8 h-4 rounded-full p-0.5 transition-all duration-300 ${isRotated ? 'bg-amber-500' : 'bg-white/10'}`}>
                 <div className={`w-3 h-3 bg-white rounded-full shadow-md transform transition-transform duration-300 ${isRotated ? 'translate-x-4' : 'translate-x-0'}`} />
@@ -444,6 +876,18 @@ const DieCutNestingBoard = ({ nestingResult, sizeList, compactMode = false }) =>
             </label>
           </div>
         </div>
+
+        {allowEdit && isEditMode && (
+          <div className={`rounded-lg border px-3 py-2 text-[11px] ${
+            validation.invalidCount > 0
+              ? 'bg-red-500/15 border-red-400/30 text-red-200'
+              : 'bg-emerald-500/15 border-emerald-400/30 text-emerald-200'
+          }`}>
+            {validation.invalidCount > 0
+              ? `Đang có ${validation.invalidCount} chi tiết bị vi phạm khoảng cách ${resolvedSpacing} mm hoặc chạm biên. Các chi tiết lỗi đang hiển thị màu đỏ.`
+              : `Có thể kéo chi tiết theo lưới ${resolvedGridStep} mm. Khoảng cách tối thiểu đang được kiểm tra theo thiết lập ${resolvedSpacing} mm.`}
+          </div>
+        )}
 
         {/* Sheet tabs (chỉ hiện nếu có nhiều hơn 1 tấm) */}
         {sheets.length > 1 && (
@@ -476,6 +920,12 @@ const DieCutNestingBoard = ({ nestingResult, sizeList, compactMode = false }) =>
             scale={scale}
             compactMode={true}
             isRotated={isRotated}
+            isEditMode={allowEdit && isEditMode}
+            selectedItemId={selectedItemId}
+            invalidItemIds={validation.invalidItemIds}
+            gridStep={resolvedGridStep}
+            onSelectItem={setSelectedItemId}
+            onMoveItem={handleMoveItem}
           />
         ) : (
           <div className="rounded-lg bg-gray-900 border border-white/10 min-h-[50vh] xl:min-h-[78vh] flex items-center justify-center text-white/50 text-sm">
@@ -519,8 +969,53 @@ const DieCutNestingBoard = ({ nestingResult, sizeList, compactMode = false }) =>
           ))}
         </div>
 
-        <p className="text-white/40 text-xs">Thời gian tính: {(timeMs / 1000).toFixed(1)}s</p>
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          {allowEdit && (
+            <>
+              <button
+                onClick={handleToggleEditMode}
+                className={`px-3 py-1 rounded-lg text-xs border transition-colors ${
+                  isEditMode
+                    ? 'bg-amber-500/20 border-amber-400/30 text-amber-200'
+                    : 'bg-white/10 border-white/10 text-white/70 hover:bg-white/20'
+                }`}
+              >
+                {isEditMode ? 'Thoát edit' : 'Edit layout'}
+              </button>
+              {isEditMode && (
+                <>
+                  <button
+                    onClick={handleSaveEdit}
+                    disabled={!currentSheetDirty || validation.invalidCount > 0}
+                    className="px-3 py-1 rounded-lg text-xs border border-emerald-400/30 bg-emerald-500/20 text-emerald-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    Lưu
+                  </button>
+                  <button
+                    onClick={handleCancelEdit}
+                    className="px-3 py-1 rounded-lg text-xs border border-white/10 bg-white/10 text-white/70 hover:bg-white/20"
+                  >
+                    Hủy
+                  </button>
+                </>
+              )}
+            </>
+          )}
+          <p className="text-white/40 text-xs">Thời gian tính: {(timeMs / 1000).toFixed(1)}s</p>
+        </div>
       </div>
+
+      {allowEdit && isEditMode && (
+        <div className={`rounded-lg border px-3 py-2 text-xs ${
+          validation.invalidCount > 0
+            ? 'bg-red-500/15 border-red-400/30 text-red-200'
+            : 'bg-emerald-500/15 border-emerald-400/30 text-emerald-200'
+        }`}>
+          {validation.invalidCount > 0
+            ? `Có ${validation.invalidCount} chi tiết đang vi phạm khoảng cách ${resolvedSpacing} mm hoặc ra ngoài tấm. Các chi tiết lỗi đang được tô đỏ.`
+            : `Kéo chi tiết để chỉnh tay. Tọa độ sẽ bám lưới ${resolvedGridStep} mm và được kiểm tra đúng khoảng cách tối thiểu ${resolvedSpacing} mm.`}
+        </div>
+      )}
 
       {/* Sheet tabs */}
       <div
@@ -552,6 +1047,12 @@ const DieCutNestingBoard = ({ nestingResult, sizeList, compactMode = false }) =>
           scale={scale}
           compactMode={false}
           isRotated={isRotated}
+          isEditMode={allowEdit && isEditMode}
+          selectedItemId={selectedItemId}
+          invalidItemIds={validation.invalidItemIds}
+          gridStep={resolvedGridStep}
+          onSelectItem={setSelectedItemId}
+          onMoveItem={handleMoveItem}
         />
       ) : (
         <div className="rounded-lg bg-gray-900 border border-white/10 min-h-[60vh] flex items-center justify-center text-white/50 text-sm">
@@ -575,6 +1076,12 @@ const DieCutNestingBoard = ({ nestingResult, sizeList, compactMode = false }) =>
           <div className="w-4 h-4 rounded-sm border-2 border-white/80" style={{background:'transparent'}} />
           <span className="text-white/60 text-xs">Chân Trái (L)</span>
         </div>
+        {allowEdit && (
+          <div className="flex items-center gap-1.5">
+            <div className="w-4 h-4 rounded-sm border-2 border-red-400 border-dashed" style={{background:'rgba(248,113,113,0.2)'}} />
+            <span className="text-white/60 text-xs">Lỗi khoảng cách / chạm biên</span>
+          </div>
+        )}
       </div>
     </div>
   );
