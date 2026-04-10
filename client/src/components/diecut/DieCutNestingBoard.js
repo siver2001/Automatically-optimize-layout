@@ -957,6 +957,9 @@ export default function DieCutNestingBoard({
     () => buildSheetValidation(currentSheet, resolvedSpacing),
     [currentSheet, resolvedSpacing],
   );
+  const activeInvalidItemIds = isEditMode
+    ? validation.invalidItemIds
+    : undefined;
   const displaySheetStats = useMemo(
     () =>
       displaySheets.map((sheet) =>
@@ -1523,7 +1526,7 @@ export default function DieCutNestingBoard({
       isRotated={isRotated}
       isEditMode={allowEdit && isEditMode}
       selectedItemId={selectedItemId}
-      invalidItemIds={validation.invalidItemIds}
+      invalidItemIds={activeInvalidItemIds}
       snapEnabled={snapEnabled}
       snapGuides={snapGuides}
       pickedPreviewItem={pickedPreviewItem}
