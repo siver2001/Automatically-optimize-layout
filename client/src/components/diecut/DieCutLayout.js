@@ -616,19 +616,19 @@ const NormalNestingResult = ({
         <div className="flex flex-col gap-2 max-h-[78vh] overflow-y-auto pr-1 custom-scrollbar">
           <div className="grid grid-cols-4 gap-1.5">
             <div className="bg-gradient-to-br from-fuchsia-500/20 to-pink-500/20 border border-fuchsia-400/30 rounded-lg p-2 text-center">
-              <div className="text-[1rem] font-black text-fuchsia-200 leading-none">{totalSheets}</div>
+              <div className="text-[0.8rem] font-black text-fuchsia-200 leading-none">{totalSheets}</div>
               <div className="text-white/60 text-[10px] uppercase font-semibold mt-1">Tấm</div>
             </div>
             <div className="bg-white/10 border border-white/20 rounded-lg p-2 text-center">
-              <div className="text-[1rem] font-black text-emerald-300 leading-none">{totalPairs}</div>
+              <div className="text-[0.8rem] font-black text-emerald-300 leading-none">{totalPairs}</div>
               <div className="text-white/60 text-[10px] uppercase font-semibold mt-1">Đôi</div>
             </div>
             <div className="bg-white/10 border border-white/20 rounded-lg p-2 text-center">
-              <div className="text-[1rem] font-black text-amber-300 leading-none">{totalPieces}</div>
+              <div className="text-[0.8rem] font-black text-amber-300 leading-none">{totalPieces}</div>
               <div className="text-white/60 text-[10px] uppercase font-semibold mt-1">Chiếc</div>
             </div>
             <div className="bg-white/10 border border-white/20 rounded-lg p-2 text-center">
-              <div className="text-[1rem] font-black text-blue-300 leading-none">{nestingResult?.efficiency || 0}%</div>
+              <div className="text-[0.8rem] font-black text-blue-300 leading-none">{nestingResult?.efficiency || 0}%</div>
               <div className="text-white/60 text-[10px] uppercase font-semibold mt-1">Hiệu suất</div>
             </div>
           </div>

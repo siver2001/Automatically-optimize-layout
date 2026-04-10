@@ -1215,6 +1215,7 @@ const PackingResult = () => {
                                 y={rectY + finalLength / 2}
                                 text={textLabel}
                                 fontSize={fontSize}
+                                fontFamily="Roboto"
                                 fill="white"
                                 fontStyle="bold"
                                 align="center"
@@ -1234,6 +1235,7 @@ const PackingResult = () => {
                                 height={finalLength}
                                 text={textLabel}
                                 fontSize={fontSize}
+                                fontFamily="Roboto"
                                 fill="white"
                                 fontStyle="bold"
                                 align="center"

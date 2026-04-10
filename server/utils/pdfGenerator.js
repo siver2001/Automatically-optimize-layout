@@ -6,6 +6,10 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Vietnamese font paths (Windows system fonts)
+const FONT_REGULAR = 'C:\\Windows\\Fonts\\arial.ttf';
+const FONT_BOLD = 'C:\\Windows\\Fonts\\arialbd.ttf';
+
 /**
  * Chuyển màu HEX/HSL sang RGB
  */
@@ -61,7 +65,7 @@ function drawRotatedText(doc, text, x, y, width, height, color) {
   doc.translate(centerX, centerY);
   doc.rotate(90);
   const fontSize = Math.max(8, Math.min(12, height / 12));
-  doc.fontSize(fontSize).font('Helvetica-Bold');
+  doc.fontSize(fontSize).font(FONT_BOLD);
   const textWidth = doc.widthOfString(text);
   const textHeight = fontSize * 1.2;
   doc
@@ -110,32 +114,30 @@ function drawSinglePageLayout(doc, layoutData, pageInfo) {
   // Lay title (co the co dau)
   let title = (plateInfo.description && plateInfo.description.trim() !== '')
     ? plateInfo.description.toUpperCase()
-    : 'KET QUA SAP TAM LIEU';
+    : 'KẾT QUẢ SẮP TẤM LIỆU';
 
   if (plateInfo.layerCount) {
-    title += ` - ${plateInfo.layerCount} LOP`;
+    title += ` - ${plateInfo.layerCount} LỚP`;
   }
-  // Bo dau cua title truoc khi in
-  title = title.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/Đ/g, 'D');
 
   doc
     .fontSize(18)
-    .font('Helvetica-Bold')
+    .font(FONT_BOLD)
     .fillColor('#2c3e50')
-    .text(title, margin, 20, { align: 'center' }); // 'title' bay gio da khong co dau
+    .text(title, margin, 20, { align: 'center' });
 
 
-  const pageText = `Tam: ${currentPage} / ${totalPages}`; // 'Tam' thay vi 'Tấm'
+  const pageText = `Tấm: ${currentPage} / ${totalPages}`;
 
   doc
     .fontSize(12)
-    .font('Helvetica')
+    .font(FONT_REGULAR)
     .fillColor('#34495e')
     .text(
 
-      `Kich thuoc: ${container.width}mm x ${container.length}mm | ` + // 'Kich thuoc'
+      `Kích thước: ${container.width}mm x ${container.length}mm | ` +
       `${pageText} | ` +
-      `So hinh: ${placedRectangles.length}`, // 'So hinh'
+      `Số hình: ${placedRectangles.length}`,
       margin, 45,
       { align: 'center' }
     );
@@ -146,7 +148,7 @@ function drawSinglePageLayout(doc, layoutData, pageInfo) {
       .fillColor('#27ae60')
       .text(
 
-        `Hieu suat: ${plateInfo.efficiency.toFixed(1)}%`, // 'Hieu suat'
+        `Hiệu suất: ${plateInfo.efficiency.toFixed(1)}%`,
         margin, 62,
         { align: 'center' }
       );
@@ -216,7 +218,7 @@ function drawSinglePageLayout(doc, layoutData, pageInfo) {
         drawRotatedText(doc, sizeText, pdfX, pdfY, pdfWidth, pdfHeight, [r, g, b]);
       } else {
         const fontSize = Math.max(8, Math.min(12, pdfWidth / 12));
-        doc.fontSize(fontSize).font('Helvetica-Bold');
+        doc.fontSize(fontSize).font(FONT_BOLD);
         const textWidth = doc.widthOfString(sizeText);
         const textHeight = fontSize * 1.2;
 
@@ -259,11 +261,11 @@ function drawSinglePageLayout(doc, layoutData, pageInfo) {
 
     doc
       .fontSize(8)
-      .font('Helvetica') // Giu nguyen font
+      .font(FONT_REGULAR)
       .fillColor('#95a5a6')
       .text(
 
-        `Xuat luc: ${dateStr} | Optimize Size Layout`, // 'Xuat luc'
+        `Xuất lúc: ${dateStr} | Optimize Size Layout`,
         margin,
         pageHeight - 40,
         { align: 'center' }

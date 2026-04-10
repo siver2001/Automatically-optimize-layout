@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
 import { PackingProvider } from './context/PackingContext.js';
+import { LanguageProvider } from './context/LanguageContext.js';
 import Header from './components/Header.js';
 import MainLayout from './components/MainLayout.js';
 import ContainerInput from './components/ContainerInput.js';
@@ -46,11 +47,13 @@ function AppShell() {
 
 function App() {
   return (
-    <PackingProvider>
-      <Router>
-        <AppShell />
-      </Router>
-    </PackingProvider>
+    <LanguageProvider>
+      <PackingProvider>
+        <Router>
+          <AppShell />
+        </Router>
+      </PackingProvider>
+    </LanguageProvider>
   );
 }
 

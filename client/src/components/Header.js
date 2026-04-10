@@ -1,9 +1,11 @@
 import React from 'react';
 import { usePacking } from '../context/PackingContext.js';
+import { useLanguage } from '../context/LanguageContext.js';
 import { Link, useLocation } from 'react-router-dom';
 
 const Header = () => {
   const { toggleModbus } = usePacking();
+  const { language, toggleLanguage } = useLanguage();
   const location = useLocation();
 
   const isPackingView = location.pathname === '/';
@@ -11,9 +13,22 @@ const Header = () => {
   const isDieCutView = location.pathname === '/diecut';
 
   const navItems = [
-    { path: '/',        label: 'Nesting Blocker',    active: isPackingView },
-    { path: '/diecut',  label: '✂️ Nesting Die-Cut', active: isDieCutView },
-    { path: '/modbus',  label: 'Kết nối PLC',         active: isModbusView, onClick: !isModbusView ? toggleModbus : undefined },
+    { 
+      path: '/',        
+      label: <><span className="notranslate">Nesting Blocker</span></>,    
+      active: isPackingView 
+    },
+    { 
+      path: '/diecut',  
+      label: <>✂️ <span className="notranslate">Nesting Die-Cut</span></>, 
+      active: isDieCutView 
+    },
+    { 
+      path: '/modbus',  
+      label: <>Kết nối <span className="notranslate">PLC</span></>,         
+      active: isModbusView, 
+      onClick: !isModbusView ? toggleModbus : undefined 
+    },
   ];
 
   return (
@@ -21,10 +36,10 @@ const Header = () => {
       <div className="flex justify-between items-center max-w-full mx-auto">
         <Link to="/" className="text-white text-lg sm:text-2xl md:text-3xl font-bold m-0 drop-shadow-lg flex items-center gap-3">
           <img src="/Ortholite-logo.png" alt="Ortholite Logo" className="h-7 md:h-9 object-contain" />
-          Auto Netting
+          <span className="notranslate">Auto Netting</span>
         </Link>
 
-        <nav className="flex gap-2 sm:gap-2.5 md:gap-3">
+        <nav className="flex items-center gap-2 sm:gap-2.5 md:gap-3">
           {navItems.map(item => (
             <Link
               key={item.path}
@@ -39,6 +54,16 @@ const Header = () => {
               {item.label}
             </Link>
           ))}
+          
+          <div className="w-px h-6 bg-white/20 mx-1"></div>
+          
+          <button
+            title="Chuyển đổi ngôn ngữ / Toggle Language"
+            onClick={toggleLanguage}
+            className="notranslate flex items-center justify-center w-9 h-9 rounded-full bg-white/10 text-white text-sm font-bold border border-white/20 hover:bg-white/20 transition-all duration-300 shadow-sm drop-shadow"
+          >
+            {language === 'vi' ? 'VI' : 'EN'}
+          </button>
         </nav>
       </div>
     </header>
