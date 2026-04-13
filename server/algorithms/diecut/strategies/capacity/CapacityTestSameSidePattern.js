@@ -972,7 +972,32 @@ export class CapacityTestSameSidePattern extends BaseNesting {
       sheetWidth: config.sheetWidth,
       sheetHeight: config.sheetHeight,
       placedCount,
-      efficiency
+      efficiency,
+      patternInfo: {
+        rowMode: candidate.rowMode ?? null,
+        bodyCount: candidate.bodyCount ?? 0,
+        bodyCols: candidate.bodyCols ?? 0,
+        bodyRows: candidate.bodyRows ?? 0,
+        bodyDxMm: candidate.bodyDxMm ?? null,
+        bodyDyMm: candidate.bodyDyMm ?? null,
+        bodyStartY: candidate.bodyStartY ?? 0,
+        bodyPrimaryAngle: candidate.bodyPrimaryAngle ?? null,
+        bodyAlternateAngle: candidate.bodyAlternateAngle ?? null,
+        bodyPatternMode: candidate.bodyPatternMode ?? null,
+        rowShiftXmm: candidate.rowShiftXmm ?? 0,
+        rowShiftYmm: candidate.rowShiftYmm ?? 0,
+        filler90Used: candidate.filler90Used ?? false,
+        filler90Count: candidate.filler90Count ?? 0,
+        filler90Cols: candidate.filler90Cols ?? 0,
+        filler90Rows: candidate.filler90Rows ?? 0,
+        filler90TopRows: candidate.filler90TopRows ?? candidate.filler90Rows ?? 0,
+        filler90BottomRows: candidate.filler90BottomRows ?? 0,
+        filler90DxMm: candidate.filler90DxMm ?? null,
+        filler90DyMm: candidate.filler90DyMm ?? null,
+        filler90Angle: candidate.filler90Angle ?? null,
+        fillerPatternKey: candidate.fillerPatternKey ?? 'none',
+        scanOrder: candidate.scanOrder ?? null
+      }
     };
   }
 

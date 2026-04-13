@@ -1,6 +1,7 @@
 import { parentPort } from 'worker_threads';
 import { CapacityTestSameSidePattern } from '../diecut/strategies/capacity/CapacityTestSameSidePattern.js';
 import { CapacityTestPrePairedSameSidePattern } from '../diecut/strategies/capacity/CapacityTestPrePairedSameSidePattern.js';
+import { CapacityTestDoubleInsoleDoubleContourPattern } from '../diecut/strategies/capacity/CapacityTestDoubleInsoleDoubleContourPattern.js';
 
 if (!parentPort) {
   throw new Error('diecutCapacitySameSideWorker requires a parent port');
@@ -9,15 +10,36 @@ if (!parentPort) {
 let cachedConfigKey = null;
 let cachedAlgorithm = null;
 
+function createAlgorithm(config) {
+  if (config?.sameSidePreparedVariant === 'double-contour') {
+    return new CapacityTestDoubleInsoleDoubleContourPattern(config);
+  }
+
+  if (config?.capacityLayoutMode === 'same-side-prepaired-tight') {
+    return new CapacityTestPrePairedSameSidePattern(config);
+  }
+
+  return new CapacityTestSameSidePattern(config);
+}
+
 function getAlgorithm(config) {
   const configKey = JSON.stringify(config);
   if (configKey !== cachedConfigKey || !cachedAlgorithm) {
     cachedConfigKey = configKey;
-    cachedAlgorithm = config?.capacityLayoutMode === 'same-side-prepaired-tight'
-      ? new CapacityTestPrePairedSameSidePattern(config)
-      : new CapacityTestSameSidePattern(config);
+    cachedAlgorithm = createAlgorithm(config);
   }
   return cachedAlgorithm;
+}
+
+function buildEmptySummaryItem(size) {
+  return {
+    sizeName: size.sizeName,
+    sizeValue: size.sizeValue,
+    totalPieces: 0,
+    pairs: 0,
+    placedCount: 0,
+    efficiency: 0
+  };
 }
 
 parentPort.on('message', async (task) => {
@@ -29,14 +51,7 @@ parentPort.on('message', async (task) => {
       ...config,
       parallelSizes: false
     });
-    const summaryItem = result.summary?.[0] || {
-      sizeName: size.sizeName,
-      sizeValue: size.sizeValue,
-      totalPieces: 0,
-      pairs: 0,
-      placedCount: 0,
-      efficiency: 0
-    };
+    const summaryItem = result.summary?.[0] || buildEmptySummaryItem(size);
 
     parentPort.postMessage({
       index,

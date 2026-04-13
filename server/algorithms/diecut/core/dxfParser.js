@@ -555,7 +555,8 @@ export async function parseCadBufferToPolygons(buffer, fileName = 'drawing.dxf')
   const dxfText = extension === '.dwg'
     ? await convertDwgBufferToDxfText(buffer, fileName)
     : buffer.toString('utf-8');
-  return parseDxfDocumentToPolygonAnalysis(parseDxfDocument(dxfText)).polygons;
+  const polygonAnalysis = parseDxfDocumentToPolygonAnalysis(parseDxfDocument(dxfText));
+  return filterLikelyAuxiliaryPolygons(polygonAnalysis.polygons);
 }
 
 /**
@@ -621,8 +622,67 @@ function assignSizesWithDetectedLabels(polygons, detectedLabels, startSize = 3.5
   });
 }
 
+function getPolygonBoundingMetrics(polygon) {
+  const bb = getBoundingBox(polygon);
+  return {
+    width: bb.width,
+    height: bb.height,
+    area: area(polygon)
+  };
+}
+
+function isLikelyAuxiliaryMarker(metrics) {
+  return metrics.area <= 100 && metrics.width <= 10 && metrics.height <= 10;
+}
+
+function isLikelyMainPiece(metrics) {
+  return metrics.area >= 1000 || Math.max(metrics.width, metrics.height) >= 30;
+}
+
+function filterLikelyAuxiliaryPolygons(polygons) {
+  const validPolygons = Array.isArray(polygons)
+    ? polygons.filter((polygon) => Array.isArray(polygon) && polygon.length >= 3)
+    : [];
+
+  if (validPolygons.length <= 1) return validPolygons;
+
+  const descriptors = validPolygons.map((polygon) => ({
+    polygon,
+    ...getPolygonBoundingMetrics(polygon)
+  }));
+  const auxiliaryCount = descriptors.filter((item) => isLikelyAuxiliaryMarker(item)).length;
+  const mainPieceCount = descriptors.filter((item) => isLikelyMainPiece(item)).length;
+
+  if (!auxiliaryCount || mainPieceCount < 3) {
+    return validPolygons;
+  }
+
+  return descriptors
+    .filter((item) => !isLikelyAuxiliaryMarker(item))
+    .map((item) => item.polygon);
+}
+
+function normalizeDetectionText(value = '') {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\\/g, '/')
+    .toLowerCase();
+}
+
 function detectDoubleInsoleDoubleContourFile(fileName = '') {
-  return String(fileName || '').toLowerCase().includes('puma-dc');
+  const normalizedFileName = normalizeDetectionText(fileName);
+  const baseName = path.basename(normalizedFileName);
+
+  const isInsidePreparedFolder = /(^|\/)(ghep san|ghep-san|ghep_san|prepaired|pre-paired|double contour|double-contour)(\/|$)/.test(normalizedFileName);
+  const hasDoubleContourToken = /(^|[^a-z0-9])dc([^a-z0-9]|$)/.test(baseName);
+  const hasPreparedNamingHint =
+    baseName.includes('double contour') ||
+    baseName.includes('dinh dang luxin') ||
+    baseName.includes('dao go luxin') ||
+    baseName.includes('daogoluxin');
+
+  return isInsidePreparedFolder || (hasDoubleContourToken && hasPreparedNamingHint);
 }
 
 function buildCadImportAnalysis(polygons, detectedLabels, polygonAnalysis, fileName = '') {
@@ -676,9 +736,10 @@ export async function parseCadBufferToSizedShapesWithAnalysis(
 
   const dxf = parseDxfDocument(dxfText);
   const polygonAnalysis = parseDxfDocumentToPolygonAnalysis(dxf);
+  const filteredPolygons = filterLikelyAuxiliaryPolygons(polygonAnalysis.polygons);
   const detectedLabels = extractDetectedSizeLabelsFromDxf(dxf);
   const shapes = assignSizesWithDetectedLabels(
-    polygonAnalysis.polygons,
+    filteredPolygons,
     detectedLabels,
     startSize,
     stepSize
@@ -687,7 +748,7 @@ export async function parseCadBufferToSizedShapesWithAnalysis(
   return {
     shapes,
     importAnalysis: buildCadImportAnalysis(
-      polygonAnalysis.polygons,
+      filteredPolygons,
       detectedLabels,
       polygonAnalysis,
       fileName

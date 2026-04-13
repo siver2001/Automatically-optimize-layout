@@ -304,7 +304,7 @@ const DieCutDxfUploader = ({ onShapesLoaded, initialShapes, initialImportAnalysi
 
     try {
       const formData = new FormData();
-      files.forEach(f => formData.append('dxfFiles', f));
+      files.forEach((f) => formData.append('dxfFiles', f, f.webkitRelativePath || f.name));
       formData.append('startSize', start);
       formData.append('stepSize', step);
 
