@@ -45,6 +45,8 @@ const cloneSheet = (s = {}) => ({
   ...s,
   placed: (s.placed || []).map(clonePlacedItem),
 });
+const hasSheetGeometry = (sheet = {}) =>
+  Array.isArray(sheet?.placed) && sheet.placed.length > 0;
 const clamp = (v, min, max) => Math.min(Math.max(v, min), max);
 function getPolygonBounds(p = []) {
   if (!p.length) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
@@ -661,7 +663,7 @@ const SheetCanvas = React.memo(function SheetCanvas({
                   : null;
               return (
                 <g
-                  key={item.id}
+                  key={`${sheet?.sheetIndex ?? "sheet"}:${item.id}`}
                   onMouseEnter={() => setHovered(item.id)}
                   onMouseLeave={() => setHovered(null)}
                   onMouseDown={(e) => handleItemMouseDown(e, item)}
@@ -852,58 +854,86 @@ export default function DieCutNestingBoard({
     diecutExportService.clearNestingSheetDetailCache();
   }, [nestingResult?.resultId, nestingResult?.totalSheets]);
   useEffect(() => {
-    if (!nestingResult?.resultId) return undefined;
-    const summary = nestingResult?.sheets?.[selectedSheet];
-    if (
-      !summary ||
-      summary.placed?.length ||
-      sheetDetails[selectedSheet]?.placed?.length
-    )
-      return undefined;
+    if (!nestingResult?.resultId || !sheets.length) return undefined;
+    const priorityIndexes = new Set();
+    for (let offset = -2; offset <= 2; offset++) {
+      const index = selectedSheet + offset;
+      if (index >= 0 && index < sheets.length) priorityIndexes.add(index);
+    }
+    for (let i = 0; i < Math.min(8, sheets.length); i++) priorityIndexes.add(i);
+    const indexes = [...priorityIndexes].filter(
+      (index) =>
+        !hasSheetGeometry(sheets[index]) && !hasSheetGeometry(sheetDetails[index]),
+    );
+    if (!indexes.length) return undefined;
     let cancelled = false;
-    setLoadingSheetIndex(selectedSheet);
+    if (indexes.includes(selectedSheet)) setLoadingSheetIndex(selectedSheet);
     diecutExportService
-      .fetchNestingSheetDetail(nestingResult.resultId, selectedSheet)
-      .then((sheet) => {
-        if (!cancelled && sheet)
-          setSheetDetails((c) => ({ ...c, [selectedSheet]: sheet }));
+      .fetchNestingSheetDetails(nestingResult.resultId, indexes)
+      .then((loaded) => {
+        if (cancelled || !loaded?.length) return;
+        setSheetDetails((current) => {
+          let changed = false;
+          const next = { ...current };
+          for (const entry of loaded) {
+            const index = Number(entry?.sheetIndex);
+            if (!Number.isFinite(index) || !entry?.sheet) continue;
+            if (hasSheetGeometry(next[index])) continue;
+            next[index] = entry.sheet;
+            changed = true;
+          }
+          return changed ? next : current;
+        });
       })
       .catch((e) => console.error("[DieCut] load sheet detail error:", e))
       .finally(() => {
         if (!cancelled)
-          setLoadingSheetIndex((c) => (c === selectedSheet ? null : c));
+          setLoadingSheetIndex((current) =>
+            current === selectedSheet ? null : current,
+          );
       });
     return () => {
       cancelled = true;
     };
   }, [
     nestingResult?.resultId,
-    nestingResult?.sheets,
+    sheets,
     selectedSheet,
     sheetDetails,
   ]);
   useEffect(() => {
     if (!nestingResult?.resultId || !sheets.length) return;
-    const indexes = [];
-    for (let i = 0; i < Math.min(4, sheets.length); i++) {
-      if (!sheets[i]?.placed?.length && !sheetDetails[i]?.placed?.length)
-        indexes.push(i);
-    }
-    if (!indexes.length) return;
-    diecutExportService
-      .fetchNestingSheetDetails(nestingResult.resultId, indexes)
-      .then((loaded) => {
-        if (!loaded?.length) return;
-        setSheetDetails((c) => {
-          const next = { ...c };
-          for (const entry of loaded) {
-            const i = Number(entry?.sheetIndex);
-            if (Number.isFinite(i)) next[i] = entry.sheet;
-          }
-          return next;
-        });
-      })
-      .catch(() => {});
+    const missingIndexes = sheets
+      .map((_, index) => index)
+      .filter(
+        (index) =>
+          !hasSheetGeometry(sheets[index]) && !hasSheetGeometry(sheetDetails[index]),
+      );
+    if (!missingIndexes.length) return undefined;
+    const timer = window.setTimeout(() => {
+      diecutExportService
+        .fetchNestingSheetDetails(
+          nestingResult.resultId,
+          missingIndexes.slice(0, 12),
+        )
+        .then((loaded) => {
+          if (!loaded?.length) return;
+          setSheetDetails((current) => {
+            let changed = false;
+            const next = { ...current };
+            for (const entry of loaded) {
+              const index = Number(entry?.sheetIndex);
+              if (!Number.isFinite(index) || !entry?.sheet) continue;
+              if (hasSheetGeometry(next[index])) continue;
+              next[index] = entry.sheet;
+              changed = true;
+            }
+            return changed ? next : current;
+          });
+        })
+        .catch(() => {});
+    }, 120);
+    return () => window.clearTimeout(timer);
   }, [nestingResult?.resultId, sheets, sheetDetails]);
   useEffect(() => {
     if (!sheetTabsRef.current) return;
@@ -960,6 +990,7 @@ export default function DieCutNestingBoard({
   const activeInvalidItemIds = isEditMode
     ? validation.invalidItemIds
     : undefined;
+  const canvasKey = `${nestingResult?.resultId || "result"}:${selectedSheet}:${currentSheet?.sheetIndex ?? selectedSheet}`;
   const displaySheetStats = useMemo(
     () =>
       displaySheets.map((sheet) =>
@@ -1519,6 +1550,7 @@ export default function DieCutNestingBoard({
     ) : null;
   const canvas = currentSheet?.placed?.length ? (
     <SheetCanvas
+      key={canvasKey}
       sheet={currentSheet}
       sizeColorMap={sizeColorMap}
       scale={scale}

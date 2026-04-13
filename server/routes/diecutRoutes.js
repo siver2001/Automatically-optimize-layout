@@ -22,10 +22,9 @@ import { NestingNormalPairing } from '../algorithms/diecut/strategies/normal/Nes
 import { NestingNormalPiece } from '../algorithms/diecut/strategies/normal/NestingNormalPiece.js';
 import { applyLayersToSizeList, buildNestingPlanSummary, normalizeLayers, normalizeNestingStrategy } from '../algorithms/diecut/strategies/normal/nestingPlanUtils.js';
 import { runNestingMode } from '../algorithms/diecut/strategies/normal/runNestingMode.js';
-import { CapacityTestPairing } from '../algorithms/diecut/strategies/capacity/CapacityTestPairing.js';
-import { CapacityTestSameSidePattern } from '../algorithms/diecut/strategies/capacity/CapacityTestSameSidePattern.js';
 import { CapacityTestComplementaryPattern } from '../algorithms/diecut/strategies/capacity/CapacityTestComplementaryPattern.js';
-import { CapacityTestPrePairedSameSidePattern } from '../algorithms/diecut/strategies/capacity/CapacityTestPrePairedSameSidePattern.js';
+import { CapacityTestSameSidePattern } from '../algorithms/diecut/strategies/capacity/CapacityTestSameSidePattern.js';
+import { CapacityTestDoubleInsoleDoubleContourPattern } from '../algorithms/diecut/strategies/capacity/CapacityTestDoubleInsoleDoubleContourPattern.js';
 import { generateDieCutPdf } from '../utils/diecutPdfGenerator.js';
 import { generateDieCutDxf } from '../utils/diecutDxfGenerator.js';
 import { sanitizeExportFileName } from '../utils/diecutExportUtils.js';
@@ -274,6 +273,8 @@ router.post('/nest', async (req, res) => {
       return res.status(400).json({ error: 'Danh sách size rỗng' });
     }
 
+    const resolvedPairingStrategy = pairingStrategy || (mirrorPairs !== false ? 'pair' : 'same-side');
+
     const config = {
       sheetWidth: sheetWidth || 1400,
       sheetHeight: sheetHeight || 700,
@@ -283,21 +284,19 @@ router.post('/nest', async (req, res) => {
       marginY: marginY ?? 5,
       allowRotate90: allowRotate90 !== false,
       allowRotate180: allowRotate180 !== false,
-      mirrorPairs: mirrorPairs !== false,
-      pairingStrategy: pairingStrategy || (mirrorPairs !== false ? 'pair' : 'same-side'),
+      mirrorPairs: resolvedPairingStrategy !== 'same-side',
+      pairingStrategy: resolvedPairingStrategy,
       gridStep: gridStep ?? 0.5,
       layers: normalizeLayers(layers),
       nestingStrategy: normalizeNestingStrategy(nestingStrategy),
       maxTimeMs: 60000
     };
 
-    const { nestStrategy } = req.body; // 'pair' hoặc 'piece'
-    const createNester = () => {
-      if (nestStrategy === 'piece' || (!config.mirrorPairs && config.pairingStrategy === 'same-side')) {
-        return new NestingNormalPiece(config);
-      }
-      return new NestingNormalPairing(config);
-    };
+    const createNester = () => (
+      config.pairingStrategy === 'same-side' || config.mirrorPairs === false
+        ? new NestingNormalPiece(config)
+        : new NestingNormalPairing(config)
+    );
 
     const plannedSizeList = applyLayersToSizeList(sizeList, config.layers);
     const planSummary = buildNestingPlanSummary(sizeList, plannedSizeList, config);
@@ -385,14 +384,12 @@ router.post('/test-capacity', async (req, res) => {
     }
 
     const resolvedPairingStrategy = pairingStrategy || (mirrorPairs !== false ? 'pair' : 'same-side');
-    const resolvedCapacityLayoutMode = capacityLayoutMode === 'legacy-pair'
-      ? 'legacy-pair'
-      : resolvedPairingStrategy === 'pair'
-        ? 'pair-complementary'
+    const resolvedCapacityLayoutMode = resolvedPairingStrategy === 'pair'
+      ? 'pair-complementary'
+      : capacityLayoutMode === 'same-side-double-contour'
+        ? 'same-side-double-contour'
         : capacityLayoutMode === 'same-side-orthogonal'
           ? 'same-side-orthogonal'
-          : capacityLayoutMode === 'same-side-prepaired-tight'
-            ? 'same-side-prepaired-tight'
           : 'same-side-banded';
 
     const config = {
@@ -404,7 +401,7 @@ router.post('/test-capacity', async (req, res) => {
       marginY: marginY ?? 5,
       allowRotate90: allowRotate90 !== false,
       allowRotate180: allowRotate180 !== false,
-      mirrorPairs: mirrorPairs !== false,
+      mirrorPairs: resolvedPairingStrategy !== 'same-side',
       pairingStrategy: resolvedPairingStrategy,
       gridStep: gridStep || 2,
       maxTimeMs: 120000,
@@ -416,31 +413,27 @@ router.post('/test-capacity', async (req, res) => {
 
     let nester;
 
-    if (config.capacityLayoutMode === 'same-side-prepaired-tight') {
-      nester = new CapacityTestPrePairedSameSidePattern({
-        ...config,
-        capacityLayoutMode: 'same-side-prepaired-tight',
-        pairingStrategy: 'same-side',
-        mirrorPairs: false
-      });
-    } else if (config.pairingStrategy === 'same-side' || config.mirrorPairs === false) {
-      nester = new CapacityTestSameSidePattern({
-        ...config,
-        capacityLayoutMode: resolvedCapacityLayoutMode,
-        pairingStrategy: 'same-side',
-        mirrorPairs: false
-      });
-    } else if (config.capacityLayoutMode === 'legacy-pair') {
-      nester = new CapacityTestPairing(config);
-    } else if (config.pairingStrategy === 'pair' && config.mirrorPairs !== false) {
+    if (config.pairingStrategy === 'pair' && config.mirrorPairs !== false) {
       nester = new CapacityTestComplementaryPattern({
         ...config,
         capacityLayoutMode: 'pair-complementary',
         pairingStrategy: 'pair',
         mirrorPairs: true
       });
+    } else if (config.capacityLayoutMode === 'same-side-double-contour') {
+      nester = new CapacityTestDoubleInsoleDoubleContourPattern({
+        ...config,
+        capacityLayoutMode: 'same-side-double-contour',
+        pairingStrategy: 'same-side',
+        mirrorPairs: false
+      });
     } else {
-      nester = new CapacityTestPairing(config);
+      nester = new CapacityTestSameSidePattern({
+        ...config,
+        capacityLayoutMode: resolvedCapacityLayoutMode,
+        pairingStrategy: 'same-side',
+        mirrorPairs: false
+      });
     }
 
     const result = await nester.testCapacity(sizeList, config);

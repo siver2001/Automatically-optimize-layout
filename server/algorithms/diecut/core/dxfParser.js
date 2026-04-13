@@ -1,14 +1,14 @@
 /**
- * dxfParser.js - Đọc file DXF, trích xuất biên dạng CHÍNH XÁC 100%
+ * dxfParser.js - Äá»c file DXF, trÃ­ch xuáº¥t biÃªn dáº¡ng CHÃNH XÃC 100%
  *
- * Xử lý đầy đủ:
- * - LWPOLYLINE với bulge values (arc segments) → phân tách từng cung arc
- * - POLYLINE + VERTEX với bulge
- * - SPLINE → nội suy B-Spline hoặc Bezier chính xác
- * - ARC, CIRCLE → rời rạc hóa
- * - LINE → gom lại thành vòng khép kín
+ * Xá»­ lÃ½ Ä‘áº§y Ä‘á»§:
+ * - LWPOLYLINE vá»›i bulge values (arc segments) â†’ phÃ¢n tÃ¡ch tá»«ng cung arc
+ * - POLYLINE + VERTEX vá»›i bulge
+ * - SPLINE â†’ ná»™i suy B-Spline hoáº·c Bezier chÃ­nh xÃ¡c
+ * - ARC, CIRCLE â†’ rá»i ráº¡c hÃ³a
+ * - LINE â†’ gom láº¡i thÃ nh vÃ²ng khÃ©p kÃ­n
  *
- * Tất cả tọa độ giữ nguyên đơn vị mm từ DXF.
+ * Táº¥t cáº£ tá»a Ä‘á»™ giá»¯ nguyÃªn Ä‘Æ¡n vá»‹ mm tá»« DXF.
  */
 
 import DxfParser from 'dxf-parser';
@@ -82,21 +82,21 @@ async function convertDwgBufferToDxfText(buffer, fileName = 'drawing.dwg') {
   }
 }
 
-// ─────────────────────────────────────────────
-// 1. BULGE → ARC POINTS (Công thức chuẩn DXF)
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// 1. BULGE â†’ ARC POINTS (CÃ´ng thá»©c chuáº©n DXF)
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 /**
- * Chuyển đổi một đoạn LWPOLYLINE có bulge thành dãy điểm arc.
- * Bulge = tan(θ/4), θ là góc cung có dấu (+ = CCW, - = CW)
+ * Chuyá»ƒn Ä‘á»•i má»™t Ä‘oáº¡n LWPOLYLINE cÃ³ bulge thÃ nh dÃ£y Ä‘iá»ƒm arc.
+ * Bulge = tan(Î¸/4), Î¸ lÃ  gÃ³c cung cÃ³ dáº¥u (+ = CCW, - = CW)
  *
- * @param {number} x1, y1 - điểm bắt đầu
- * @param {number} x2, y2 - điểm kết thúc
- * @param {number} bulge  - giá trị bulge tại điểm bắt đầu
- * @param {number} _segments - số đoạn rời rạc hóa
- * @returns {Array<{x, y}>} - các điểm trên cung (không bao gồm điểm đầu)
+ * @param {number} x1, y1 - Ä‘iá»ƒm báº¯t Ä‘áº§u
+ * @param {number} x2, y2 - Ä‘iá»ƒm káº¿t thÃºc
+ * @param {number} bulge  - giÃ¡ trá»‹ bulge táº¡i Ä‘iá»ƒm báº¯t Ä‘áº§u
+ * @param {number} _segments - sá»‘ Ä‘oáº¡n rá»i ráº¡c hÃ³a
+ * @returns {Array<{x, y}>} - cÃ¡c Ä‘iá»ƒm trÃªn cung (khÃ´ng bao gá»“m Ä‘iá»ƒm Ä‘áº§u)
  */
 function bulgeToArcPoints(x1, y1, x2, y2, bulge, _segments = 48) {
-  // Bỏ qua các bulge quá nhỏ (độ võng cực nhỏ) để tránh lỗi float precision sinh ra "răng cưa" ảo
+  // Bá» qua cÃ¡c bulge quÃ¡ nhá» (Ä‘á»™ vÃµng cá»±c nhá») Ä‘á»ƒ trÃ¡nh lá»—i float precision sinh ra "rÄƒng cÆ°a" áº£o
   if (Math.abs(bulge) < 2e-3) return [];
 
   const dx = x2 - x1;
@@ -104,32 +104,32 @@ function bulgeToArcPoints(x1, y1, x2, y2, bulge, _segments = 48) {
   const chord = Math.hypot(dx, dy);
   if (chord < 1e-4) return [];
 
-  // 1. Góc quét của cung (sweep = 4 * atan(bulge)), theta = giá trị tuyệt đối
+  // 1. GÃ³c quÃ©t cá»§a cung (sweep = 4 * atan(bulge)), theta = giÃ¡ trá»‹ tuyá»‡t Ä‘á»‘i
   const sweep = 4 * Math.atan(bulge);
   const theta = Math.abs(sweep);
 
-  // 2. Bán kính
+  // 2. BÃ¡n kÃ­nh
   const r = chord / (2 * Math.sin(theta / 2));
 
-  // 3. Góc của đường thẳng nối p1 -> p2 (chord angle)
+  // 3. GÃ³c cá»§a Ä‘Æ°á»ng tháº³ng ná»‘i p1 -> p2 (chord angle)
   const alpha = Math.atan2(dy, dx);
 
-  // 4. Góc đường nối từ p1 đến tâm C
+  // 4. GÃ³c Ä‘Æ°á»ng ná»‘i tá»« p1 Ä‘áº¿n tÃ¢m C
   const angle_p1_C = alpha + Math.sign(bulge) * (Math.PI / 2 - theta / 2);
 
-  // 5. Tọa độ tâm
+  // 5. Tá»a Ä‘á»™ tÃ¢m
   const cx = x1 + r * Math.cos(angle_p1_C);
   const cy = y1 + r * Math.sin(angle_p1_C);
 
-  // 6. Góc xuất phát từ tâm đến p1
+  // 6. GÃ³c xuáº¥t phÃ¡t tá»« tÃ¢m Ä‘áº¿n p1
   const startAngle = Math.atan2(y1 - cy, x1 - cx);
 
-  // Tính chu vi cung thực tế để linh hoạt số điểm
+  // TÃ­nh chu vi cung thá»±c táº¿ Ä‘á»ƒ linh hoáº¡t sá»‘ Ä‘iá»ƒm
   const arcLength = r * theta;
-  // Cứ khoảng 0.5mm đến 1.0mm thì lấy 1 điểm để tránh quá dày đặc gây "răng cưa" ảo
+  // Cá»© khoáº£ng 0.5mm Ä‘áº¿n 1.0mm thÃ¬ láº¥y 1 Ä‘iá»ƒm Ä‘á»ƒ trÃ¡nh quÃ¡ dÃ y Ä‘áº·c gÃ¢y "rÄƒng cÆ°a" áº£o
   const dynamicSegments = Math.max(2, Math.min(96, Math.ceil(arcLength / 0.5)));
 
-  // 7. Rời rạc hóa cung tròn (CHỈ LẤY ĐIỂM TRUNG GIAN)
+  // 7. Rá»i ráº¡c hÃ³a cung trÃ²n (CHá»ˆ Láº¤Y ÄIá»‚M TRUNG GIAN)
   const pts = [];
   for (let i = 1; i < dynamicSegments; i++) {
     const angle = startAngle + (i / dynamicSegments) * sweep;
@@ -139,18 +139,18 @@ function bulgeToArcPoints(x1, y1, x2, y2, bulge, _segments = 48) {
 }
 
 
-// ─────────────────────────────────────────────
-// 2. SPLINE → Points (De Boor / Bezier xấp xỉ)
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// 2. SPLINE â†’ Points (De Boor / Bezier xáº¥p xá»‰)
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 /**
- * Nội suy B-Spline degree 3 từ danh sách control points
- * Dùng thuật toán chia nhỏ khoảng tham số
+ * Ná»™i suy B-Spline degree 3 tá»« danh sÃ¡ch control points
+ * DÃ¹ng thuáº­t toÃ¡n chia nhá» khoáº£ng tham sá»‘
  */
 function splineToPoints(controlPoints, degree = 3, knots = null, segments = 200) {
   const n = controlPoints.length;
   if (n < 2) return controlPoints;
 
-  // Nếu không có knot vector → tạo uniform knot
+  // Náº¿u khÃ´ng cÃ³ knot vector â†’ táº¡o uniform knot
   if (!knots || knots.length < n + degree + 1) {
     knots = [];
     const totalKnots = n + degree + 1;
@@ -160,14 +160,14 @@ function splineToPoints(controlPoints, degree = 3, knots = null, segments = 200)
       else knots.push((i - degree) / (n - degree));
     }
   } else {
-    // Normalize knots về [0,1]
+    // Normalize knots vá» [0,1]
     const kMin = knots[0], kMax = knots[knots.length - 1];
     const kRange = kMax - kMin || 1;
     knots = knots.map(k => (k - kMin) / kRange);
   }
 
   function deBoor(t) {
-    // Tìm knot span
+    // TÃ¬m knot span
     let k = degree;
     for (let i = degree; i < knots.length - degree - 1; i++) {
       if (t >= knots[i] && t < knots[i + 1]) { k = i; break; }
@@ -212,13 +212,13 @@ function splineToPoints(controlPoints, degree = 3, knots = null, segments = 200)
   return points;
 }
 
-// ─────────────────────────────────────────────
-// 3. ARC → Points
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// 3. ARC â†’ Points
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function arcToPoints(cx, cy, r, startDeg, endDeg, segments = 64) {
   let startRad = (startDeg * Math.PI) / 180;
   let endRad   = (endDeg   * Math.PI) / 180;
-  // DXF ARC luôn CCW → đảm bảo endRad > startRad
+  // DXF ARC luÃ´n CCW â†’ Ä‘áº£m báº£o endRad > startRad
   if (endRad < startRad) endRad += 2 * Math.PI;
   const step = (endRad - startRad) / segments;
   const pts = [];
@@ -229,9 +229,9 @@ function arcToPoints(cx, cy, r, startDeg, endDeg, segments = 64) {
   return pts;
 }
 
-// ─────────────────────────────────────────────
-// 4. GOM LINE ENTITIES → Closed Polygon Ring
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// 4. GOM LINE ENTITIES â†’ Closed Polygon Ring
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function lineEntitiesToPolygons(lines, tolerance = 0.5) {
   if (lines.length === 0) return [];
 
@@ -241,10 +241,10 @@ function lineEntitiesToPolygons(lines, tolerance = 0.5) {
   for (let start = 0; start < lines.length; start++) {
     if (used[start]) continue;
 
-    // Bắt đầu một chain mới
+    // Báº¯t Ä‘áº§u má»™t chain má»›i
     let chain = [{ x: lines[start].start.x, y: lines[start].start.y }];
     
-    // Nếu seg đầu tiên là arc, thêm các điểm trung gian (pts của arcToPoints bao gồm cả đầu cuối, nên dùng slice)
+    // Náº¿u seg Ä‘áº§u tiÃªn lÃ  arc, thÃªm cÃ¡c Ä‘iá»ƒm trung gian (pts cá»§a arcToPoints bao gá»“m cáº£ Ä‘áº§u cuá»‘i, nÃªn dÃ¹ng slice)
     if (lines[start]._pts) {
       const midPts = lines[start]._pts.slice(1, -1);
       chain.push(...midPts);
@@ -264,7 +264,7 @@ function lineEntitiesToPolygons(lines, tolerance = 0.5) {
         const dE = Math.hypot(curEnd.x - e.x, curEnd.y - e.y);
 
         if (dS < tolerance) {
-          // Khớp điểm đầu: s -> (mid) -> e
+          // Khá»›p Ä‘iá»ƒm Ä‘áº§u: s -> (mid) -> e
           if (lines[i]._pts) {
              chain.push(...lines[i]._pts.slice(1, -1));
           }
@@ -273,7 +273,7 @@ function lineEntitiesToPolygons(lines, tolerance = 0.5) {
           used[i] = true;
           changed = true;
         } else if (dE < tolerance) {
-          // Khớp điểm cuối: e -> (mid reversed) -> s
+          // Khá»›p Ä‘iá»ƒm cuá»‘i: e -> (mid reversed) -> s
           if (lines[i]._pts) {
              const revMid = [...lines[i]._pts].reverse().slice(1, -1);
              chain.push(...revMid);
@@ -286,7 +286,7 @@ function lineEntitiesToPolygons(lines, tolerance = 0.5) {
       }
     }
 
-    // Kiểm tra khép kín để tạo polygon
+    // Kiá»ƒm tra khÃ©p kÃ­n Ä‘á»ƒ táº¡o polygon
     const dClose = Math.hypot(curEnd.x - chain[0].x, curEnd.y - chain[0].y);
     if (dClose < tolerance * 10 && chain.length >= 3) {
       polygons.push(chain);
@@ -302,12 +302,12 @@ function isClosedPointPath(points, tolerance = 0.5) {
   return Math.hypot(last.x - first.x, last.y - first.y) <= tolerance;
 }
 
-// ─────────────────────────────────────────────
-// 5. PARSE DXF → POLYGON LIST (chính xác)
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// 5. PARSE DXF â†’ POLYGON LIST (chÃ­nh xÃ¡c)
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 /**
- * Parse DXF text và trả về mảng Polygon [{x,y}] chính xác từ file DXF
- * Mỗi entity khép kín (LWPOLYLINE closed, SPLINE, v.v.) → 1 polygon
+ * Parse DXF text vÃ  tráº£ vá» máº£ng Polygon [{x,y}] chÃ­nh xÃ¡c tá»« file DXF
+ * Má»—i entity khÃ©p kÃ­n (LWPOLYLINE closed, SPLINE, v.v.) â†’ 1 polygon
  *
  * @param {string} dxfText
  * @returns {Array<Array<{x,y}>>}
@@ -317,7 +317,7 @@ function parseDxfDocument(dxfText) {
   try {
     return parser.parseSync(dxfText);
   } catch (e) {
-    throw new Error(`Lỗi khi đọc file DXF: ${e.message}`);
+    throw new Error(`Lá»—i khi Ä‘á»c file DXF: ${e.message}`);
   }
 }
 
@@ -348,7 +348,7 @@ function parseDxfDocumentToPolygonAnalysis(dxf) {
   for (const entity of dxf.entities) {
     let pts = null;
 
-    // ── LWPOLYLINE ─────────────────────────
+    // â”€â”€ LWPOLYLINE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if (entity.type === 'LWPOLYLINE') {
       const verts = entity.vertices || [];
       if (verts.length < 2) continue;
@@ -360,20 +360,20 @@ function parseDxfDocumentToPolygonAnalysis(dxf) {
         const bulge = cur.bulge || 0;
         const isLast = (i === verts.length - 1);
 
-        // Luôn thêm điểm hiện tại
+        // LuÃ´n thÃªm Ä‘iá»ƒm hiá»‡n táº¡i
         pts.push({ x: cur.x, y: cur.y });
 
-        // Nếu không phải điểm cuối (hoặc closed), thêm arc points
+        // Náº¿u khÃ´ng pháº£i Ä‘iá»ƒm cuá»‘i (hoáº·c closed), thÃªm arc points
         if (!isLast || entity.closed) {
           const arcPts = bulgeToArcPoints(cur.x, cur.y, next.x, next.y, bulge, 48);
-          // arcPts giờ chỉ chứa các điểm trung gian, nên push toàn bộ
+          // arcPts giá» chá»‰ chá»©a cÃ¡c Ä‘iá»ƒm trung gian, nÃªn push toÃ n bá»™
           for (const p of arcPts) {
             pts.push(p);
           }
         }
       }
 
-      // Nếu closed → bỏ điểm trùng lặp cuối-đầu
+      // Náº¿u closed â†’ bá» Ä‘iá»ƒm trÃ¹ng láº·p cuá»‘i-Ä‘áº§u
       const isClosedShape = entity.closed || isClosedPointPath(pts, 0.5);
 
       if (isClosedShape && pts.length > 0) {
@@ -394,7 +394,7 @@ function parseDxfDocumentToPolygonAnalysis(dxf) {
       }
     }
 
-    // ── POLYLINE + VERTEX ──────────────────
+    // â”€â”€ POLYLINE + VERTEX â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     else if (entity.type === 'POLYLINE') {
       const verts = entity.vertices || [];
       if (verts.length < 2) continue;
@@ -435,18 +435,18 @@ function parseDxfDocumentToPolygonAnalysis(dxf) {
       }
     }
 
-    // ── SPLINE ────────────────────────────
+    // â”€â”€ SPLINE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     else if (entity.type === 'SPLINE') {
       const cps = (entity.controlPoints || []).map(v => ({ x: v.x, y: v.y }));
       const fps = (entity.fitPoints   || []).map(v => ({ x: v.x, y: v.y }));
       
-      // Nếu spline có Control Points, dùng nội suy B-Spline tiêu chuẩn
+      // Náº¿u spline cÃ³ Control Points, dÃ¹ng ná»™i suy B-Spline tiÃªu chuáº©n
       if (cps.length >= 2) {
         const degree = entity.degreeOfSplineCurve || 3;
         const knots  = entity.knotValues || null;
         pts = splineToPoints(cps, degree, knots, Math.max(32, cps.length * 4));
       } 
-      // Nếu chỉ có Fit Points (rất hay gặp khi user vẽ Spline tự do), đa phần là điểm đi qua sát viền
+      // Náº¿u chá»‰ cÃ³ Fit Points (ráº¥t hay gáº·p khi user váº½ Spline tá»± do), Ä‘a pháº§n lÃ  Ä‘iá»ƒm Ä‘i qua sÃ¡t viá»n
       else if (fps.length >= 2) {
         pts = fps;
       } 
@@ -455,33 +455,33 @@ function parseDxfDocumentToPolygonAnalysis(dxf) {
       }
     }
 
-    // ── ARC ───────────────────────────────
+    // â”€â”€ ARC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     else if (entity.type === 'ARC') {
       if (entity.center) {
-        // ARC là đường hở → chỉ dùng khi không có entity khác hoặc cần gom
+        // ARC lÃ  Ä‘Æ°á»ng há»Ÿ â†’ chá»‰ dÃ¹ng khi khÃ´ng cÃ³ entity khÃ¡c hoáº·c cáº§n gom
         pts = arcToPoints(
           entity.center.x, entity.center.y, entity.radius,
           entity.startAngle, entity.endAngle, 72
         );
-        // Không close arc thành polygon riêng → cộng vào line pool
+        // KhÃ´ng close arc thÃ nh polygon riÃªng â†’ cá»™ng vÃ o line pool
         lineEntities.push({
           start: pts[0],
           end:   pts[pts.length - 1],
           type: 'arc',
           _pts: pts
         });
-        pts = null; // Không tạo polygon trực tiếp
+        pts = null; // KhÃ´ng táº¡o polygon trá»±c tiáº¿p
       }
     }
 
-    // ── CIRCLE ────────────────────────────
+    // â”€â”€ CIRCLE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     else if (entity.type === 'CIRCLE') {
       if (entity.center) {
         pts = arcToPoints(entity.center.x, entity.center.y, entity.radius, 0, 360, 120);
       }
     }
 
-    // ── LINE ──────────────────────────────
+    // â”€â”€ LINE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     else if (entity.type === 'LINE') {
       if (entity.start && entity.end) {
         lineEntities.push({
@@ -496,9 +496,9 @@ function parseDxfDocumentToPolygonAnalysis(dxf) {
       }
     }
 
-    // Nếu có pts hợp lệ và đủ điểm → thêm vào polygon list
+    // Náº¿u cÃ³ pts há»£p lá»‡ vÃ  Ä‘á»§ Ä‘iá»ƒm â†’ thÃªm vÃ o polygon list
     if (pts && pts.length >= 3) {
-      // Lọc bỏ các điểm liên tiếp trùng nhau (gây lỗi nét vẽ stroke dày)
+      // Lá»c bá» cÃ¡c Ä‘iá»ƒm liÃªn tiáº¿p trÃ¹ng nhau (gÃ¢y lá»—i nÃ©t váº½ stroke dÃ y)
       const cleanPts = [];
       for (const p of pts) {
         if (cleanPts.length === 0) {
@@ -510,7 +510,7 @@ function parseDxfDocumentToPolygonAnalysis(dxf) {
           }
         }
       }
-      // Kiểm tra điểm cuối và điểm đầu
+      // Kiá»ƒm tra Ä‘iá»ƒm cuá»‘i vÃ  Ä‘iá»ƒm Ä‘áº§u
       if (cleanPts.length >= 3) {
         const first = cleanPts[0];
         const last = cleanPts[cleanPts.length - 1];
@@ -525,7 +525,7 @@ function parseDxfDocumentToPolygonAnalysis(dxf) {
     }
   }
 
-  // Gom LINE entities thành polygon vòng khép kín (nếu có)
+  // Gom LINE entities thÃ nh polygon vÃ²ng khÃ©p kÃ­n (náº¿u cÃ³)
   let stitchedPolygonCount = 0;
   if (lineEntities.length >= 3) {
     const linePolys = lineEntitiesToPolygons(lineEntities, 0.5);
@@ -537,7 +537,7 @@ function parseDxfDocumentToPolygonAnalysis(dxf) {
   return {
     polygons: polygons
     .map(poly => poly.map(p => ({ x: p.x, y: -p.y })))   // flip Y
-    .map(poly => simplifyPolygon(poly, 0.25))            // Ngưỡng 0.25mm nén số điểm li ti nhưng ko ảnh hưởng nesting (vì lưới check ≥ 1mm)
+    .map(poly => simplifyPolygon(poly, 0.25))            // NgÆ°á»¡ng 0.25mm nÃ©n sá»‘ Ä‘iá»ƒm li ti nhÆ°ng ko áº£nh hÆ°á»Ÿng nesting (vÃ¬ lÆ°á»›i check â‰¥ 1mm)
     .map(poly => roundPolygon(normalizeToOrigin(poly), 4)),
     analysis: {
       stitchedPolygonCount,
@@ -547,9 +547,9 @@ function parseDxfDocumentToPolygonAnalysis(dxf) {
   };
 }
 
-// ─────────────────────────────────────────────
-// 6. GÁN SIZE TỰ ĐỘNG
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// 6. GÃN SIZE Tá»° Äá»˜NG
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export async function parseCadBufferToPolygons(buffer, fileName = 'drawing.dxf') {
   const extension = path.extname(fileName).toLowerCase();
   const dxfText = extension === '.dwg'
@@ -559,8 +559,8 @@ export async function parseCadBufferToPolygons(buffer, fileName = 'drawing.dxf')
 }
 
 /**
- * Gán size tự động cho danh sách polygon
- * Sắp xếp từ polygon có diện tích nhỏ nhất → lớn nhất → gán size tăng dần
+ * GÃ¡n size tá»± Ä‘á»™ng cho danh sÃ¡ch polygon
+ * Sáº¯p xáº¿p tá»« polygon cÃ³ diá»‡n tÃ­ch nhá» nháº¥t â†’ lá»›n nháº¥t â†’ gÃ¡n size tÄƒng dáº§n
  *
  * @param {Array<Array<{x,y}>>} polygons
  * @param {number} startSize
@@ -621,33 +621,45 @@ function assignSizesWithDetectedLabels(polygons, detectedLabels, startSize = 3.5
   });
 }
 
-function buildCadImportAnalysis(polygons, detectedLabels, polygonAnalysis) {
+function detectDoubleInsoleDoubleContourFile(fileName = '') {
+  return String(fileName || '').toLowerCase().includes('puma-dc');
+}
+
+function buildCadImportAnalysis(polygons, detectedLabels, polygonAnalysis, fileName = '') {
   const stitchedPolygonCount = polygonAnalysis?.analysis?.stitchedPolygonCount || 0;
   const openContourSegmentCount = polygonAnalysis?.analysis?.openContourSegmentCount || 0;
   const detectedLabelCount = Array.isArray(detectedLabels) ? detectedLabels.length : 0;
   const polygonCount = Array.isArray(polygons) ? polygons.length : 0;
-  const isPrePairedContour =
+  const isDoubleInsoleDoubleContour =
     polygonCount > 0 &&
-    stitchedPolygonCount > 0 &&
-    detectedLabelCount === polygonCount;
+    detectDoubleInsoleDoubleContourFile(fileName);
 
   return {
     polygonCount,
     detectedLabelCount,
     stitchedPolygonCount,
     openContourSegmentCount,
-    recommendation: isPrePairedContour
+    recommendation: isDoubleInsoleDoubleContour
       ? {
-          kind: 'pre-paired-contour',
+          kind: 'double-insole-double-contour',
           autoApply: true,
-          title: 'Đã nhận diện file cần ưu tiên xếp cùng bên',
-          modeLabel: 'Ghép Chiếc (Cùng bên) - Tối ưu file ghép sẵn',
+          title: 'Đã nhận diện file ghép sẵn',
+          modeLabel: 'Tối ưu cho file ghép sẵn',
           pairingStrategy: 'same-side',
-          capacityLayoutMode: 'same-side-prepaired-tight',
+          capacityLayoutMode: 'same-side-double-contour',
           reason:
-            'File này sẽ dùng thuật toán riêng cho biên dạng ghép sẵn để xếp cùng bên chặt hơn và giảm thời gian tính toán.'
+            'File ghép sẵn sẽ tự động dùng layout tối ưu, không cần chọn mode thủ công.'
         }
-      : null
+      : {
+          kind: 'single-insole-standard',
+          autoApply: false,
+          title: 'Đã nhận diện file thường',
+          modeLabel: 'Tối ưu cho file thường',
+          pairingStrategy: 'pair',
+          capacityLayoutMode: 'pair-complementary',
+          reason:
+            'File thường sẽ tự động dùng layout tối ưu, không cần chọn mode thủ công.'
+        }
   };
 }
 
@@ -677,7 +689,8 @@ export async function parseCadBufferToSizedShapesWithAnalysis(
     importAnalysis: buildCadImportAnalysis(
       polygonAnalysis.polygons,
       detectedLabels,
-      polygonAnalysis
+      polygonAnalysis,
+      fileName
     )
   };
 }
@@ -698,10 +711,10 @@ export async function parseCadBufferToSizedShapes(
 }
 
 export function assignSizesToPolygons(polygons, startSize = 3.5, stepSize = 0.5) {
-  // Lọc bỏ polygon rỗng
+  // Lá»c bá» polygon rá»—ng
   const valid = polygons.filter(p => p && p.length >= 3);
 
-  // Sort theo diện tích từ nhỏ đến lớn
+  // Sort theo diá»‡n tÃ­ch tá»« nhá» Ä‘áº¿n lá»›n
   const sorted = [...valid].sort((a, b) => area(a) - area(b));
 
   return sorted.map((polygon, index) => {
@@ -722,3 +735,4 @@ export function assignSizesToPolygons(polygons, startSize = 3.5, stepSize = 0.5)
     };
   });
 }
+

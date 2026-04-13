@@ -187,6 +187,23 @@ function findMinimalContinuousValue(minValue, maxValue, precision, isSafe) {
   return roundMetric(high, 3);
 }
 
+function buildShiftCandidates(range, step, limit = 7) {
+  if (!Number.isFinite(range) || range <= 0) return [0];
+  const safeStep = Math.max(step, 0.25);
+  const candidates = new Set([0]);
+  const steps = Math.max(1, limit - 1);
+  const increment = Math.max(safeStep, range / steps);
+
+  for (let value = increment; value <= range + 1e-6; value += increment) {
+    const rounded = roundMetric(value, 3);
+    if (Math.abs(rounded) < safeStep * 0.5) continue;
+    candidates.add(rounded);
+    candidates.add(-rounded);
+  }
+
+  return [...candidates].sort((left, right) => Math.abs(left) - Math.abs(right) || left - right);
+}
+
 function getPlacementsBottom(placements) {
   let maxY = 0;
   for (const placement of placements) {
@@ -465,6 +482,49 @@ export class CapacityTestSameSidePattern extends BaseNesting {
     );
   }
 
+  _buildShiftedBodyNeighborhood(rowPlacements, rowPitch, rowShiftXmm = 0, rowShiftYmm = 0) {
+    const placements = [];
+    const sampleRows = 3;
+
+    for (let row = 0; row < sampleRows; row++) {
+      const isOddRow = row % 2 === 1;
+      const shiftX = isOddRow ? rowShiftXmm : 0;
+      const shiftY = isOddRow ? rowShiftYmm : 0;
+
+      for (let col = 0; col < rowPlacements.length; col++) {
+        const placement = rowPlacements[col];
+        placements.push({
+          id: `body_shift_${row}_${col}`,
+          orient: placement.orient,
+          x: roundMetric(placement.x + shiftX, 3),
+          y: roundMetric(placement.y + row * rowPitch + shiftY, 3)
+        });
+      }
+    }
+
+    return placements;
+  }
+
+  _findShiftedRowPitch(rowPlacements, rowShiftXmm, rowShiftYmm, config, step) {
+    if (!rowPlacements.length) return null;
+
+    const precision = Math.min(step, 0.05);
+    const rowTop = getPlacementsTop(rowPlacements);
+    const rowBottom = getPlacementsBottom(rowPlacements);
+    const minDeltaY = 0;
+    const upper = buildUpperBound(
+      step,
+      rowBottom - rowTop + Math.abs(rowShiftYmm) + config.spacing + step * 10
+    );
+
+    return findMinimalContinuousValue(minDeltaY, upper, precision, (rowPitch) =>
+      validateLocalPlacements(
+        this._buildShiftedBodyNeighborhood(rowPlacements, rowPitch, rowShiftXmm, rowShiftYmm),
+        config.spacing
+      ).valid
+    );
+  }
+
   _findAlignedBodyDx(primaryOrient, alternateOrient, config, step) {
     const precision = Math.min(step, 0.05);
     const upper = buildUpperBound(
@@ -614,16 +674,21 @@ export class CapacityTestSameSidePattern extends BaseNesting {
     return deltaY == null ? null : roundMetric(deltaY, 3);
   }
 
-  _buildRepeatedBodyPlacements(rowPlacements, rows, rowPitch, startY = 0) {
+  _buildRepeatedBodyPlacements(rowPlacements, rows, rowPitch, startY = 0, rowShiftXmm = 0, rowShiftYmm = 0) {
     const placements = [];
+    const baseX = rowShiftXmm < 0 ? -rowShiftXmm : 0;
+    const baseY = startY - Math.min(0, rowShiftYmm);
     for (let row = 0; row < rows; row++) {
+      const isOddRow = row % 2 === 1;
+      const shiftX = isOddRow ? rowShiftXmm : 0;
+      const shiftY = isOddRow ? rowShiftYmm : 0;
       for (let col = 0; col < rowPlacements.length; col++) {
         const placement = rowPlacements[col];
         placements.push({
           id: `body_${row}_${col}`,
           orient: placement.orient,
-          x: placement.x,
-          y: roundMetric(startY + placement.y + row * rowPitch, 3)
+          x: roundMetric(baseX + placement.x + shiftX, 3),
+          y: roundMetric(baseY + placement.y + row * rowPitch + shiftY, 3)
         });
       }
     }
@@ -749,96 +814,134 @@ export class CapacityTestSameSidePattern extends BaseNesting {
         if (bodyDyMm == null) continue;
         const bodyHeightMm = getPlacementsBottom(bodyRowPlacements) - getPlacementsTop(bodyRowPlacements);
         const bodyDxMm = getAveragePitchX(bodyRowPlacements);
+        const bodyVariants = [
+          {
+            key: `${rowMode}_aligned`,
+            rowPlacements: bodyRowPlacements,
+            bodyDyMm,
+            bodyDxMm,
+            rowShiftXmm: 0,
+            rowShiftYmm: 0
+          }
+        ];
+
+        const rowShiftRange = Math.max(primaryOrient.width, alternateOrient.width) * 0.45;
+        const rowShiftCandidates = buildShiftCandidates(rowShiftRange, step, 7);
+        for (const rowShiftXmm of rowShiftCandidates) {
+          if (Math.abs(rowShiftXmm) < Math.max(step, 0.25) * 0.5) continue;
+          const shiftedDyMm = this._findShiftedRowPitch(bodyRowPlacements, rowShiftXmm, 0, config, step);
+          if (shiftedDyMm == null) continue;
+          bodyVariants.push({
+            key: `${rowMode}_shift_${rowShiftXmm}`,
+            rowPlacements: bodyRowPlacements,
+            bodyDyMm: shiftedDyMm,
+            bodyDxMm,
+            rowShiftXmm: roundMetric(rowShiftXmm),
+            rowShiftYmm: 0
+          });
+        }
+
         const fillerLastRowPlacements = filler90Cols > 0
           ? this._buildUniformPlacements(filler90Orient, filler90Cols, 1, filler90DxMm, filler90DyMm, 0)
           : [];
-        const bodyStartOffsetAfterFillerRow = fillerLastRowPlacements.length
-          ? this._findBodyStartOffsetAfterFillerRow(
-            fillerLastRowPlacements,
-            bodyRowPlacements,
-            config,
-            step
-          )
-          : 0;
-
-        const fillerRowOptions = filler90Cols > 0 ? maxFiller90Rows : 0;
-        for (let filler90Rows = 0; filler90Rows <= fillerRowOptions; filler90Rows++) {
-          const fillerHeight = filler90Rows > 0
-            ? filler90Orient.height + (filler90Rows - 1) * filler90DyMm
-            : 0;
-          if (fillerHeight > workHeight + 1e-6) continue;
-
-          if (filler90Rows > 0 && bodyStartOffsetAfterFillerRow == null) continue;
-          const lastFillerRowY = filler90Rows > 0
-            ? roundMetric((filler90Rows - 1) * filler90DyMm)
-            : 0;
-          const bodyStartY = filler90Rows > 0
-            ? roundMetric(lastFillerRowY + bodyStartOffsetAfterFillerRow)
+        for (const bodyVariant of bodyVariants) {
+          const bodyStartOffsetAfterFillerRow = fillerLastRowPlacements.length
+            ? this._findBodyStartOffsetAfterFillerRow(
+              fillerLastRowPlacements,
+              bodyVariant.rowPlacements,
+              config,
+              step
+            )
             : 0;
 
-          const bodyRows = this._countRows(
-            bodyHeightMm,
-            bodyDyMm,
-            Math.max(0, workHeight - bodyStartY)
-          );
-          const bodyCount = bodyCols * bodyRows;
-          const fillerCount = filler90Cols * filler90Rows;
-          const totalCount = bodyCount + fillerCount;
+          const fillerRowOptions = filler90Cols > 0 ? maxFiller90Rows : 0;
+          for (let filler90Rows = 0; filler90Rows <= fillerRowOptions; filler90Rows++) {
+            const fillerHeight = filler90Rows > 0
+              ? filler90Orient.height + (filler90Rows - 1) * filler90DyMm
+              : 0;
+            if (fillerHeight > workHeight + 1e-6) continue;
 
-          if (bestCandidate) {
-            if (totalCount < bestCandidate.placedCount) continue;
-            if (totalCount === bestCandidate.placedCount && bodyCount < bestCandidate.bodyCount) continue;
-            if (
-              totalCount === bestCandidate.placedCount &&
-              bodyCount === bestCandidate.bodyCount &&
-              fillerCount > bestCandidate.filler90Count
-            ) {
-              continue;
+            if (filler90Rows > 0 && bodyStartOffsetAfterFillerRow == null) continue;
+            const lastFillerRowY = filler90Rows > 0
+              ? roundMetric((filler90Rows - 1) * filler90DyMm)
+              : 0;
+            const bodyStartY = filler90Rows > 0
+              ? roundMetric(lastFillerRowY + bodyStartOffsetAfterFillerRow)
+              : 0;
+
+            const bodyRows = this._countRows(
+              bodyHeightMm,
+              bodyVariant.bodyDyMm,
+              Math.max(0, workHeight - bodyStartY)
+            );
+            const bodyCount = bodyCols * bodyRows;
+            const fillerCount = filler90Cols * filler90Rows;
+            const totalCount = bodyCount + fillerCount;
+
+            if (bestCandidate) {
+              if (totalCount < bestCandidate.placedCount) continue;
+              if (totalCount === bestCandidate.placedCount && bodyCount < bestCandidate.bodyCount) continue;
+              if (
+                totalCount === bestCandidate.placedCount &&
+                bodyCount === bestCandidate.bodyCount &&
+                fillerCount > bestCandidate.filler90Count
+              ) {
+                continue;
+              }
             }
-          }
 
-          const fillerPlacements = filler90Rows > 0
-            ? this._buildUniformPlacements(filler90Orient, filler90Cols, filler90Rows, filler90DxMm, filler90DyMm, 0)
-            : [];
-          const bodyPlacements = bodyRows > 0
-            ? this._buildRepeatedBodyPlacements(bodyRowPlacements, bodyRows, bodyDyMm, bodyStartY)
-            : [];
+            const fillerPlacements = filler90Rows > 0
+              ? this._buildUniformPlacements(filler90Orient, filler90Cols, filler90Rows, filler90DxMm, filler90DyMm, 0)
+              : [];
+            const bodyPlacements = bodyRows > 0
+              ? this._buildRepeatedBodyPlacements(
+                bodyVariant.rowPlacements,
+                bodyRows,
+                bodyVariant.bodyDyMm,
+                bodyStartY,
+                bodyVariant.rowShiftXmm,
+                bodyVariant.rowShiftYmm
+              )
+              : [];
 
-          const placements = [...fillerPlacements, ...bodyPlacements];
-          const candidate = this._buildCandidate(
-            sizeName,
-            foot,
-            pieceArea,
-            placements,
-            {
-              rowMode,
-              rotationOffset: primaryAngle,
-              bodyCount,
-              bodyCols,
-              bodyRows,
-              bodyDxMm,
-              bodyDyMm: roundMetric(bodyDyMm),
-              bodyStartY: roundMetric(bodyStartY),
-              bodyPrimaryAngle: primaryAngle,
-              bodyAlternateAngle: alternateAngle,
-              filler90Used: filler90Rows > 0,
-              filler90Count: fillerCount,
-              filler90Cols,
-              filler90Rows,
-              filler90DxMm: filler90DxMm != null ? roundMetric(filler90DxMm) : null,
-              filler90DyMm: filler90DyMm != null ? roundMetric(filler90DyMm) : null,
-              filler90Angle: filler90Orient ? filler90Angle : null,
-              scanOrder: 'left-to-right-then-down'
-            },
-            workWidth,
-            workHeight,
-            config
-          );
+            const placements = [...fillerPlacements, ...bodyPlacements];
+            const candidate = this._buildCandidate(
+              sizeName,
+              foot,
+              pieceArea,
+              placements,
+              {
+                rowMode,
+                rotationOffset: primaryAngle,
+                bodyCount,
+                bodyCols,
+                bodyRows,
+                bodyDxMm: bodyVariant.bodyDxMm,
+                bodyDyMm: roundMetric(bodyVariant.bodyDyMm),
+                bodyStartY: roundMetric(bodyStartY),
+                rowShiftXmm: bodyVariant.rowShiftXmm,
+                rowShiftYmm: bodyVariant.rowShiftYmm,
+                bodyPrimaryAngle: primaryAngle,
+                bodyAlternateAngle: alternateAngle,
+                filler90Used: filler90Rows > 0,
+                filler90Count: fillerCount,
+                filler90Cols,
+                filler90Rows,
+                filler90DxMm: filler90DxMm != null ? roundMetric(filler90DxMm) : null,
+                filler90DyMm: filler90DyMm != null ? roundMetric(filler90DyMm) : null,
+                filler90Angle: filler90Orient ? filler90Angle : null,
+                scanOrder: bodyVariant.rowShiftXmm ? 'staggered-row-bands' : 'left-to-right-then-down'
+              },
+              workWidth,
+              workHeight,
+              config
+            );
 
-          if (candidate) {
-            candidatePool.push(candidate);
-            if (compareAlignedCandidates(candidate, bestCandidate) < 0) {
-              bestCandidate = candidate;
+            if (candidate) {
+              candidatePool.push(candidate);
+              if (compareAlignedCandidates(candidate, bestCandidate) < 0) {
+                bestCandidate = candidate;
+              }
             }
           }
         }
