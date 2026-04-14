@@ -1044,6 +1044,273 @@ function buildBatchSheetFromTemplate(sheetIndex, template, config) {
   return buildSheetResult(sheetIndex, layout.placed, config);
 }
 
+function hasRemainingPieces(remainingPieces) {
+  return [...remainingPieces.values()].some((value) => value > 0);
+}
+
+function sumRemainingPieces(remainingPieces) {
+  return [...remainingPieces.values()].reduce((sum, value) => sum + value, 0);
+}
+
+function buildTailOptimizationBehavior(behavior) {
+  return {
+    ...behavior,
+    candidateBoost: Math.max(behavior.candidateBoost || 0, 1),
+    salvageRects: Math.max(behavior.salvageRects || 0, 4),
+    salvageCandidateSizes: Math.max(behavior.salvageCandidateSizes || 0, 5),
+    salvageInsertions: Math.max(behavior.salvageInsertions || 0, 3),
+    salvageMinArea: Math.min(behavior.salvageMinArea || 30000, 22000),
+    salvageFreeAreaThreshold: Math.min(behavior.salvageFreeAreaThreshold || 45000, 22000),
+    salvageEfficiencyThreshold: Math.max(behavior.salvageEfficiencyThreshold || 86, 90),
+    lookaheadWeight: Math.max(behavior.lookaheadWeight || 0.55, 0.65)
+  };
+}
+
+function summarizeSheetWindow(sheets = []) {
+  const efficiencies = sheets.map((sheet) => Number(sheet?.efficiency) || 0);
+  return {
+    sheetCount: sheets.length,
+    avgEfficiency: efficiencies.length
+      ? efficiencies.reduce((sum, value) => sum + value, 0) / efficiencies.length
+      : 0,
+    minEfficiency: efficiencies.length ? Math.min(...efficiencies) : 0,
+    lowEfficiencyCount: efficiencies.filter((value) => value < 70).length,
+    finalSheetEfficiency: efficiencies.length ? efficiencies[efficiencies.length - 1] : 0
+  };
+}
+
+async function packRemainingPiecesIntoLocalSheets({
+  prioritizedSizes,
+  remainingPieces,
+  config,
+  capacityCache,
+  behavior
+}) {
+  const localRemainingPieces = new Map(remainingPieces);
+  const localPlacedSheets = [];
+
+  while (hasRemainingPieces(localRemainingPieces)) {
+    const sheetPlaced = [];
+    const sheetPlacedIndex = [];
+    const freeRects = [{ ...getUsableSheetRect(config), depth: 0 }];
+    let placedSomething = false;
+
+    while (freeRects.length > 0) {
+      freeRects.sort(compareFreeRects);
+      const rect = freeRects.shift();
+      if (!rect || rect.width <= MIN_FREE_RECT_SIZE || rect.height <= MIN_FREE_RECT_SIZE) continue;
+
+      const candidateSizes = buildCandidateSizes(
+        prioritizedSizes,
+        localRemainingPieces,
+        rect,
+        config,
+        behavior
+      );
+      const rankedCandidates = [];
+
+      for (const size of candidateSizes) {
+        const layout = await getCapacityLayoutForRect(size, rect, config, capacityCache);
+        const variants = buildLayoutVariants(layout, rect);
+
+        for (const variant of variants) {
+          const trimmed = trimPlacementToRemaining(
+            variant,
+            localRemainingPieces.get(size.sizeName) || 0
+          );
+          if (!trimmed?.placedCount || !trimmed.bounds) continue;
+
+          const leftoverRects = rect.depth <= 1
+            ? splitFreeRectByBands(rect, trimmed.placed, config.spacing || 0)
+            : splitFreeRect(rect, trimmed.bounds, config.spacing || 0);
+          const fragmentationPenalty = leftoverRects.reduce((sum, nextRect) => {
+            const nextArea = getRectArea(nextRect);
+            return sum + (nextArea < 120000 ? nextArea * behavior.fragmentationPenaltyWeight : 0);
+          }, 0);
+          const lookaheadUsedArea = await estimateLookaheadUsedArea(
+            rect,
+            leftoverRects,
+            candidateSizes,
+            size.sizeName,
+            config,
+            capacityCache
+          );
+          const rectArea = Math.max(1, getRectArea(rect));
+          const fillRatio = trimmed.usedArea / rectArea;
+          const stripFillBonus = isStripLikeRect(rect)
+            ? fillRatio * behavior.stripFillWeight + trimmed.placedCount * 180
+            : 0;
+          const score = trimmed.usedArea
+            + stripFillBonus
+            + lookaheadUsedArea * behavior.lookaheadWeight
+            - (trimmed.bounds.width * trimmed.bounds.height - trimmed.usedArea) * behavior.emptyBoundsPenaltyWeight
+            - fragmentationPenalty;
+          rankedCandidates.push({
+            size,
+            score,
+            trimmed,
+            leftoverRects
+          });
+        }
+      }
+
+      rankedCandidates.sort((left, right) =>
+        right.score - left.score
+        || right.trimmed.placedCount - left.trimmed.placedCount
+      );
+
+      let bestCandidate = null;
+      for (const candidate of rankedCandidates.slice(0, 3)) {
+        const snapped = snapPlacedClusterToRect(candidate.trimmed.placed, rect);
+        if (!snapped) continue;
+        const requiresAdjustment = shouldAttemptClusterAdjustment(
+          rect,
+          snapped.bounds,
+          sheetPlacedIndex,
+          candidate.size.sizeName,
+          config.spacing || 0
+        );
+        const adjusted = requiresAdjustment
+          ? adjustClusterWithinRect(candidate.trimmed.placed, rect, sheetPlacedIndex, config)
+          : snapped;
+        if (!adjusted) continue;
+        bestCandidate = {
+          ...candidate,
+          trimmed: {
+            ...candidate.trimmed,
+            placed: adjusted.placed,
+            bounds: adjusted.bounds
+          },
+          leftoverRects: rect.depth <= 1
+            ? splitFreeRectByBands(rect, adjusted.placed, config.spacing || 0)
+            : splitFreeRect(rect, adjusted.bounds, config.spacing || 0)
+        };
+        break;
+      }
+
+      if (!bestCandidate) {
+        bestCandidate = rankedCandidates[0] || null;
+      }
+      if (!bestCandidate) continue;
+
+      for (const item of bestCandidate.trimmed.placed) {
+        sheetPlaced.push(item);
+        sheetPlacedIndex.push({
+          item,
+          bb: getBoundingBox(item.polygon)
+        });
+      }
+      localRemainingPieces.set(
+        bestCandidate.size.sizeName,
+        Math.max(0, (localRemainingPieces.get(bestCandidate.size.sizeName) || 0) - bestCandidate.trimmed.placedCount)
+      );
+      placedSomething = true;
+
+      const nextRects = rect.depth >= MAX_FREE_RECT_DEPTH
+        ? []
+        : (bestCandidate.leftoverRects || []).map((nextRect) => ({
+          ...nextRect,
+          depth: rect.depth + 1
+        }));
+      freeRects.push(...normalizeFreeRects(nextRects));
+      const normalizedExisting = normalizeFreeRects(freeRects);
+      freeRects.length = 0;
+      freeRects.push(...normalizedExisting);
+    }
+
+    if (!placedSomething) break;
+
+    await runSheetSalvagePass({
+      sheetPlaced,
+      sheetPlacedIndex,
+      remainingPieces: localRemainingPieces,
+      prioritizedSizes,
+      config,
+      capacityCache,
+      behavior
+    });
+
+    localPlacedSheets.push(buildSheetResult(localPlacedSheets.length, sheetPlaced, config));
+  }
+
+  return {
+    placedSheets: localPlacedSheets,
+    remainingPieces: localRemainingPieces
+  };
+}
+
+async function optimizeTailSheets({
+  placedSheets,
+  prioritizedSizes,
+  config,
+  capacityCache,
+  behavior
+}) {
+  if (placedSheets.length < 4) return placedSheets;
+
+  const tailWindowSize = Math.min(8, placedSheets.length);
+  const tailStartIndex = placedSheets.length - tailWindowSize;
+  const tailSheets = placedSheets.slice(tailStartIndex);
+  const tailSummary = summarizeSheetWindow(tailSheets);
+  const tailPieceCount = tailSheets.reduce((sum, sheet) => sum + (sheet?.placedCount || 0), 0);
+
+  if (
+    tailPieceCount < 16 ||
+    tailPieceCount > 420 ||
+    (tailSummary.lowEfficiencyCount === 0 && tailSummary.finalSheetEfficiency >= 72)
+  ) {
+    return placedSheets;
+  }
+
+  const tailRemainingPieces = new Map();
+  for (const sheet of tailSheets) {
+    for (const item of sheet?.placed || []) {
+      tailRemainingPieces.set(item.sizeName, (tailRemainingPieces.get(item.sizeName) || 0) + 1);
+    }
+  }
+
+  const relevantSizes = prioritizedSizes.filter((size) => (tailRemainingPieces.get(size.sizeName) || 0) > 0);
+  if (!relevantSizes.length) return placedSheets;
+
+  const optimizedBehavior = buildTailOptimizationBehavior(behavior);
+  const repacked = await packRemainingPiecesIntoLocalSheets({
+    prioritizedSizes: relevantSizes,
+    remainingPieces: tailRemainingPieces,
+    config,
+    capacityCache,
+    behavior: optimizedBehavior
+  });
+
+  if (sumRemainingPieces(repacked.remainingPieces) > 0 || !repacked.placedSheets.length) {
+    return placedSheets;
+  }
+
+  const repackedSummary = summarizeSheetWindow(repacked.placedSheets);
+  const shouldReplace =
+    repacked.placedSheets.length < tailSheets.length ||
+    (
+      repacked.placedSheets.length === tailSheets.length &&
+      (
+        repackedSummary.lowEfficiencyCount < tailSummary.lowEfficiencyCount ||
+        repackedSummary.finalSheetEfficiency > tailSummary.finalSheetEfficiency + 5 ||
+        repackedSummary.avgEfficiency > tailSummary.avgEfficiency + 1.5
+      )
+    );
+
+  if (!shouldReplace) return placedSheets;
+
+  const prefix = placedSheets.slice(0, tailStartIndex);
+  const nextTail = repacked.placedSheets.map((sheet, index) => ({
+    ...sheet,
+    sheetIndex: tailStartIndex + index
+  }));
+
+  return [
+    ...prefix.map((sheet, index) => ({ ...sheet, sheetIndex: index })),
+    ...nextTail
+  ];
+}
+
 function resolveBatchCandidate(prioritizedSizes, remainingPieces, templateMap, behavior) {
   for (const size of prioritizedSizes) {
     const remaining = remainingPieces.get(size.sizeName) || 0;
@@ -1278,12 +1545,20 @@ export async function runCapacityDrivenMixedSizeNestingMode({
     placedSheets.push(buildSheetResult(placedSheets.length, sheetPlaced, config));
   }
 
+  const optimizedPlacedSheets = await optimizeTailSheets({
+    placedSheets,
+    prioritizedSizes,
+    config,
+    capacityCache,
+    behavior
+  });
+
   const totalItems = prioritizedSizes.reduce((sum, size) => sum + toPairQuantity(size) * 2, 0);
-  const placedCount = placedSheets.reduce((sum, sheet) => sum + (sheet.placedCount || 0), 0);
+  const placedCount = optimizedPlacedSheets.reduce((sum, sheet) => sum + (sheet.placedCount || 0), 0);
 
   return finalizeNestingResult(
     {
-      sheets: placedSheets,
+      sheets: optimizedPlacedSheets,
       totalItems,
       placedCount,
       timeMs: Date.now() - startedAt
