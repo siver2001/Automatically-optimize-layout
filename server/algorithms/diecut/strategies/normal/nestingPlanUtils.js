@@ -108,7 +108,7 @@ export function finalizeNestingResult(rawResult = {}, config = {}, metadata = {}
   const placedBySize = normalizedSheets.reduce((acc, sheet) => {
     for (const item of sheet.placed || []) {
       const sizeName = item?.sizeName || 'Unknown';
-      acc[sizeName] = (acc[sizeName] || 0) + 1;
+      acc[sizeName] = (acc[sizeName] || 0) + (item?.pieceCount || 1);
     }
     return acc;
   }, {});

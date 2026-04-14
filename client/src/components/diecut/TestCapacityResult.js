@@ -44,7 +44,6 @@ const TestCapacityResult = ({ result, config, onClose, onExportPdf, onExportDxf 
       {/* ── Header row siêu gọn ── */}
       <div className="flex items-center justify-between gap-4 mb-2 bg-white/5 p-2 rounded-xl border border-white/10 shadow-lg">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-gradient-to-br from-amber-500 to-orange-600 rounded-lg flex items-center justify-center text-base shadow-lg shadow-orange-500/20">🧪</div>
           <div>
             <h2 className="text-white font-bold text-sm leading-tight flex items-center gap-2">
               Kết quả Test Capacity
@@ -160,7 +159,7 @@ const TestCapacityResult = ({ result, config, onClose, onExportPdf, onExportDxf 
         </div>
 
         {/* CỘT PHẢI: Bố cục SVG tấm PU (tự fit màn hình) */}
-        <div className="h-full min-h-[50vh] xl:min-h-[78vh]">
+        <div className="min-w-0 h-full min-h-[50vh] xl:min-h-[78vh] overflow-hidden">
           {selectedSheet && selectedSheet.placed && selectedSheet.placed.length > 0 && (
             <DieCutNestingBoard
               nestingResult={{

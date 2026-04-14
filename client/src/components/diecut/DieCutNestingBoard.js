@@ -47,6 +47,17 @@ const cloneSheet = (s = {}) => ({
 });
 const hasSheetGeometry = (sheet = {}) =>
   Array.isArray(sheet?.placed) && sheet.placed.length > 0;
+const hasResolvedSheetDetail = (sheetDetails = {}, index) =>
+  Object.prototype.hasOwnProperty.call(sheetDetails, index);
+const canFetchSheetDetail = (sheet = {}) =>
+  hasSheetGeometry(sheet) ||
+  Number(sheet?.placedCount) > 0 ||
+  Number(sheet?.usedArea) > 0;
+const shouldRotateCompactSheet = (sheet = {}, fallback = {}) => {
+  const width = Number(sheet?.sheetWidth ?? fallback?.sheetWidth) || 0;
+  const height = Number(sheet?.sheetHeight ?? fallback?.sheetHeight) || 0;
+  return height > width;
+};
 const clamp = (v, min, max) => Math.min(Math.max(v, min), max);
 function getPolygonBounds(p = []) {
   if (!p.length) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
@@ -78,7 +89,9 @@ const getPlacedItemArea = (i = {}, templates = {}) => {
   if (template && template.area) return template.area;
   return getPolygonArea(i.polygon || []);
 };
-const getSheetPlacedCount = (s = {}) => (s?.placed || []).length;
+const getPlacedItemCount = (item = {}) => Number(item?.pieceCount) || 1;
+const getSheetPlacedCount = (s = {}) =>
+  (s?.placed || []).reduce((sum, item) => sum + getPlacedItemCount(item), 0);
 const getSheetEfficiency = (s = {}, defaultW = 0, defaultH = 0) => {
   const w = s?.sheetWidth || defaultW;
   const h = s?.sheetHeight || defaultH;
@@ -249,7 +262,7 @@ function buildUpdatedNestingResult(prev, nextSheets = []) {
   for (const s of sheets) {
     for (const item of s.placed || []) {
       const key = item?.sizeName || "Unknown";
-      bySize.set(key, (bySize.get(key) || 0) + 1);
+      bySize.set(key, (bySize.get(key) || 0) + getPlacedItemCount(item));
     }
   }
   return {
@@ -550,13 +563,15 @@ const SheetCanvas = React.memo(function SheetCanvas({
     : null;
   const viewW = isRotated ? sheetHeight : sheetWidth,
     viewH = isRotated ? sheetWidth : sheetHeight;
+  const compactCanvasHeight = "min(72vh, 760px)";
+  const compactCanvasWidth = `min(100%, calc(${compactCanvasHeight} * ${viewW} / ${viewH}))`;
   return (
     <div
       ref={containerRef}
-      className="relative flex items-center justify-center overflow-hidden rounded-lg border border-white/10 bg-gray-900"
+      className={`relative flex min-w-0 max-w-full items-center justify-center ${compactMode ? "overflow-hidden bg-transparent border-0" : "overflow-hidden rounded-lg border border-white/10 bg-gray-900"}`}
       style={{
         ...(compactMode
-          ? { maxHeight: "78vh", height: "100%" }
+          ? { width: "100%", height: "auto", minHeight: "auto" }
           : { height: viewH * scale + 40 }),
         cursor:
           pickedPreviewItem && isEditMode
@@ -575,11 +590,18 @@ const SheetCanvas = React.memo(function SheetCanvas({
           transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom / (compactMode ? 1 : scale)})`,
           transformOrigin: "center",
           transition: isDragging ? "none" : "transform 0.05s ease-out",
-          width: compactMode ? "100%" : viewW * scale,
-          height: compactMode ? "100%" : viewH * scale,
+          width: compactMode ? compactCanvasWidth : viewW * scale,
+          height: compactMode ? compactCanvasHeight : viewH * scale,
+          maxWidth: "100%",
+          minWidth: 0,
+          minHeight: compactMode ? "320px" : undefined,
           display: "flex",
           justifyContent: "center",
           alignItems: "center",
+          borderRadius: compactMode ? "0.75rem" : undefined,
+          overflow: compactMode ? "hidden" : undefined,
+          background: compactMode ? "#111827" : undefined,
+          border: compactMode ? "1px solid rgba(255,255,255,0.1)" : undefined,
         }}
       >
         <svg
@@ -843,6 +865,13 @@ export default function DieCutNestingBoard({
     setSelectedSheet(0);
     setSheetDetails({});
     setLoadingSheetIndex(null);
+    setIsRotated(
+      compactMode &&
+        shouldRotateCompactSheet(sheets[0], {
+          sheetWidth: nestingResult?.sheetWidth,
+          sheetHeight: nestingResult?.sheetHeight,
+        }),
+    );
     setIsEditMode(false);
     setSelectedItemId(null);
     setEditedSheets({});
@@ -852,7 +881,51 @@ export default function DieCutNestingBoard({
     setPickedPreviewItem(null);
     setSnapGuides(EMPTY_GUIDES);
     diecutExportService.clearNestingSheetDetailCache();
-  }, [nestingResult?.resultId, nestingResult?.totalSheets]);
+  }, [
+    compactMode,
+    nestingResult?.resultId,
+    nestingResult?.sheetHeight,
+    nestingResult?.sheetWidth,
+    nestingResult?.totalSheets,
+    sheets,
+  ]);
+  useEffect(() => {
+    if (!nestingResult?.resultId || !sheets.length) return undefined;
+    const summarySheet = sheets[selectedSheet];
+    if (
+      !summarySheet ||
+      hasSheetGeometry(summarySheet) ||
+      hasResolvedSheetDetail(sheetDetails, selectedSheet) ||
+      !canFetchSheetDetail(summarySheet)
+    ) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    setLoadingSheetIndex(selectedSheet);
+    diecutExportService
+      .fetchNestingSheetDetail(nestingResult.resultId, selectedSheet)
+      .then((sheet) => {
+        setSheetDetails((current) => {
+          if (cancelled || hasResolvedSheetDetail(current, selectedSheet)) {
+            return current;
+          }
+          return { ...current, [selectedSheet]: sheet || null };
+        });
+      })
+      .catch((e) => console.error("[DieCut] load selected sheet detail error:", e))
+      .finally(() => {
+        if (!cancelled) {
+          setLoadingSheetIndex((current) =>
+            current === selectedSheet ? null : current,
+          );
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [nestingResult?.resultId, selectedSheet, sheetDetails, sheets]);
   useEffect(() => {
     if (!nestingResult?.resultId || !sheets.length) return undefined;
     const priorityIndexes = new Set();
@@ -863,11 +936,13 @@ export default function DieCutNestingBoard({
     for (let i = 0; i < Math.min(8, sheets.length); i++) priorityIndexes.add(i);
     const indexes = [...priorityIndexes].filter(
       (index) =>
-        !hasSheetGeometry(sheets[index]) && !hasSheetGeometry(sheetDetails[index]),
+        index !== selectedSheet &&
+        canFetchSheetDetail(sheets[index]) &&
+        !hasSheetGeometry(sheets[index]) &&
+        !hasResolvedSheetDetail(sheetDetails, index),
     );
     if (!indexes.length) return undefined;
     let cancelled = false;
-    if (indexes.includes(selectedSheet)) setLoadingSheetIndex(selectedSheet);
     diecutExportService
       .fetchNestingSheetDetails(nestingResult.resultId, indexes)
       .then((loaded) => {
@@ -875,12 +950,20 @@ export default function DieCutNestingBoard({
         setSheetDetails((current) => {
           let changed = false;
           const next = { ...current };
+          const loadedIndexSet = new Set();
           for (const entry of loaded) {
             const index = Number(entry?.sheetIndex);
             if (!Number.isFinite(index) || !entry?.sheet) continue;
-            if (hasSheetGeometry(next[index])) continue;
+            loadedIndexSet.add(index);
+            if (hasResolvedSheetDetail(next, index)) continue;
             next[index] = entry.sheet;
             changed = true;
+          }
+          for (const index of indexes) {
+            if (!loadedIndexSet.has(index) && !hasResolvedSheetDetail(next, index)) {
+              next[index] = null;
+              changed = true;
+            }
           }
           return changed ? next : current;
         });
@@ -907,7 +990,10 @@ export default function DieCutNestingBoard({
       .map((_, index) => index)
       .filter(
         (index) =>
-          !hasSheetGeometry(sheets[index]) && !hasSheetGeometry(sheetDetails[index]),
+          index !== selectedSheet &&
+          canFetchSheetDetail(sheets[index]) &&
+          !hasSheetGeometry(sheets[index]) &&
+          !hasResolvedSheetDetail(sheetDetails, index),
       );
     if (!missingIndexes.length) return undefined;
     const timer = window.setTimeout(() => {
@@ -921,12 +1007,20 @@ export default function DieCutNestingBoard({
           setSheetDetails((current) => {
             let changed = false;
             const next = { ...current };
+            const loadedIndexSet = new Set();
             for (const entry of loaded) {
               const index = Number(entry?.sheetIndex);
               if (!Number.isFinite(index) || !entry?.sheet) continue;
-              if (hasSheetGeometry(next[index])) continue;
+              loadedIndexSet.add(index);
+              if (hasResolvedSheetDetail(next, index)) continue;
               next[index] = entry.sheet;
               changed = true;
+            }
+            for (const index of missingIndexes.slice(0, 12)) {
+              if (!loadedIndexSet.has(index) && !hasResolvedSheetDetail(next, index)) {
+                next[index] = null;
+                changed = true;
+              }
             }
             return changed ? next : current;
           });
@@ -934,7 +1028,7 @@ export default function DieCutNestingBoard({
         .catch(() => {});
     }, 120);
     return () => window.clearTimeout(timer);
-  }, [nestingResult?.resultId, sheets, sheetDetails]);
+  }, [nestingResult?.resultId, selectedSheet, sheets, sheetDetails]);
   useEffect(() => {
     if (!sheetTabsRef.current) return;
     const el = sheetTabsRef.current.querySelector(
@@ -973,6 +1067,7 @@ export default function DieCutNestingBoard({
     [editedSheets, resolvedSheets],
   );
   const currentSheet = displaySheets[selectedSheet] || displaySheets[0] || null;
+  const selectedSummarySheet = sheets[selectedSheet] || sheets[0] || null;
   const sourceSheet =
     resolvedSheets[selectedSheet] || resolvedSheets[0] || null;
   const currentLibraryItems = useMemo(
@@ -1052,6 +1147,12 @@ export default function DieCutNestingBoard({
     placedCount: 0,
     efficiency: 0,
   };
+  const shouldLoadCurrentSheetDetail =
+    !!nestingResult?.resultId &&
+    !!selectedSummarySheet &&
+    canFetchSheetDetail(selectedSummarySheet) &&
+    !hasResolvedSheetDetail(sheetDetails, selectedSheet) &&
+    !hasSheetGeometry(currentSheet);
   const livePairCount = Math.floor(livePlacedCount / 2);
   const libraryGroups = useMemo(() => {
     const grouped = new Map();
@@ -1572,14 +1673,14 @@ export default function DieCutNestingBoard({
     <div
       className={`flex items-center justify-center rounded-lg border border-white/10 bg-gray-900 text-sm text-white/50 ${compactMode ? "min-h-[50vh] xl:min-h-[78vh]" : "min-h-[60vh]"}`}
     >
-      {loadingSheetIndex === selectedSheet
+      {loadingSheetIndex === selectedSheet || shouldLoadCurrentSheetDetail
         ? "Đang tải chi tiết tấm..."
         : "Chưa có dữ liệu chi tiết cho tấm này."}
     </div>
   );
   if (compactMode)
     return (
-      <div className="flex h-full flex-col gap-2">
+      <div className="flex h-full min-w-0 max-w-full flex-col gap-2 overflow-hidden">
         <div className="mb-1 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/5 bg-white/5 p-2">
           <div className="flex items-center gap-2">
             <span className="text-sm text-emerald-400">Bố cục tấm PU</span>
@@ -1618,7 +1719,7 @@ export default function DieCutNestingBoard({
         {sheets.length > 1 ? (
           <div
             ref={sheetTabsRef}
-            className="grid max-w-full grid-flow-col auto-cols-[7.5rem] gap-1 overflow-x-auto pb-1 pr-1"
+            className="grid min-w-0 max-w-full grid-flow-col auto-cols-[7.5rem] gap-1 overflow-x-auto pb-1 pr-1"
           >
             {displaySheets.map((sheet, i) => (
               <button

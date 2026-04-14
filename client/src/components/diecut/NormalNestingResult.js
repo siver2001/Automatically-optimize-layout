@@ -25,7 +25,6 @@ const NormalNestingResult = ({
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-4 mb-2 bg-white/5 p-2 rounded-xl border border-white/10 shadow-lg">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-pink-600 rounded-lg flex items-center justify-center text-base shadow-lg shadow-pink-500/20">✂️</div>
           <div>
             <h2 className="text-white font-bold text-sm leading-tight flex items-center gap-2">
               Kết quả Nesting
@@ -132,10 +131,11 @@ const NormalNestingResult = ({
           </div>
         </div>
 
-        <div className="h-full min-h-[50vh] xl:min-h-[78vh] flex flex-col">
+        <div className="min-w-0 h-full min-h-[50vh] xl:min-h-[78vh] overflow-hidden">
           <DieCutNestingBoard
             nestingResult={nestingResult}
             sizeList={sizeList}
+            compactMode
             onResultChange={onResultChange}
           />
         </div>

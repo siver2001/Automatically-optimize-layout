@@ -1128,6 +1128,7 @@ export async function runCapacityDrivenMixedSizeNestingMode({
 
       const candidateSizes = buildCandidateSizes(prioritizedSizes, remainingPieces, rect, config, behavior);
       const rankedCandidates = [];
+      const rectArea = Math.max(1, getRectArea(rect));
 
       for (const size of candidateSizes) {
         const layout = await getCapacityLayoutForRect(size, rect, config, capacityCache);
@@ -1152,7 +1153,6 @@ export async function runCapacityDrivenMixedSizeNestingMode({
             config,
             capacityCache
           );
-          const rectArea = Math.max(1, getRectArea(rect));
           const fillRatio = trimmed.usedArea / rectArea;
           const stripFillBonus = isStripLikeRect(rect)
             ? fillRatio * behavior.stripFillWeight + trimmed.placedCount * 180

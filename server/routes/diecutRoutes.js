@@ -20,7 +20,13 @@ import { TrueShapeNesting } from '../algorithms/diecut/TrueShapeNesting.js';
 // Các thuật toán mới tách ra
 import { NestingNormalPairing } from '../algorithms/diecut/strategies/normal/NestingNormalPairing.js';
 import { NestingNormalPiece } from '../algorithms/diecut/strategies/normal/NestingNormalPiece.js';
-import { applyLayersToSizeList, buildNestingPlanSummary, normalizeLayers, normalizeNestingStrategy } from '../algorithms/diecut/strategies/normal/nestingPlanUtils.js';
+import {
+  applyLayersToSizeList,
+  buildNestingPlanSummary,
+  finalizeNestingResult,
+  normalizeLayers,
+  normalizeNestingStrategy
+} from '../algorithms/diecut/strategies/normal/nestingPlanUtils.js';
 import { runNestingMode } from '../algorithms/diecut/strategies/normal/runNestingMode.js';
 import { CapacityTestComplementaryPattern } from '../algorithms/diecut/strategies/capacity/CapacityTestComplementaryPattern.js';
 import { CapacityTestSameSidePattern } from '../algorithms/diecut/strategies/capacity/CapacityTestSameSidePattern.js';
@@ -265,6 +271,7 @@ router.post('/nest', async (req, res) => {
       gridStep,
       mirrorPairs,
       pairingStrategy,
+      capacityLayoutMode,
       layers,
       nestingStrategy
     } = req.body;
@@ -286,6 +293,7 @@ router.post('/nest', async (req, res) => {
       allowRotate180: allowRotate180 !== false,
       mirrorPairs: resolvedPairingStrategy !== 'same-side',
       pairingStrategy: resolvedPairingStrategy,
+      capacityLayoutMode,
       gridStep: gridStep ?? 0.5,
       layers: normalizeLayers(layers),
       nestingStrategy: normalizeNestingStrategy(nestingStrategy),
@@ -316,7 +324,13 @@ router.post('/nest', async (req, res) => {
       }
     });
 
-    const compactResult = storeDieCutNestingResult(result);
+    const finalizedResult = finalizeNestingResult(result, config, {
+      layers: config.layers,
+      nestingStrategy: config.nestingStrategy,
+      planningSummary: planSummary
+    });
+
+    const compactResult = storeDieCutNestingResult(finalizedResult);
     res.json({ success: true, ...compactResult });
   } catch (err) {
     console.error('[DieCut] nest error:', err);

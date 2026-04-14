@@ -43,6 +43,10 @@ class DieCutExportService {
     this.sheetDetailPromiseCache = new Map();
   }
 
+  hasSheetDetailCacheEntry(resultId, sheetIndex) {
+    return this.sheetDetailCache.has(`${resultId}:${sheetIndex}`);
+  }
+
   async exportPdf(payload) {
     return downloadBlob('export-pdf', payload, 'diecut-layouts.pdf');
   }
@@ -70,6 +74,10 @@ class DieCutExportService {
       .then(async (response) => {
         const data = await response.json();
         if (!response.ok) {
+          if (response.status === 404) {
+            this.sheetDetailCache.set(cacheKey, null);
+            return null;
+          }
           throw new Error(data?.error || 'Khong the tai chi tiet tam.');
         }
         const sheet = data?.sheet || null;
@@ -102,8 +110,15 @@ class DieCutExportService {
         throw new Error(data?.error || 'Khong the tai chi tiet tam.');
       }
 
+      const loadedIndexSet = new Set();
       for (const entry of data?.sheets || []) {
+        loadedIndexSet.add(entry.sheetIndex);
         this.sheetDetailCache.set(`${resultId}:${entry.sheetIndex}`, entry.sheet || null);
+      }
+      for (const index of missingIndexes) {
+        if (!loadedIndexSet.has(index)) {
+          this.sheetDetailCache.set(`${resultId}:${index}`, null);
+        }
       }
     }
 

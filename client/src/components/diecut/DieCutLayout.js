@@ -112,7 +112,7 @@ const DieCutLayout = () => {
     for (const sheet of nestingResult.sheets || []) {
       for (const item of sheet.placed || []) {
         const key = item.sizeName || 'Unknown';
-        placedBySize[key] = (placedBySize[key] || 0) + 1;
+        placedBySize[key] = (placedBySize[key] || 0) + (item.pieceCount || 1);
       }
     }
     return nestingResult.planningSummary.sizes.map((size) => ({
@@ -441,7 +441,7 @@ const DieCutLayout = () => {
             <div className="bg-white/5 p-2 rounded-lg border border-white/10">
               <div className="text-white/50 text-xs mb-0.5">{isTestMode ? 'Chế độ' : 'Tổng chiếc'}</div>
               <div className={`font-medium text-sm ${isTestMode ? 'text-amber-300' : 'text-emerald-300'}`}>
-                {isTestMode ? '🧪 Test Max' : `${totalPieces} chiếc (${effectiveTotalPieces} trên sơ đồ)`}
+                {isTestMode ? 'Test Max' : `${totalPieces} chiếc (${effectiveTotalPieces} trên sơ đồ)`}
               </div>
               {!isTestMode && config.layers > 1 && (
                 <div className="text-[10px] text-white/35 mt-1">
@@ -483,7 +483,7 @@ const DieCutLayout = () => {
                 </svg>
                 Đang tính toán...
               </>
-            ) : isTestMode ? '🧪 Test: Tính số lượng tối đa' : '✂️ Chạy Nesting True Shape'}
+            ) : isTestMode ? 'Test: Tính số lượng tối đa' : 'Chạy Nesting True Shape'}
           </button>
           <p className="text-white/30 text-[10px] text-center italic">
             {isTestMode ? '✓ Tự động xếp tối đa từng size lên 1 tấm PU' : '✓ Thuật toán đo lường biên dạng thực tế'}
@@ -530,7 +530,6 @@ const DieCutLayout = () => {
         {/* Header */}
         <div className="mb-4 flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center text-base">✂️</div>
             <div>
               <h1 className="text-white text-lg font-bold">Nesting Hàng Die-Cut</h1>
               <p className="text-white/50 text-[11px]">Sắp xếp biên dạng thực tế (True Shape) cho miếng lót giày</p>
@@ -543,13 +542,13 @@ const DieCutLayout = () => {
                 onClick={() => { setIsTestMode(false); if (activeStep === 4) setActiveStep(3); }}
                 className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${!isTestMode ? 'bg-purple-500 text-white' : 'text-white/50 hover:text-white/80'}`}
               >
-                ✂️ Nesting
+                Nesting
               </button>
               <button
                 onClick={() => { setIsTestMode(true); if (activeStep === 2) setActiveStep(3); }}
                 className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${isTestMode ? 'bg-amber-500 text-white' : 'text-white/50 hover:text-white/80'}`}
               >
-                🧪 Test Capacity
+                Test Capacity
               </button>
             </div>
           </div>

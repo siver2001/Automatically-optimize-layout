@@ -32,6 +32,18 @@ function enforceCapacityLimit() {
   }
 }
 
+function getActiveEntry(resultId) {
+  if (!resultId) return null;
+  const entry = detailCache.get(resultId);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    detailCache.delete(resultId);
+    return null;
+  }
+  touchEntry(resultId, entry);
+  return entry;
+}
+
 function buildCompactSheetSummary(sheet = {}, index = 0) {
   return {
     sheetIndex: sheet.sheetIndex ?? index,
@@ -66,28 +78,22 @@ export function storeDieCutNestingResult(result = {}, ttlMs = DEFAULT_TTL_MS) {
 }
 
 export function getDieCutNestingResult(resultId) {
-  if (!resultId) return null;
-  const entry = detailCache.get(resultId);
+  const entry = getActiveEntry(resultId);
   if (!entry) return null;
-  if (entry.expiresAt <= Date.now()) {
-    detailCache.delete(resultId);
-    return null;
-  }
-  touchEntry(resultId, entry);
   return cloneValue(entry.result);
 }
 
 export function getDieCutNestingSheetDetail(resultId, sheetIndex) {
-  const result = getDieCutNestingResult(resultId);
-  if (!result) return null;
+  const entry = getActiveEntry(resultId);
+  if (!entry?.result) return null;
   const normalizedIndex = Math.max(0, Number(sheetIndex) || 0);
-  const sheet = result.sheets?.[normalizedIndex];
+  const sheet = entry.result.sheets?.[normalizedIndex];
   return sheet ? cloneValue(sheet) : null;
 }
 
 export function getDieCutNestingSheetDetails(resultId, sheetIndexes = []) {
-  const result = getDieCutNestingResult(resultId);
-  if (!result) return [];
+  const entry = getActiveEntry(resultId);
+  if (!entry?.result) return [];
 
   const normalizedIndexes = [...new Set(
     (sheetIndexes || [])
@@ -95,6 +101,10 @@ export function getDieCutNestingSheetDetails(resultId, sheetIndexes = []) {
   )];
 
   return normalizedIndexes
-    .map((index) => result.sheets?.[index] ? { sheetIndex: index, sheet: cloneValue(result.sheets[index]) } : null)
+    .map((index) => (
+      entry.result.sheets?.[index]
+        ? { sheetIndex: index, sheet: cloneValue(entry.result.sheets[index]) }
+        : null
+    ))
     .filter(Boolean);
 }

@@ -111,6 +111,7 @@ export class BaseNesting {
       id: item.id,
       sizeName: item.sizeName,
       foot: item.foot,
+      pieceCount: item.pieceCount ?? 1,
       x: parseFloat(xm.toFixed(2)),
       y: parseFloat(ym.toFixed(2)),
       angle: orient.angle,

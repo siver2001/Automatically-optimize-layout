@@ -2,6 +2,10 @@ import { BaseNesting } from '../../core/BaseNesting.js';
 import { flipX, normalizeToOrigin, area as polygonArea } from '../../core/polygonUtils.js';
 import { PairOptimizer } from '../../core/pairOptimizer.js';
 
+function isPreparedDoubleContourMode(config = {}) {
+  return config?.capacityLayoutMode === 'same-side-double-contour';
+}
+
 export class NestingNormalPiece extends BaseNesting {
   constructor(config = {}) {
     super(config);
@@ -40,6 +44,7 @@ export class NestingNormalPiece extends BaseNesting {
       sizeName: item.sizeName,
       foot: item.foot,
       itemCount: 1,
+      pieceCount: item.pieceCount ?? 1,
       orient,
       raster: orient.raster,
       placements: [{ dx: 0, dy: 0, orient }],
@@ -102,6 +107,7 @@ export class NestingNormalPiece extends BaseNesting {
       sizeName: item.sizeName,
       foot: item.foot,
       itemCount: 2,
+      pieceCount: (item.pieceCount ?? 1) * 2,
       raster,
       placements: [
         { dx: ax, dy: ay, orient: firstOrient },
@@ -383,23 +389,44 @@ export class NestingNormalPiece extends BaseNesting {
     return { placed, remaining };
   }
 
+  _buildItems(sizeList, config) {
+    const items = [];
+    const usePreparedUnits = isPreparedDoubleContourMode(config);
+    let idCounter = 0;
+
+    for (const size of sizeList) {
+      const qty = size.quantity || 0;
+      const normalizedPolygon = normalizeToOrigin(size.polygon);
+
+      for (let i = 0; i < qty; i++) {
+        if (usePreparedUnits) {
+          items.push({
+            id: `${size.sizeName}_DC_${idCounter}`,
+            sizeName: size.sizeName,
+            foot: 'X',
+            polygon: normalizedPolygon,
+            pieceCount: 2
+          });
+        } else {
+          items.push(
+            { id: `${size.sizeName}_L_${idCounter}`, sizeName: size.sizeName, foot: 'L', polygon: normalizedPolygon, pieceCount: 1 },
+            { id: `${size.sizeName}_R_${idCounter}`, sizeName: size.sizeName, foot: 'R', polygon: normalizeToOrigin(flipX(size.polygon)), pieceCount: 1 }
+          );
+        }
+        idCounter++;
+      }
+    }
+
+    return items;
+  }
+
   async nest(sizeList, overrideConfig = {}) {
     const config = { ...this.config, ...overrideConfig };
     this._orientCache.clear();
     const startedAt = Date.now();
 
-    let items = [];
-    let idCounter = 0;
-    for (const size of sizeList) {
-      const qty = size.quantity || 0;
-      const leftPoly = normalizeToOrigin(size.polygon);
-      const rightPoly = normalizeToOrigin(flipX(size.polygon));
-      for (let i = 0; i < qty; i++) {
-        items.push({ id: `${size.sizeName}_L_${idCounter}`, sizeName: size.sizeName, foot: 'L', polygon: leftPoly });
-        items.push({ id: `${size.sizeName}_R_${idCounter}`, sizeName: size.sizeName, foot: 'R', polygon: rightPoly });
-        idCounter++;
-      }
-    }
+    let items = this._buildItems(sizeList, config);
+    const totalItems = items.reduce((sum, item) => sum + (item.pieceCount ?? 1), 0);
 
     const sheets = [];
     let sheetIndex = 0;
@@ -412,10 +439,11 @@ export class NestingNormalPiece extends BaseNesting {
       if (!placed.length) break;
 
       const usedArea = placed.reduce((sum, item) => sum + polygonArea(item.polygon), 0);
+      const placedPieceCount = placed.reduce((sum, item) => sum + (item.pieceCount ?? 1), 0);
       sheets.push({
         sheetIndex,
         placed,
-        placedCount: placed.length,
+        placedCount: placedPieceCount,
         efficiency: parseFloat(((usedArea / (config.sheetWidth * config.sheetHeight)) * 100).toFixed(1))
       });
       items = nextItems;
@@ -424,8 +452,8 @@ export class NestingNormalPiece extends BaseNesting {
 
     return {
       sheets,
-      totalItems: sizeList.reduce((sum, s) => sum + (s.quantity || 0), 0) * 2,
-      placedCount: sheets.reduce((sum, s) => sum + s.placedCount, 0),
+      totalItems,
+      placedCount: sheets.reduce((sum, s) => sum + (s.placedCount || 0), 0),
       timeMs: Date.now() - startedAt
     };
   }
