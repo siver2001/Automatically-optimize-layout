@@ -168,8 +168,13 @@ const TestCapacityResult = ({ result, config, onClose, onExportPdf, onExportDxf 
                 placedCount: selectedSheet.placedCount,
                 unplacedCount: 0,
                 efficiency: selectedSheet.efficiency ?? selectedEfficiency,
-                timeMs
+                timeMs,
+                sheetWidth: config.sheetWidth,
+                sheetHeight: config.sheetHeight,
+                spacing: config.spacing,
+                gridStep: config.gridStep
               }}
+              editConfig={config}
               sizeList={summary.map(s => ({ sizeName: s.sizeName }))}
               compactMode
             />

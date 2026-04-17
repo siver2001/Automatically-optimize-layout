@@ -41,10 +41,15 @@ const clonePlacedItem = (i = {}) => ({
   polygon: clonePolygon(i.polygon),
   labelPos: i.labelPos ? { ...i.labelPos } : i.labelPos,
 });
+const cloneLibraryItems = (items = []) => items.map(clonePlacedItem);
 const cloneSheet = (s = {}) => ({
   ...s,
   placed: (s.placed || []).map(clonePlacedItem),
 });
+const createEditItemId = (item = {}) =>
+  `${item.id || item.sizeName || "item"}-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
 const hasSheetGeometry = (sheet = {}) =>
   Array.isArray(sheet?.placed) && sheet.placed.length > 0;
 const hasResolvedSheetDetail = (sheetDetails = {}, index) =>
@@ -83,11 +88,52 @@ function getPolygonArea(p = []) {
   }
   return Math.abs(a) / 2;
 }
+function parseRelativeSvgPath(pathData) {
+  if (!pathData || typeof pathData !== "string") return [];
+  const matches = [
+    ...pathData.matchAll(/[ML](-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g),
+  ];
+  return matches.map((match) => ({
+    x: Number.parseFloat(match[1]),
+    y: Number.parseFloat(match[2]),
+  }));
+}
+function translatePolygon(points = [], offsetX = 0, offsetY = 0) {
+  return points.map((point) => ({
+    x: point.x + offsetX,
+    y: point.y + offsetY,
+  }));
+}
+function resolvePlacedItemPolygon(item = {}, templates = {}) {
+  if (Array.isArray(item?.polygon) && item.polygon.length > 0) {
+    return clonePolygon(item.polygon);
+  }
+  const template = item?.renderKey ? templates[item.renderKey] : null;
+  const relativePolygon = parseRelativeSvgPath(template?.path || item?.renderPath);
+  if (!relativePolygon.length) return [];
+  return translatePolygon(relativePolygon, item?.x || 0, item?.y || 0);
+}
+function normalizePlacedItem(item = {}, templates = {}) {
+  const polygon = resolvePlacedItemPolygon(item, templates);
+  return {
+    ...clonePlacedItem(item),
+    polygon,
+  };
+}
+function normalizeSheetGeometry(sheet = {}) {
+  const templates = sheet?.renderTemplates || {};
+  return {
+    ...sheet,
+    placed: (sheet?.placed || []).map((item) =>
+      normalizePlacedItem(item, templates),
+    ),
+  };
+}
 const getPlacedItemArea = (i = {}, templates = {}) => {
   if (i.area) return i.area;
   const template = i.renderKey ? templates[i.renderKey] : null;
   if (template && template.area) return template.area;
-  return getPolygonArea(i.polygon || []);
+  return getPolygonArea(resolvePlacedItemPolygon(i, templates));
 };
 const getPlacedItemCount = (item = {}) => Number(item?.pieceCount) || 1;
 const getSheetPlacedCount = (s = {}) =>
@@ -106,6 +152,39 @@ const getSheetEfficiency = (s = {}, defaultW = 0, defaultH = 0) => {
       100
     ).toFixed(1),
   );
+};
+const getSheetDisplayEfficiency = (
+  s = {},
+  defaultW = 0,
+  defaultH = 0,
+  sizeAreaMap = new Map(),
+) => {
+  const explicitEfficiency = Number(s?.efficiency);
+  if (Number.isFinite(explicitEfficiency) && explicitEfficiency > 0) {
+    return Number(explicitEfficiency.toFixed(1));
+  }
+  const w = Number(s?.sheetWidth || defaultW) || 0;
+  const h = Number(s?.sheetHeight || defaultH) || 0;
+  const totalArea = w * h;
+  if (!totalArea) return 0;
+
+  const usedArea = Number(s?.usedArea);
+  if (Number.isFinite(usedArea) && usedArea > 0) {
+    return Number(((usedArea / totalArea) * 100).toFixed(1));
+  }
+
+  if (Array.isArray(s?.placed) && s.placed.length > 0) {
+    return getSheetEfficiency(s, defaultW, defaultH);
+  }
+
+  const sizeScope = s?.sizeScope || s?.placed?.[0]?.sizeName;
+  const pieceArea = sizeAreaMap.get(String(sizeScope ?? ""));
+  const placedCount = Number(s?.placedCount) || 0;
+  if (Number.isFinite(pieceArea) && pieceArea > 0 && placedCount > 0) {
+    return Number(((pieceArea * placedCount) / totalArea * 100).toFixed(1));
+  }
+
+  return 0;
 };
 function translatePlacedItem(item, dx, dy) {
   return {
@@ -202,7 +281,9 @@ function buildSheetValidation(sheet, spacing) {
   const invalid = new Set(),
     items = sheet?.placed || [],
     gap = Math.max(0, Number(spacing) || 0),
-    boundsMap = new Map(items.map((i) => [i.id, getPolygonBounds(i.polygon)]));
+    boundsMap = new Map(
+      items.map((i) => [i.id, getPolygonBounds(i.polygon || [])]),
+    );
   for (const item of items) {
     const b = boundsMap.get(item.id);
     if (!b) continue;
@@ -228,7 +309,7 @@ function buildSheetValidation(sheet, spacing) {
         bb2.maxY + gap <= ab.minY
       )
         continue;
-      if (polygonDistance(aa.polygon, bb.polygon) + 1e-6 < gap) {
+      if (polygonDistance(aa.polygon || [], bb.polygon || []) + 1e-6 < gap) {
         invalid.add(aa.id);
         invalid.add(bb.id);
       }
@@ -322,35 +403,50 @@ function calculateSnappedPlacement({
       size = axis === "x" ? w : h,
       limit = axis === "x" ? maxX : maxY,
       sheetLimit = axis === "x" ? sw : sh,
+      sheetCenter = sheetLimit / 2,
       options = [
-        { target: 0, guide: 0 },
-        { target: limit, guide: sheetLimit },
+        { target: 0, guide: 0, priority: 5 },
+        { target: limit, guide: sheetLimit, priority: 5 },
+        { target: clamp(sheetCenter - size / 2, 0, limit), guide: sheetCenter, priority: 2 },
       ];
     if (grid > 0) {
       const g = clamp(Math.round(curr / grid) * grid, 0, limit);
-      options.push({ target: g, guide: g });
+      options.push({ target: g, guide: g, priority: 1 });
     }
     for (const other of otherItems) {
       const b = getPolygonBounds(other.polygon),
         min = axis === "x" ? b.minX : b.minY,
-        max = axis === "x" ? b.maxX : b.maxY;
+        max = axis === "x" ? b.maxX : b.maxY,
+        center = (min + max) / 2;
       options.push(
-        { target: min, guide: min },
-        { target: clamp(max - size, 0, limit), guide: max },
-        { target: clamp(max + gap, 0, limit), guide: max },
-        { target: clamp(min - size - gap, 0, limit), guide: min },
+        { target: min, guide: min, priority: 4 },
+        { target: clamp(max - size, 0, limit), guide: max, priority: 4 },
+        { target: clamp(max + gap, 0, limit), guide: max, priority: 6 },
+        { target: clamp(min - size - gap, 0, limit), guide: min, priority: 6 },
+        {
+          target: clamp(center - size / 2, 0, limit),
+          guide: center,
+          priority: 3,
+        },
       );
     }
     let best = clamp(curr, 0, limit),
       bestGuide = null,
-      bestDist = 1 / 0;
+      bestDist = 1 / 0,
+      bestPriority = -1;
     if (snapEnabled && threshold > 0) {
       for (const opt of options) {
         const dist = Math.abs(curr - opt.target);
-        if (dist <= threshold && dist < bestDist) {
+        if (
+          dist <= threshold &&
+          (dist < bestDist - 1e-6 ||
+            (Math.abs(dist - bestDist) <= 1e-6 &&
+              (opt.priority || 0) > bestPriority))
+        ) {
           best = opt.target;
           bestGuide = opt.guide;
           bestDist = dist;
+          bestPriority = opt.priority || 0;
         }
       }
     }
@@ -436,6 +532,7 @@ const SheetCanvas = React.memo(function SheetCanvas({
   pickedPreviewItem,
   onSelectItem,
   onMoveItem,
+  onItemDragStart,
   onHoverPickedItem,
   onPlacePickedItem,
   onClearSnapGuides,
@@ -526,9 +623,10 @@ const SheetCanvas = React.memo(function SheetCanvas({
       const point = getSvgPoint(e);
       if (!point) return;
       onSelectItem?.(item.id);
+      onItemDragStart?.(item);
       itemDragRef.current = { item: clonePlacedItem(item), startPoint: point };
     },
-    [getSvgPoint, isEditMode, onSelectItem, pickedPreviewItem],
+    [getSvgPoint, isEditMode, onItemDragStart, onSelectItem, pickedPreviewItem],
   );
   useEffect(() => {
     if (!compactMode) setZoom(scale);
@@ -840,14 +938,16 @@ export default function DieCutNestingBoard({
     [isEditMode, setIsEditMode] = useState(false),
     [selectedItemId, setSelectedItemId] = useState(null),
     [editedSheets, setEditedSheets] = useState({}),
+    [editHistory, setEditHistory] = useState({}),
     [dirtySheetIndexes, setDirtySheetIndexes] = useState({}),
     [sheetDetails, setSheetDetails] = useState({}),
     [loadingSheetIndex, setLoadingSheetIndex] = useState(null),
     [sheetLibraries, setSheetLibraries] = useState({}),
+    [clipboardItem, setClipboardItem] = useState(null),
     [pickedLibraryItem, setPickedLibraryItem] = useState(null),
     [pickedPreviewItem, setPickedPreviewItem] = useState(null),
     [snapEnabled, setSnapEnabled] = useState(true),
-    [snapThreshold, setSnapThreshold] = useState(12),
+    [snapThreshold, setSnapThreshold] = useState(18),
     [snapGuides, setSnapGuides] = useState(EMPTY_GUIDES),
     [isLibraryOpen, setIsLibraryOpen] = useState(true);
   const sheetTabsRef = useRef(null);
@@ -858,6 +958,16 @@ export default function DieCutNestingBoard({
     const map = {};
     (sizeList || []).forEach((s, i) => {
       map[s.sizeName] = FILL_PALETTE[i % FILL_PALETTE.length];
+    });
+    return map;
+  }, [sizeList]);
+  const sizeAreaMap = useMemo(() => {
+    const map = new Map();
+    (sizeList || []).forEach((size) => {
+      const area = getPolygonArea(size?.polygon || []);
+      if (area > 0) {
+        map.set(String(size?.sizeName ?? ""), area);
+      }
     });
     return map;
   }, [sizeList]);
@@ -875,8 +985,10 @@ export default function DieCutNestingBoard({
     setIsEditMode(false);
     setSelectedItemId(null);
     setEditedSheets({});
+    setEditHistory({});
     setDirtySheetIndexes({});
     setSheetLibraries({});
+    setClipboardItem(null);
     setPickedLibraryItem(null);
     setPickedPreviewItem(null);
     setSnapGuides(EMPTY_GUIDES);
@@ -1059,11 +1171,15 @@ export default function DieCutNestingBoard({
     setSnapGuides(EMPTY_GUIDES);
   }, [pickedLibraryItem, selectedSheet]);
   const resolvedSheets = useMemo(
-    () => sheets.map((sheet, i) => sheetDetails[i] || sheet),
+    () =>
+      sheets.map((sheet, i) => normalizeSheetGeometry(sheetDetails[i] || sheet)),
     [sheetDetails, sheets],
   );
   const displaySheets = useMemo(
-    () => resolvedSheets.map((sheet, i) => editedSheets[i] || sheet),
+    () =>
+      resolvedSheets.map((sheet, i) =>
+        normalizeSheetGeometry(editedSheets[i] || sheet),
+      ),
     [editedSheets, resolvedSheets],
   );
   const currentSheet = displaySheets[selectedSheet] || displaySheets[0] || null;
@@ -1073,6 +1189,10 @@ export default function DieCutNestingBoard({
   const currentLibraryItems = useMemo(
     () => sheetLibraries[selectedSheet] || [],
     [sheetLibraries, selectedSheet],
+  );
+  const currentHistory = useMemo(
+    () => editHistory[selectedSheet] || [],
+    [editHistory, selectedSheet],
   );
   const resolvedSpacing = editConfig?.spacing ?? nestingResult?.spacing ?? 0;
   const resolvedGridStep =
@@ -1088,23 +1208,34 @@ export default function DieCutNestingBoard({
   const canvasKey = `${nestingResult?.resultId || "result"}:${selectedSheet}:${currentSheet?.sheetIndex ?? selectedSheet}`;
   const displaySheetStats = useMemo(
     () =>
-      displaySheets.map((sheet) =>
+      displaySheets.map((sheet, index) =>
         sheet
           ? {
               placedCount: sheet?.placed?.length
                 ? getSheetPlacedCount(sheet)
                 : Number(sheet?.placedCount) || 0,
-              efficiency: sheet?.placed?.length
+              efficiency: editedSheets[index]
                 ? getSheetEfficiency(
                     sheet,
                     nestingResult?.sheetWidth,
                     nestingResult?.sheetHeight,
                   )
-                : Number(sheet?.efficiency) || 0,
+                : getSheetDisplayEfficiency(
+                    sheet,
+                    nestingResult?.sheetWidth,
+                    nestingResult?.sheetHeight,
+                    sizeAreaMap,
+                  ),
             }
           : { placedCount: 0, efficiency: 0 },
       ),
-    [displaySheets, nestingResult?.sheetWidth, nestingResult?.sheetHeight],
+    [
+      displaySheets,
+      editedSheets,
+      nestingResult?.sheetWidth,
+      nestingResult?.sheetHeight,
+      sizeAreaMap,
+    ],
   );
   const livePlacedCount = useMemo(
     () => displaySheetStats.reduce((sum, s) => sum + (s.placedCount || 0), 0),
@@ -1190,6 +1321,60 @@ export default function DieCutNestingBoard({
       delete n[sheetIndex];
       return n;
     });
+    setEditHistory((c) => {
+      const n = { ...c };
+      delete n[sheetIndex];
+      return n;
+    });
+  }, []);
+  const createSheetSnapshot = useCallback(
+    (sheetIndex, overrideSheet = null, overrideLibraryItems = null) => {
+      const baseSheet =
+        overrideSheet ||
+        editedSheets[sheetIndex] ||
+        cloneSheet(
+          (sheetIndex === selectedSheet ? sourceSheet || currentSheet : resolvedSheets[sheetIndex]) ||
+            {},
+        );
+      return {
+        sheet: cloneSheet(baseSheet),
+        libraryItems: cloneLibraryItems(
+          overrideLibraryItems || sheetLibraries[sheetIndex] || [],
+        ),
+      };
+    },
+    [currentSheet, editedSheets, resolvedSheets, selectedSheet, sheetLibraries, sourceSheet],
+  );
+  const pushHistorySnapshot = useCallback(
+    (sheetIndex, overrideSheet = null, overrideLibraryItems = null) => {
+      const snapshot = createSheetSnapshot(
+        sheetIndex,
+        overrideSheet,
+        overrideLibraryItems,
+      );
+      setEditHistory((current) => ({
+        ...current,
+        [sheetIndex]: [...(current[sheetIndex] || []), snapshot].slice(-40),
+      }));
+      return snapshot;
+    },
+    [createSheetSnapshot],
+  );
+  const applySnapshotToSheet = useCallback((sheetIndex, snapshot) => {
+    if (!snapshot?.sheet) return;
+    setEditedSheets((current) => ({
+      ...current,
+      [sheetIndex]: cloneSheet(snapshot.sheet),
+    }));
+    setSheetLibraries((current) => ({
+      ...current,
+      [sheetIndex]: cloneLibraryItems(snapshot.libraryItems || []),
+    }));
+    setDirtySheetIndexes((current) => ({ ...current, [sheetIndex]: true }));
+    setSelectedItemId(null);
+    setPickedLibraryItem(null);
+    setPickedPreviewItem(null);
+    setSnapGuides(EMPTY_GUIDES);
   }, []);
   const updateCurrentEditedSheet = useCallback(
     (updater) => {
@@ -1241,6 +1426,74 @@ export default function DieCutNestingBoard({
       snapThreshold,
     ],
   );
+  const handleItemDragStart = useCallback(
+    (item) => {
+      if (!isEditMode || !item) return;
+      pushHistorySnapshot(selectedSheet);
+    },
+    [isEditMode, pushHistorySnapshot, selectedSheet],
+  );
+  const handleUndoEdit = useCallback(() => {
+    if (!isEditMode || !currentHistory.length) return;
+    const previousSnapshot = currentHistory[currentHistory.length - 1];
+    setEditHistory((current) => ({
+      ...current,
+      [selectedSheet]: (current[selectedSheet] || []).slice(0, -1),
+    }));
+    applySnapshotToSheet(selectedSheet, previousSnapshot);
+  }, [
+    applySnapshotToSheet,
+    currentHistory,
+    isEditMode,
+    selectedSheet,
+  ]);
+  const handleCopySelection = useCallback(() => {
+    if (!isEditMode) return;
+    if (pickedLibraryItem?.item) {
+      setClipboardItem(clonePlacedItem(pickedLibraryItem.item));
+      return;
+    }
+    if (!selectedItemId || !currentSheet) return;
+    const item = currentSheet.placed?.find((entry) => entry.id === selectedItemId);
+    if (!item) return;
+    setClipboardItem(clonePlacedItem(item));
+  }, [currentSheet, isEditMode, pickedLibraryItem, selectedItemId]);
+  const handlePasteClipboard = useCallback(() => {
+    if (!isEditMode || !currentSheet || !clipboardItem) return;
+    pushHistorySnapshot(selectedSheet);
+    const pasted = clonePlacedItem(clipboardItem);
+    pasted.id = createEditItemId(clipboardItem);
+    const bounds = getPolygonBounds(pasted.polygon);
+    const offsetStep = Math.max(16, resolvedGridStep * 10 || 0);
+    const { item, guides } = calculateSnappedPlacement({
+      movingItem: pasted,
+      targetMinX: bounds.minX + offsetStep,
+      targetMinY: bounds.minY + offsetStep,
+      otherItems: currentSheet.placed || [],
+      sheet: currentSheet,
+      spacing: resolvedSpacing,
+      gridStep: resolvedGridStep,
+      snapEnabled,
+      snapThreshold,
+    });
+    setSnapGuides(guides);
+    updateCurrentEditedSheet((sheet) => ({
+      ...sheet,
+      placed: [...(sheet.placed || []), item],
+    }));
+    setSelectedItemId(item.id);
+  }, [
+    clipboardItem,
+    currentSheet,
+    isEditMode,
+    pushHistorySnapshot,
+    resolvedGridStep,
+    resolvedSpacing,
+    selectedSheet,
+    snapEnabled,
+    snapThreshold,
+    updateCurrentEditedSheet,
+  ]);
   const handleMoveItem = useCallback(
     (itemId, nextX, nextY, originalItem) => {
       if (!allowEdit || !isEditMode || !currentSheet) return;
@@ -1294,6 +1547,7 @@ export default function DieCutNestingBoard({
   const handlePlacePickedItem = useCallback(
     (mouseX, mouseY) => {
       if (!pickedLibraryItem || !currentSheet) return;
+      pushHistorySnapshot(selectedSheet);
       const { item } = buildSnappedCandidate(
         pickedLibraryItem.item,
         mouseX,
@@ -1312,6 +1566,8 @@ export default function DieCutNestingBoard({
       buildSnappedCandidate,
       currentSheet,
       pickedLibraryItem,
+      pushHistorySnapshot,
+      selectedSheet,
       updateCurrentEditedSheet,
     ],
   );
@@ -1324,6 +1580,7 @@ export default function DieCutNestingBoard({
     if (!selectedItemId || !currentSheet) return;
     const item = currentSheet.placed?.find((i) => i.id === selectedItemId);
     if (!item) return;
+    pushHistorySnapshot(selectedSheet);
     updateCurrentEditedSheet((sheet) => ({
       ...sheet,
       placed: (sheet.placed || []).filter((i) => i.id !== selectedItemId),
@@ -1338,6 +1595,7 @@ export default function DieCutNestingBoard({
     currentSheet,
     isEditMode,
     pickedLibraryItem,
+    pushHistorySnapshot,
     returnPickedItemToLibrary,
     selectedItemId,
     selectedSheet,
@@ -1346,6 +1604,7 @@ export default function DieCutNestingBoard({
   const handleRotateSelection = useCallback(() => {
     if (!isEditMode) return;
     if (pickedLibraryItem) {
+      pushHistorySnapshot(selectedSheet);
       setPickedLibraryItem((c) =>
         c ? { ...c, item: rotatePlacedItem90(c.item) } : c,
       );
@@ -1354,6 +1613,7 @@ export default function DieCutNestingBoard({
       return;
     }
     if (!selectedItemId) return;
+    pushHistorySnapshot(selectedSheet);
     updateCurrentEditedSheet((sheet) => ({
       ...sheet,
       placed: (sheet.placed || []).map((i) =>
@@ -1361,7 +1621,14 @@ export default function DieCutNestingBoard({
       ),
     }));
     setSnapGuides(EMPTY_GUIDES);
-  }, [isEditMode, pickedLibraryItem, selectedItemId, updateCurrentEditedSheet]);
+  }, [
+    isEditMode,
+    pickedLibraryItem,
+    pushHistorySnapshot,
+    selectedItemId,
+    selectedSheet,
+    updateCurrentEditedSheet,
+  ]);
   const handlePickLibraryGroup = useCallback(
     (groupKey) => {
       if (!isEditMode || pickedLibraryItem) return;
@@ -1372,6 +1639,7 @@ export default function DieCutNestingBoard({
       );
       if (idx < 0) return;
       const item = items[idx];
+      pushHistorySnapshot(selectedSheet);
       setSheetLibraries((c) => ({
         ...c,
         [selectedSheet]: items.filter((_, i) => i !== idx),
@@ -1384,7 +1652,7 @@ export default function DieCutNestingBoard({
       setSelectedItemId(null);
       setSnapGuides(EMPTY_GUIDES);
     },
-    [isEditMode, pickedLibraryItem, selectedSheet, sheetLibraries],
+    [isEditMode, pickedLibraryItem, pushHistorySnapshot, selectedSheet, sheetLibraries],
   );
   const handleToggleEditMode = useCallback(() => {
     if (!allowEdit || !currentSheet?.placed?.length) return;
@@ -1398,6 +1666,7 @@ export default function DieCutNestingBoard({
         clearCurrentDraft(selectedSheet);
       }
       setIsEditMode(false);
+      setEditHistory((current) => ({ ...current, [selectedSheet]: [] }));
       setSelectedItemId(null);
       setPickedPreviewItem(null);
       setSnapGuides(EMPTY_GUIDES);
@@ -1411,6 +1680,7 @@ export default function DieCutNestingBoard({
             [selectedSheet]: cloneSheet(sourceSheet || currentSheet || {}),
           },
     );
+    setEditHistory((current) => ({ ...current, [selectedSheet]: [] }));
     setIsEditMode(true);
     setSelectedItemId(null);
     setSnapGuides(EMPTY_GUIDES);
@@ -1438,10 +1708,15 @@ export default function DieCutNestingBoard({
     if (
       !onResultChange ||
       !currentSheet ||
-      validation.invalidCount > 0 ||
       (!currentDirty && currentLibraryItems.length === 0)
     )
       return;
+    if (validation.invalidCount > 0) {
+      const accepted = window.confirm(
+        `Hiện có ${validation.invalidCount} chi tiết đang vi phạm khoảng cách ${resolvedSpacing} mm, chồng lấn hoặc ra ngoài tấm.\n\nBạn có muốn chấp nhận các vị trí này và lưu lại không?`,
+      );
+      if (!accepted) return;
+    }
     const nextSheets = resolvedSheets.map((sheet, i) =>
       i === selectedSheet ? cloneSheet(currentSheet) : sheet,
     );
@@ -1454,6 +1729,7 @@ export default function DieCutNestingBoard({
     setPickedPreviewItem(null);
     setSnapGuides(EMPTY_GUIDES);
     setIsEditMode(false);
+    setEditHistory((current) => ({ ...current, [selectedSheet]: [] }));
   }, [
     clearCurrentDraft,
     currentDirty,
@@ -1461,6 +1737,7 @@ export default function DieCutNestingBoard({
     currentSheet,
     onResultChange,
     resolvedSheets,
+    resolvedSpacing,
     selectedSheet,
     validation.invalidCount,
   ]);
@@ -1477,6 +1754,24 @@ export default function DieCutNestingBoard({
   useEffect(() => {
     if (!isEditMode) return undefined;
     const onKeyDown = (e) => {
+      if (e.ctrlKey || e.metaKey) {
+        const key = e.key.toLowerCase();
+        if (key === "z") {
+          e.preventDefault();
+          handleUndoEdit();
+          return;
+        }
+        if (key === "c") {
+          e.preventDefault();
+          handleCopySelection();
+          return;
+        }
+        if (key === "v") {
+          e.preventDefault();
+          handlePasteClipboard();
+          return;
+        }
+      }
       if (e.key === "Delete") {
         e.preventDefault();
         handleDeleteSelected();
@@ -1501,8 +1796,11 @@ export default function DieCutNestingBoard({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
+    handleCopySelection,
     handleDeleteSelected,
+    handlePasteClipboard,
     handleRotateSelection,
+    handleUndoEdit,
     isEditMode,
     pickedLibraryItem,
     returnPickedItemToLibrary,
@@ -1514,7 +1812,14 @@ export default function DieCutNestingBoard({
       </div>
     );
   const canEditCurrentSheet = allowEdit && !!currentSheet?.placed?.length;
-  const saveDisabled = !currentDirty || validation.invalidCount > 0;
+  const canUndoCurrentSheet = isEditMode && currentHistory.length > 0;
+  const canCopyCurrentSelection =
+    isEditMode && (!!selectedItemId || !!pickedLibraryItem?.item);
+  const canPasteCurrentClipboard = isEditMode && !!clipboardItem;
+  const selectedItem = selectedItemId
+    ? currentSheet?.placed?.find((item) => item.id === selectedItemId) || null
+    : null;
+  const saveDisabled = !currentDirty && currentLibraryItems.length === 0;
   const toolbar = (
     <div className="flex flex-wrap items-center gap-2">
       <button
@@ -1527,6 +1832,30 @@ export default function DieCutNestingBoard({
       </button>
       {isEditMode ? (
         <>
+          <button
+            type="button"
+            onClick={handleUndoEdit}
+            disabled={!canUndoCurrentSheet}
+            className="rounded-lg border border-violet-400/30 bg-violet-500/20 px-3 py-1 text-xs text-violet-200 transition-colors hover:bg-violet-500/30 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Undo
+          </button>
+          <button
+            type="button"
+            onClick={handleCopySelection}
+            disabled={!canCopyCurrentSelection}
+            className="rounded-lg border border-cyan-400/30 bg-cyan-500/20 px-3 py-1 text-xs text-cyan-200 transition-colors hover:bg-cyan-500/30 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Copy
+          </button>
+          <button
+            type="button"
+            onClick={handlePasteClipboard}
+            disabled={!canPasteCurrentClipboard}
+            className="rounded-lg border border-indigo-400/30 bg-indigo-500/20 px-3 py-1 text-xs text-indigo-200 transition-colors hover:bg-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Paste
+          </button>
           <button
             type="button"
             onClick={handleRotateSelection}
@@ -1559,14 +1888,16 @@ export default function DieCutNestingBoard({
             >
               {snapEnabled ? "Snap on" : "Snap off"}
             </button>
+            <span className="text-[11px] text-white/45">Độ nhạy</span>
             <input
               type="range"
-              min="2"
-              max="30"
+              min="4"
+              max="48"
               step="1"
               value={snapThreshold}
               onChange={(e) => setSnapThreshold(Number(e.target.value))}
               className="w-20"
+              title={`Độ nhạy snap: ${snapThreshold} mm`}
             />
             <span className="w-8 text-right text-[11px] text-white/55">
               {snapThreshold}
@@ -1597,7 +1928,7 @@ export default function DieCutNestingBoard({
     >
       {validation.invalidCount > 0
         ? `Có ${validation.invalidCount} chi tiết đang vi phạm khoảng cách ${resolvedSpacing} mm hoặc ra ngoài tấm. Item lỗi hiện màu đỏ.`
-        : `Kéo để di chuyển, R để xoay 90°, Delete để đưa vào thư viện. Snap đang bám theo khoảng cách ${resolvedSpacing} mm và lưới ${resolvedGridStep} mm.`}
+        : `Kéo để di chuyển, R để xoay 90°, Delete để đưa vào thư viện. Gap an toàn là ${resolvedSpacing} mm, lưới ${resolvedGridStep} mm, độ nhạy Snap ${snapThreshold} mm.`}
       {pickedLibraryItem
         ? ` Đang cầm Size ${pickedLibraryItem.item.sizeName}${pickedLibraryItem.item.foot || ""}, click vào tấm để đặt lại.`
         : ""}
@@ -1649,6 +1980,40 @@ export default function DieCutNestingBoard({
         )}
       </div>
     ) : null;
+  const editAssistantPanel = isEditMode ? (
+    <div className="rounded-xl border border-white/10 bg-black/15 p-3">
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
+        <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/65">
+          <div className="text-[10px] uppercase tracking-wide text-white/35">
+            Đang chọn
+          </div>
+          <div className="mt-1 font-medium text-white">
+            {selectedItem
+              ? `Size ${selectedItem.sizeName}${selectedItem.foot || ""}`
+              : pickedLibraryItem?.item
+                ? `Đang cầm ${pickedLibraryItem.item.sizeName}${pickedLibraryItem.item.foot || ""}`
+                : "Chưa chọn item"}
+          </div>
+          <div className="mt-1 text-white/45">
+            {currentHistory.length} mốc undo, {currentLibraryItems.length} item trong thư viện
+          </div>
+        </div>
+        <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/65">
+          <div className="text-[10px] uppercase tracking-wide text-white/35">
+            Shortcut
+          </div>
+          <div className="mt-1 text-white">Ctrl+Z: Undo</div>
+          <div className="text-white">Ctrl+C: Copy item đang chọn</div>
+          <div className="text-white">Ctrl+V: Paste item đã copy</div>
+          <div className="mt-1 text-white/45">
+            {clipboardItem
+              ? `Clipboard: Size ${clipboardItem.sizeName}${clipboardItem.foot || ""}`
+              : "Clipboard đang trống"}
+          </div>
+        </div>
+      </div>
+    </div>
+  ) : null;
   const canvas = currentSheet?.placed?.length ? (
     <SheetCanvas
       key={canvasKey}
@@ -1665,6 +2030,7 @@ export default function DieCutNestingBoard({
       pickedPreviewItem={pickedPreviewItem}
       onSelectItem={setSelectedItemId}
       onMoveItem={handleMoveItem}
+      onItemDragStart={handleItemDragStart}
       onHoverPickedItem={handleHoverPickedItem}
       onPlacePickedItem={handlePlacePickedItem}
       onClearSnapGuides={() => setSnapGuides(EMPTY_GUIDES)}
@@ -1681,7 +2047,7 @@ export default function DieCutNestingBoard({
   if (compactMode)
     return (
       <div className="flex h-full min-w-0 max-w-full flex-col gap-2 overflow-hidden">
-        <div className="mb-1 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/5 bg-white/5 p-2">
+        <div className="sticky top-0 z-20 mb-1 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/5 bg-[#7c4ed8]/70 p-2 backdrop-blur">
           <div className="flex items-center gap-2">
             <span className="text-sm text-emerald-400">Bố cục tấm PU</span>
             {currentSheet ? (
@@ -1714,8 +2080,6 @@ export default function DieCutNestingBoard({
             </label>
           </div>
         </div>
-        {status}
-        {library}
         {sheets.length > 1 ? (
           <div
             ref={sheetTabsRef}
@@ -1737,7 +2101,21 @@ export default function DieCutNestingBoard({
             ))}
           </div>
         ) : null}
-        {canvas}
+        {isEditMode ? (
+          <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[minmax(0,1fr)_320px]">
+            <div className="min-h-0 overflow-hidden">{canvas}</div>
+            <div className="flex min-h-0 flex-col gap-2 overflow-y-auto pr-1">
+              {status}
+              {editAssistantPanel}
+              {library}
+            </div>
+          </div>
+        ) : (
+          <>
+            {status}
+            {canvas}
+          </>
+        )}
       </div>
     );
   return (

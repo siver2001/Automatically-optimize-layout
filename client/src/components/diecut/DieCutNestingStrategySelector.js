@@ -2,19 +2,14 @@ import React from 'react';
 
 export const DIECUT_NESTING_STRATEGY_OPTIONS = [
   {
-    value: 'ordered',
-    title: 'B\u00ecnh th\u01b0\u1eddng',
-    description: 'X\u1ebfp l\u1ea7n l\u01b0\u1ee3t c\u00e1c size theo th\u1ee9 t\u1ef1 hi\u1ec7n t\u1ea1i. \u0110\u00e2y l\u00e0 ch\u1ebf \u0111\u1ed9 m\u1eb7c \u0111\u1ecbnh.'
+    value: 'single-size-per-sheet',
+    title: 'T\u1ed1i \u01b0u - \u0110\u1ed9c Size',
+    description: 'M\u1ed7i t\u1ea5m PU ch\u1ec9 ch\u1ee9a duy nh\u1ea5t m\u1ed9t size. Kh\u00f4ng ch\u00e8n th\u00eam size kh\u00e1c v\u00e0o ph\u1ea7n d\u01b0.'
   },
   {
     value: 'mixed-size-area',
     title: 'T\u1ed1i \u01b0u - Tr\u1ed9n Size',
     description: '\u01afu ti\u00ean size l\u1edbn tr\u01b0\u1edbc, sau \u0111\u00f3 d\u00f9ng size nh\u1ecf \u0111\u1ec3 l\u1ea5p c\u00e1c khe tr\u1ed1ng tr\u00ean c\u00f9ng t\u1ea5m.'
-  },
-  {
-    value: 'single-size-per-sheet',
-    title: 'T\u1ed1i \u01b0u - \u0110\u1ed9c Size',
-    description: 'M\u1ed7i t\u1ea5m PU ch\u1ec9 ch\u1ee9a duy nh\u1ea5t m\u1ed9t size. Kh\u00f4ng ch\u00e8n th\u00eam size kh\u00e1c v\u00e0o ph\u1ea7n d\u01b0.'
   }
 ];
 

@@ -1,7 +1,6 @@
 import { area as polygonArea } from '../../core/polygonUtils.js';
 
 export const NESTING_STRATEGIES = {
-  ORDERED: 'ordered',
   MIXED_SIZE: 'mixed-size-area',
   SINGLE_SIZE: 'single-size-per-sheet'
 };
@@ -17,7 +16,7 @@ export function normalizeNestingStrategy(value) {
     case NESTING_STRATEGIES.SINGLE_SIZE:
       return value;
     default:
-      return NESTING_STRATEGIES.ORDERED;
+      return NESTING_STRATEGIES.SINGLE_SIZE;
   }
 }
 
