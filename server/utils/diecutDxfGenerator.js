@@ -1,4 +1,4 @@
-import { DxfWriter } from './dxfGenerator.js';
+import { DxfWriter, rgbToAci } from './dxfGenerator.js';
 import {
   hexToRgb,
   normalizeDieCutExportData,
@@ -35,7 +35,9 @@ export function generateDieCutDxf(payload) {
     );
 
     sheet.placed.forEach((item) => {
-      const trueColor = rgbToTrueColor(hexToRgb(item.color));
+      const rgb = hexToRgb(item.color);
+      const aciColor = rgbToAci(rgb);
+      const trueColor = rgbToTrueColor(rgb);
       const shiftedPolygon = item.polygon.map((point) => ({
         x: point.x + offsetX,
         y: point.y
@@ -43,7 +45,7 @@ export function generateDieCutDxf(payload) {
 
       writer.addPolyline(
         shiftedPolygon,
-        7,
+        aciColor,
         trueColor,
         sanitizeLayerName(item.layerName, 'SIZE')
       );

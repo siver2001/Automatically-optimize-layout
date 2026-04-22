@@ -242,6 +242,45 @@ const DieCutLayout = () => {
 
     setExportPicker((current) => ({ ...current, isSubmitting: true }));
     try {
+      if (exportPicker.format === 'dxf') {
+        if (exportPicker.source === 'test') {
+          const selectedItems = selectedSheetIndexes
+            .map((idx) => exportPicker.items[idx])
+            .filter((item) => item?.sheet?.placed?.length);
+
+          if (!selectedItems.length) throw new Error('KhÃ´ng láº¥y Ä‘Æ°á»£c dá»¯ liá»‡u chi tiáº¿t cá»§a cÃ¡c size Ä‘Ã£ chá»n.');
+
+          for (const item of selectedItems) {
+            const activeSizes = item.sizeName ? [{ sizeName: item.sizeName }] : shapes;
+            await diecutExportService.exportDxf({
+              sheets: [item.sheet],
+              sheetWidth: item.sheet?.sheetWidth || config.sheetWidth,
+              sheetHeight: item.sheet?.sheetHeight || config.sheetHeight,
+              sizeList: activeSizes,
+              title: item.sizeName ? `Capacity Test - Size ${item.sizeName}` : 'Capacity Test Result',
+              subtitle: buildExportSubtitle(config, `${item.totalPieces ?? item.sheet?.placed?.length ?? 0} pieces | 1 sheet`)
+            });
+          }
+        } else {
+          const selectedSheets = await resolveSelectedNestingSheets(selectedSheetIndexes);
+          if (!selectedSheets.length) throw new Error('KhÃ´ng láº¥y Ä‘Æ°á»£c dá»¯ liá»‡u chi tiáº¿t cá»§a cÃ¡c táº¥m Ä‘Ã£ chá»n.');
+
+          for (const [index, sheet] of selectedSheets.entries()) {
+            await diecutExportService.exportDxf({
+              sheets: [sheet],
+              sheetWidth: sheet?.sheetWidth || config.sheetWidth,
+              sheetHeight: sheet?.sheetHeight || config.sheetHeight,
+              sizeList,
+              title: `Die-Cut Nesting Result - Sheet ${selectedSheetIndexes[index] + 1}`,
+              subtitle: buildExportSubtitle(config, `${sheet?.placedCount || sheet?.placed?.length || 0} pieces | 1 sheet`)
+            });
+          }
+        }
+
+        closeExportPicker();
+        return;
+      }
+
       let exportPayload;
       if (exportPicker.source === 'test') {
         const selectedItems = selectedSheetIndexes
@@ -278,8 +317,7 @@ const DieCutLayout = () => {
         };
       }
 
-      if (exportPicker.format === 'dxf') await diecutExportService.exportDxf(exportPayload);
-      else await diecutExportService.exportPdf(exportPayload);
+      await diecutExportService.exportPdf(exportPayload);
 
       closeExportPicker();
     } catch (err) {

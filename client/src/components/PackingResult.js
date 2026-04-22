@@ -6,6 +6,7 @@ import DraggableRectangle from './DraggableRectangle.js';
 import EditModeControls from './EditModeControls.js';
 import RectangleContextMenu from './RectangleContextMenu.js';
 import HelpModal from './HelpModal.js';
+import ExportSheetPickerModal from './diecut/ExportSheetPickerModal.js';
 import { packingService } from '../services/packingService.js';
 
 
@@ -105,6 +106,12 @@ const PackingResult = () => {
 
   const [isExporting, setIsExporting] = React.useState(false);
   const [exportError, setExportError] = React.useState(null);
+  const [exportPicker, setExportPicker] = React.useState({
+    isOpen: false,
+    items: [],
+    selectedSheetIndexes: [],
+    isSubmitting: false
+  });
 
   const containerRef = React.useRef(null);
   const mainAreaRef = React.useRef(null);
@@ -208,6 +215,15 @@ const PackingResult = () => {
     }
   }, [packingResult, selectedPlate]);
 
+  React.useEffect(() => {
+    setExportPicker({
+      isOpen: false,
+      items: [],
+      selectedSheetIndexes: [],
+      isSubmitting: false
+    });
+  }, [packingResult?.plates, editablePlates.length]);
+
   const categorizedPlates = React.useMemo(() => {
     if (!packingResult?.plates) return [];
     const pure = [];
@@ -222,6 +238,36 @@ const PackingResult = () => {
     });
     return [...pure, ...mixed];
   }, [packingResult]);
+
+  const blockerExportItems = React.useMemo(() => (
+    categorizedPlates
+      .map((plateMeta) => {
+        const plate = editablePlates.find((item) => item.originalIndex === plateMeta.originalIndex);
+        if (!plate) return null;
+
+        const layerCount = plate.layers?.length || 1;
+        const placedCount = plate.layers?.[0]?.rectangles?.filter(Boolean)?.length || 0;
+        const efficiency = Number(plate.efficiency || 0);
+        const label = plateMeta.type === 'pure'
+          ? `Tấm thuần ${plateMeta.displayIndex}`
+          : `Tấm hỗn hợp ${plateMeta.displayIndex}`;
+
+        return {
+          label,
+          metaLabel: `${layerCount} lớp`,
+          placedCount,
+          efficiency: Number.isFinite(efficiency) ? efficiency.toFixed(1) : '0.0',
+          sheet: {
+            ...plate,
+            sheetWidth: container.length,
+            sheetHeight: container.width,
+            placedCount,
+            efficiency: Number.isFinite(efficiency) ? Number(efficiency.toFixed(1)) : 0
+          }
+        };
+      })
+      .filter(Boolean)
+  ), [categorizedPlates, editablePlates, container.length, container.width]);
 
   // --- LẤY SỐ LỚP ---
   const safeIndex = Math.max(0, Math.min(selectedPlate, categorizedPlates.length - 1));
@@ -854,6 +900,7 @@ const PackingResult = () => {
     }
   };
 
+  // eslint-disable-next-line no-unused-vars
   const handleExportDxf = async () => {
     if (!editablePlates || editablePlates.length === 0) {
       setExportError('Không có dữ liệu kết quả để xuất.');
@@ -911,6 +958,123 @@ const PackingResult = () => {
       setIsExporting(false);
     }
   };
+
+  const closeExportPicker = React.useCallback(() => {
+    setExportPicker((current) => ({
+      ...current,
+      isOpen: false,
+      isSubmitting: false
+    }));
+  }, []);
+
+  const toggleExportSheetIndex = React.useCallback((sheetIndex) => {
+    setExportPicker((current) => {
+      const exists = current.selectedSheetIndexes.includes(sheetIndex);
+      return {
+        ...current,
+        selectedSheetIndexes: exists
+          ? current.selectedSheetIndexes.filter((index) => index !== sheetIndex)
+          : [...current.selectedSheetIndexes, sheetIndex].sort((left, right) => left - right)
+      };
+    });
+  }, []);
+
+  const selectAllExportSheets = React.useCallback(() => {
+    setExportPicker((current) => ({
+      ...current,
+      selectedSheetIndexes: current.items.map((_, index) => index)
+    }));
+  }, []);
+
+  const clearAllExportSheets = React.useCallback(() => {
+    setExportPicker((current) => ({
+      ...current,
+      selectedSheetIndexes: []
+    }));
+  }, []);
+
+  const preparePlatesForDxfExport = React.useCallback((plates) => (
+    plates.map(plate => ({
+      ...plate,
+      layers: plate.layers.map(layer => ({
+        ...layer,
+        rectangles: layer.rectangles.map(rect => {
+          const stringToColor = (str) => {
+            if (!str) return '#CCCCCC';
+            let hash = 0;
+            for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
+            const c = (hash & 0x00FFFFFF).toString(16).toUpperCase();
+            return '#' + '00000'.substring(0, 6 - c.length) + c;
+          };
+
+          let injectedColor = rect.color;
+          if (!injectedColor || injectedColor === '#000000' || injectedColor === '#ffffff') {
+            const details = placedRectDetails[rect.typeId] || placedRectDetails[String(rect.typeId)];
+            injectedColor = details?.color || stringToColor(rect.name);
+          }
+
+          return {
+            ...rect,
+            color: injectedColor,
+            typeId: rect.typeId
+          };
+        })
+      }))
+    }))
+  ), [placedRectDetails]);
+
+  const handleOpenExportDxfPicker = React.useCallback(() => {
+    if (!editablePlates || editablePlates.length === 0) {
+      setExportError('Không có dữ liệu kết quả để xuất.');
+      return;
+    }
+    if (!blockerExportItems.length) {
+      setExportError('Không có tấm nào để xuất DXF.');
+      return;
+    }
+
+    setExportError(null);
+    setExportPicker({
+      isOpen: true,
+      items: blockerExportItems,
+      selectedSheetIndexes: blockerExportItems.map((_, index) => index),
+      isSubmitting: false
+    });
+  }, [blockerExportItems, editablePlates]);
+
+  const handleConfirmExportDxf = React.useCallback(async () => {
+    const selectedSheetIndexes = [...exportPicker.selectedSheetIndexes].sort((left, right) => left - right);
+    if (!selectedSheetIndexes.length) return;
+
+    setIsExporting(true);
+    setExportError(null);
+    setExportPicker((current) => ({ ...current, isSubmitting: true }));
+
+    try {
+      const selectedPlates = selectedSheetIndexes
+        .map((index) => exportPicker.items[index]?.sheet)
+        .filter(Boolean);
+
+      for (const plate of selectedPlates) {
+        const [plateToExport] = preparePlatesForDxfExport([plate]);
+        const response = await packingService.exportDxf(container, [plateToExport]);
+
+        if (!response.success) {
+          setExportError(response.error || 'Lỗi không xác định khi xuất file DXF.');
+          setExportPicker((current) => ({ ...current, isSubmitting: false }));
+          return;
+        }
+      }
+
+      closeExportPicker();
+    } catch (error) {
+      console.error('Lỗi handleConfirmExportDxf:', error);
+      setExportError('Lỗi nghiêm trọng: ' + error.message);
+      setExportPicker((current) => ({ ...current, isSubmitting: false }));
+    } finally {
+      setIsExporting(false);
+    }
+  }, [closeExportPicker, container, exportPicker.items, exportPicker.selectedSheetIndexes, preparePlatesForDxfExport]);
 
   // --- TÍNH HIỆU SUẤT REAL-TIME (ĐÃ SỬA) ---
   const singleLayerArea = container.width * container.length;
@@ -1007,7 +1171,7 @@ const PackingResult = () => {
         onCancelEdit={handleCancelEdit}
         hasUnsavedChanges={hasUnsavedChanges}
         onExportAllPdf={handleExportPdf}
-        onExportDxf={handleExportDxf}
+        onExportDxf={handleOpenExportDxfPicker}
         isExporting={isExporting}
         totalPlates={platesNeeded}
         isPaletteOpen={isUnplacedPanelOpen}
@@ -1019,7 +1183,7 @@ const PackingResult = () => {
 
       {exportError && (
         <div className="my-2 p-2 bg-red-100 text-red-700 text-sm border border-red-300 rounded">
-          <strong>Lỗi xuất PDF:</strong> {exportError}
+          <strong>Lỗi xuất file:</strong> {exportError}
         </div>
       )}
 
@@ -1316,6 +1480,19 @@ const PackingResult = () => {
           </div>
         </div>
       </div>
+
+      <ExportSheetPickerModal
+        isOpen={exportPicker.isOpen}
+        format="dxf"
+        items={exportPicker.items}
+        selectedSheetIndexes={exportPicker.selectedSheetIndexes}
+        isSubmitting={exportPicker.isSubmitting}
+        onClose={closeExportPicker}
+        onToggleSheet={toggleExportSheetIndex}
+        onSelectAll={selectAllExportSheets}
+        onClearAll={clearAllExportSheets}
+        onConfirm={handleConfirmExportDxf}
+      />
 
       <RectangleContextMenu
         menu={{ ...contextMenu, onClose: () => setContextMenu({ visible: false }) }}
