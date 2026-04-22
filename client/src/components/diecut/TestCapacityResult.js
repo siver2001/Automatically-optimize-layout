@@ -1,7 +1,15 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import DieCutNestingBoard from './DieCutNestingBoard.js';
 
-const TestCapacityResult = ({ result, config, onClose, onExportPdf, onExportDxf }) => {
+const TestCapacityResult = ({
+  result,
+  config,
+  onClose,
+  onExportPdf,
+  onExportDxf,
+  onExportCyc,
+  showCycExport = false
+}) => {
   const summary = result?.summary || [];
   const sheetsBySize = result?.sheetsBySize || null;
   const initialSize = useMemo(() => {
@@ -75,6 +83,15 @@ const TestCapacityResult = ({ result, config, onClose, onExportPdf, onExportDxf 
           >
             Export DXF
           </button>
+          {showCycExport ? (
+            <button
+              onClick={() => onExportCyc?.({ selectedSizeName: selectedSummary?.sizeName, selectedSheet, selectedSummary })}
+              disabled={!selectedSheet}
+              className="px-3 py-1 bg-amber-500/20 hover:bg-amber-500/30 disabled:opacity-40 disabled:cursor-not-allowed text-amber-200 font-medium rounded-lg text-xs transition-all border border-amber-400/20"
+            >
+              Export CYC
+            </button>
+          ) : null}
           <button
             onClick={onClose}
             className="px-3 py-1 bg-white/10 hover:bg-white/20 text-white font-medium rounded-lg text-xs transition-all flex items-center gap-1.5 border border-white/10"

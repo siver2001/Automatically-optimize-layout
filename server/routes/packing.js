@@ -190,10 +190,14 @@ router.post('/export-pdf', (req, res) => {
       });
     }
 
+    const sheetCount = allLayouts.length;
+    const sizeStr = `${container.width}x${container.length}`;
+    const fileName = `nesting-blocker-${sizeStr}-${sheetCount}sheets.pdf`;
+
     // Thiết lập header
     res.setHeader('Content-Type', 'application/pdf');
     // Đổi tên file để thể hiện có nhiều layout
-    res.setHeader('Content-Disposition', 'attachment; filename=packing-layouts.pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
 
     // Truyền toàn bộ dữ liệu nhận được
     generateMultiPagePackingPdf({ container, allLayouts }, res);
@@ -218,9 +222,13 @@ router.post('/export-dxf', async (req, res) => {
     const { generateDxf } = await import('../utils/dxfGenerator.js');
     const dxfContent = generateDxf({ container, allLayouts });
 
+    const sheetCount = allLayouts.length;
+    const sizeStr = `${container.width}x${container.length}`;
+    const fileName = `nesting-blocker-${sizeStr}-${sheetCount}sheets.dxf`;
+
     // Thiết lập header
     res.setHeader('Content-Type', 'application/dxf');
-    res.setHeader('Content-Disposition', 'attachment; filename=packing-layouts.dxf');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
 
     res.send(dxfContent);
 

@@ -16,6 +16,9 @@ const SIZE_PALETTE = [
   '#93C5FD'
 ];
 
+export const DEFAULT_DIECUT_DXF_LABEL_MODE = 'default';
+export const PREPARED_SEQUENCE_DXF_LABEL_MODE = 'prepared-sequence';
+
 function averagePolygonPoint(points) {
   if (!points?.length) return { x: 0, y: 0 };
   let sumX = 0;
@@ -90,6 +93,49 @@ function rgbToTrueColor([r, g, b]) {
   return (r << 16) + (g << 8) + b;
 }
 
+function getDefaultItemLabel(item) {
+  return `${item?.sizeName || ''}${item?.foot || ''}`;
+}
+
+function getFiniteSortValue(value) {
+  return Number.isFinite(Number(value)) ? Number(value) : 0;
+}
+
+function buildPreparedSequenceKey(item, fallbackIndex) {
+  if (item?.id) return String(item.id);
+
+  const centroidX = getFiniteSortValue(item?.centroid?.x).toFixed(3);
+  const centroidY = getFiniteSortValue(item?.centroid?.y).toFixed(3);
+  const pointCount = Array.isArray(item?.polygon) ? item.polygon.length : 0;
+  return `${centroidY}:${centroidX}:${pointCount}:${fallbackIndex}`;
+}
+
+function applyPreparedSequenceLabels(items = []) {
+  const keyedItems = items.map((item, index) => ({
+    item,
+    key: buildPreparedSequenceKey(item, index)
+  }));
+
+  const sequenceByKey = new Map(
+    [...keyedItems]
+      .sort((left, right) => {
+        const deltaY = getFiniteSortValue(left.item?.centroid?.y) - getFiniteSortValue(right.item?.centroid?.y);
+        if (Math.abs(deltaY) > 0.001) return deltaY;
+
+        const deltaX = getFiniteSortValue(left.item?.centroid?.x) - getFiniteSortValue(right.item?.centroid?.x);
+        if (Math.abs(deltaX) > 0.001) return deltaX;
+
+        return left.key.localeCompare(right.key);
+      })
+      .map(({ key }, index) => [key, index + 1])
+  );
+
+  return keyedItems.map(({ item, key }) => ({
+    ...item,
+    label: `N=${sequenceByKey.get(key) || 1}`
+  }));
+}
+
 export function buildSizeColorMap(sizeList = []) {
   const colorMap = new Map();
   for (let index = 0; index < sizeList.length; index++) {
@@ -106,6 +152,7 @@ export function normalizeDieCutExportData(payload = {}) {
     sheetWidth,
     sheetHeight,
     sizeList = [],
+    labelMode = DEFAULT_DIECUT_DXF_LABEL_MODE,
     title = 'Die-Cut Result',
     subtitle = ''
   } = payload;
@@ -124,7 +171,7 @@ export function normalizeDieCutExportData(payload = {}) {
     }
 
     const renderTemplates = sheet?.renderTemplates || {};
-    const items = (sheet?.placed || []).map((item, itemIndex) => {
+    const normalizedItems = (sheet?.placed || []).map((item, itemIndex) => {
       let polygon = Array.isArray(item?.polygon) ? item.polygon : null;
       if (!polygon?.length && item?.renderKey && renderTemplates[item.renderKey]?.path) {
         const relativePolygon = parseRelativeSvgPath(renderTemplates[item.renderKey].path);
@@ -144,9 +191,13 @@ export function normalizeDieCutExportData(payload = {}) {
         centroid,
         color,
         layerName: sanitizeLayerName(`SIZE_${item?.sizeName || 'UNK'}`),
-        label: `${item?.sizeName || ''}${item?.foot || ''}`
+        label: getDefaultItemLabel(item)
       };
     });
+
+    const items = labelMode === PREPARED_SEQUENCE_DXF_LABEL_MODE
+      ? applyPreparedSequenceLabels(normalizedItems)
+      : normalizedItems;
 
     return {
       sheetIndex: sheet?.sheetIndex ?? sheetIndex,

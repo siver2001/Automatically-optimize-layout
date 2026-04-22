@@ -20,6 +20,7 @@ function addBorder(writer, width, height, offsetX) {
 export function generateDieCutDxf(payload) {
   const exportData = normalizeDieCutExportData(payload);
   const writer = new DxfWriter();
+  const usePreparedSequenceLabels = payload?.labelMode === 'prepared-sequence';
 
   exportData.sheets.forEach((sheet, sheetIndex) => {
     const offsetX = sheetIndex * (sheet.sheetWidth + SHEET_GAP);
@@ -55,7 +56,7 @@ export function generateDieCutDxf(payload) {
           item.label,
           item.centroid.x + offsetX,
           item.centroid.y,
-          6,
+          usePreparedSequenceLabels ? 5 : 6,
           7,
           'TEXT_LABELS'
         );

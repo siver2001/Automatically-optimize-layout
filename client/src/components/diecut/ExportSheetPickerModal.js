@@ -15,7 +15,7 @@ const ExportSheetPickerModal = ({
   if (!isOpen) return null;
 
   const selectedCount = selectedSheetIndexes.length;
-  const formatLabel = format === 'dxf' ? 'DXF' : 'PDF';
+  const formatLabel = format === 'dxf' ? 'DXF' : format === 'cyc' ? 'CYC' : 'PDF';
 
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 backdrop-blur-sm px-4">

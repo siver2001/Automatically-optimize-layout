@@ -167,8 +167,14 @@ class PackingService {
       const link = document.createElement('a');
       link.href = url;
 
+      const disposition = response.headers['content-disposition'] || '';
+      const fileNameMatch = disposition.match(/filename=([^;]+)/i);
+      const fileName = fileNameMatch
+        ? fileNameMatch[1].trim().replace(/^"|"$/g, '')
+        : 'packing-layouts.pdf';
+
       // 4. Đặt tên file download
-      link.setAttribute('download', 'packing-layouts.pdf');
+      link.setAttribute('download', fileName);
 
       // 5. Thêm link vào DOM, click tự động, rồi gỡ bỏ
       document.body.appendChild(link);
@@ -216,7 +222,14 @@ class PackingService {
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', 'packing-layouts.dxf');
+
+      const disposition = response.headers['content-disposition'] || '';
+      const fileNameMatch = disposition.match(/filename=([^;]+)/i);
+      const fileName = fileNameMatch
+        ? fileNameMatch[1].trim().replace(/^"|"$/g, '')
+        : 'packing-layouts.dxf';
+
+      link.setAttribute('download', fileName);
       document.body.appendChild(link);
       link.click();
 

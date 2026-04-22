@@ -22,8 +22,11 @@ import {
   applyRecommendedMode,
   mergeShapesAndQuantities,
   buildExportFileBase,
-  getCapacityModeLabel
+  getCapacityModeLabel,
+  getDieCutDxfLabelMode
 } from './DieCutUtils.js';
+
+
 
 const DieCutLayout = () => {
   // --- UTILS ---
@@ -55,6 +58,7 @@ const DieCutLayout = () => {
   const [isTestRunning, setIsTestRunning] = useState(false);
   const [testError, setTestError] = useState(null);
   const [showEmptySizeRows, setShowEmptySizeRows] = useState(false);
+  const [toolCodeMap, setToolCodeMap] = useState({});
   
   const [exportPicker, setExportPicker] = useState({
     isOpen: false,
@@ -100,6 +104,7 @@ const DieCutLayout = () => {
   const effectiveTotalPieces = effectiveTotalPairs * 2;
   const hasData = shapes.length > 0;
   const exportOrderNames = [...new Set(quantities.map(item => item.orderName).filter(Boolean))];
+  const canExportCyc = Object.values(toolCodeMap).some((v) => v > 0);
 
   const activeExportSizes = sizeList
     .filter((item) => (item.quantity ?? item.pairQuantity ?? 0) > 0)
@@ -242,6 +247,8 @@ const DieCutLayout = () => {
 
     setExportPicker((current) => ({ ...current, isSubmitting: true }));
     try {
+      const labelMode = getDieCutDxfLabelMode(importAnalysis);
+
       if (exportPicker.format === 'dxf') {
         if (exportPicker.source === 'test') {
           const selectedItems = selectedSheetIndexes
@@ -257,6 +264,7 @@ const DieCutLayout = () => {
               sheetWidth: item.sheet?.sheetWidth || config.sheetWidth,
               sheetHeight: item.sheet?.sheetHeight || config.sheetHeight,
               sizeList: activeSizes,
+              labelMode,
               title: item.sizeName ? `Capacity Test - Size ${item.sizeName}` : 'Capacity Test Result',
               subtitle: buildExportSubtitle(config, `${item.totalPieces ?? item.sheet?.placed?.length ?? 0} pieces | 1 sheet`)
             });
@@ -271,7 +279,64 @@ const DieCutLayout = () => {
               sheetWidth: sheet?.sheetWidth || config.sheetWidth,
               sheetHeight: sheet?.sheetHeight || config.sheetHeight,
               sizeList,
+              labelMode,
               title: `Die-Cut Nesting Result - Sheet ${selectedSheetIndexes[index] + 1}`,
+              subtitle: buildExportSubtitle(config, `${sheet?.placedCount || sheet?.placed?.length || 0} pieces | 1 sheet`)
+            });
+          }
+        }
+
+        closeExportPicker();
+        return;
+      }
+
+      if (exportPicker.format === 'cyc') {
+        if (!canExportCyc) {
+          throw new Error('Chưa cấu hình mã dao T cho các size. Hãy nhập T ở bước 2 hoặc 3.');
+        }
+
+        if (exportPicker.source === 'test') {
+          const selectedItems = selectedSheetIndexes
+            .map((idx) => exportPicker.items[idx])
+            .filter((item) => item?.sheet?.placed?.length);
+
+          if (!selectedItems.length) throw new Error('Khong lay duoc du lieu chi tiet cua cac size da chon.');
+
+          for (const item of selectedItems) {
+            const activeSizes = item.sizeName ? [item.sizeName] : [];
+            await diecutExportService.exportCyc({
+              sheets: [item.sheet],
+              sheetWidth: item.sheet?.sheetWidth || config.sheetWidth,
+              sheetHeight: item.sheet?.sheetHeight || config.sheetHeight,
+              sizeList: activeSizes.length ? activeSizes.map((sizeName) => ({ sizeName })) : shapes,
+              toolCodeMap,
+              fileNameBase: buildExportFileBase({
+                orderNames: exportOrderNames,
+                mode: 'cyc',
+                activeSizes
+              }),
+              title: item.sizeName ? `Capacity Test CYC - Size ${item.sizeName}` : 'Capacity Test CYC',
+              subtitle: buildExportSubtitle(config, `${item.totalPieces ?? item.sheet?.placed?.length ?? 0} pieces | 1 sheet`)
+            });
+          }
+        } else {
+          const selectedSheets = await resolveSelectedNestingSheets(selectedSheetIndexes);
+          if (!selectedSheets.length) throw new Error('Khong lay duoc du lieu chi tiet cua cac tam da chon.');
+
+          for (const [index, sheet] of selectedSheets.entries()) {
+            const sheetActiveSizes = [...new Set((sheet?.placed || []).map((item) => item?.sizeName).filter(Boolean))];
+            await diecutExportService.exportCyc({
+              sheets: [sheet],
+              sheetWidth: sheet?.sheetWidth || config.sheetWidth,
+              sheetHeight: sheet?.sheetHeight || config.sheetHeight,
+              sizeList: sheetActiveSizes.length ? sheetActiveSizes.map((sizeName) => ({ sizeName })) : sizeList,
+              toolCodeMap,
+              fileNameBase: buildExportFileBase({
+                orderNames: exportOrderNames,
+                mode: 'cyc',
+                activeSizes: sheetActiveSizes
+              }),
+              title: `Die-Cut Nesting CYC - Sheet ${selectedSheetIndexes[index] + 1}`,
               subtitle: buildExportSubtitle(config, `${sheet?.placedCount || sheet?.placed?.length || 0} pieces | 1 sheet`)
             });
           }
@@ -396,6 +461,11 @@ const DieCutLayout = () => {
     });
   };
 
+  const handleToolCodeChange = (sizeName, value) => {
+    const num = parseInt(value.replace(/[^0-9]/g, '')) || 0;
+    setToolCodeMap((prev) => ({ ...prev, [sizeName]: num }));
+  };
+
   // --- RENDER HELPERS ---
   const renderStep1 = () => (
     <div className="space-y-4">
@@ -444,6 +514,14 @@ const DieCutLayout = () => {
                     className="w-20 bg-white/10 border border-white/20 text-white rounded px-2 py-0.5 text-sm text-right focus:outline-none focus:border-purple-400"
                   />
                   <span className="text-white/50 text-xs">đôi</span>
+                  <span className="text-white/30 text-xs">T=</span>
+                  <input
+                    type="text"
+                    value={toolCodeMap[s.sizeName] || ''}
+                    onChange={e => handleToolCodeChange(s.sizeName, e.target.value)}
+                    placeholder="-"
+                    className="w-10 bg-white/10 border border-white/20 text-amber-300 rounded px-1.5 py-0.5 text-sm text-center focus:outline-none focus:border-amber-400"
+                  />
                   <span className="text-emerald-300 text-xs ml-auto">= {matched?.pieceQuantity || 0} chiếc</span>
                 </div>
               );
@@ -469,6 +547,32 @@ const DieCutLayout = () => {
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <div className="flex flex-col gap-2">
         <SheetConfigPanel config={config} onChange={setConfig} isTestMode={isTestMode} importAnalysis={importAnalysis} />
+        {/* CYC Tool Code Config */}
+        {shapes.length > 0 && (
+          <div className="bg-white/10 backdrop-blur-md rounded-xl border border-white/20 p-3 space-y-2">
+            <h3 className="text-white font-semibold text-sm flex items-center gap-2">
+              <span className="text-amber-400">🔧</span> Mã dao CYC (T) cho từng size
+            </h3>
+            <p className="text-white/40 text-[11px]">
+              Nhập số T tương ứng với khuôn dập trên máy. Chỉ cần nhập nếu muốn xuất file CYC.
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-1.5">
+              {shapes.map((s, i) => (
+                <div key={i} className="flex items-center gap-1.5 bg-white/5 rounded-lg px-2.5 py-1.5">
+                  <span className="text-white/70 text-xs font-medium w-12 shrink-0">Size {s.sizeName}</span>
+                  <span className="text-white/30 text-xs">T=</span>
+                  <input
+                    type="text"
+                    value={toolCodeMap[s.sizeName] || ''}
+                    onChange={(e) => handleToolCodeChange(s.sizeName, e.target.value)}
+                    placeholder="-"
+                    className="w-10 bg-black/30 border border-white/15 text-amber-300 rounded px-1.5 py-0.5 text-sm text-center focus:outline-none focus:border-amber-400"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="bg-white/10 backdrop-blur-md rounded-xl border border-white/20 p-3 space-y-2">
           <h3 className="text-white font-semibold text-sm">📋 Tóm tắt trước khi chạy</h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
@@ -540,6 +644,8 @@ const DieCutLayout = () => {
           config={config}
           onExportPdf={() => openExportPicker('pdf', 'test', buildTestExportItems())}
           onExportDxf={() => openExportPicker('dxf', 'test', buildTestExportItems())}
+          onExportCyc={() => openExportPicker('cyc', 'test', buildTestExportItems())}
+          showCycExport={canExportCyc}
           onClose={() => setActiveStep(3)}
         />
       ) : (
@@ -554,6 +660,8 @@ const DieCutLayout = () => {
           setShowEmptySizeRows={setShowEmptySizeRows}
           onExportPdf={() => openExportPicker('pdf', 'nesting', (nestingResult?.sheets || []).map((s, i) => ({ label: `Tấm ${i+1}`, sheet: s, placedCount: s.placedCount, efficiency: s.efficiency })))}
           onExportDxf={() => openExportPicker('dxf', 'nesting', (nestingResult?.sheets || []).map((s, i) => ({ label: `Tấm ${i+1}`, sheet: s, placedCount: s.placedCount, efficiency: s.efficiency })))}
+          onExportCyc={() => openExportPicker('cyc', 'nesting', (nestingResult?.sheets || []).map((s, i) => ({ label: `Sheet ${i + 1}`, sheet: s, placedCount: s.placedCount, efficiency: s.efficiency })))}
+          showCycExport={canExportCyc}
           onResultChange={setNestingResult}
           onClose={() => { setActiveStep(3); setNestingResult(null); }}
         />

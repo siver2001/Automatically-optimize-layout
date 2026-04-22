@@ -13,6 +13,8 @@ const NormalNestingResult = ({
   setShowEmptySizeRows,
   onExportPdf,
   onExportDxf,
+  onExportCyc,
+  showCycExport = false,
   onResultChange,
   onClose,
 }) => {
@@ -65,6 +67,15 @@ const NormalNestingResult = ({
           >
             Export DXF
           </button>
+          {showCycExport ? (
+            <button
+              onClick={onExportCyc}
+              disabled={!nestingResult?.sheets?.length}
+              className="rounded-lg border border-amber-400/20 bg-amber-500/20 px-3 py-1 text-xs font-medium text-amber-200 transition-all hover:bg-amber-500/30 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Export CYC
+            </button>
+          ) : null}
           <button
             onClick={onClose}
             className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/10 px-3 py-1 text-xs font-medium text-white transition-all hover:bg-white/20"

@@ -55,6 +55,10 @@ class DieCutExportService {
     return downloadBlob('export-dxf', payload, 'diecut-layouts.dxf');
   }
 
+  async exportCyc(payload) {
+    return downloadBlob('export-cyc', payload, 'diecut-layouts.CYC');
+  }
+
   async fetchNestingSheetDetail(resultId, sheetIndex) {
     const cacheKey = `${resultId}:${sheetIndex}`;
     if (this.sheetDetailCache.has(cacheKey)) {

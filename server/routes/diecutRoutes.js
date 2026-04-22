@@ -33,6 +33,7 @@ import { CapacityTestSameSidePattern } from '../algorithms/diecut/strategies/cap
 import { CapacityTestDoubleInsoleDoubleContourPattern } from '../algorithms/diecut/strategies/capacity/CapacityTestDoubleInsoleDoubleContourPattern.js';
 import { generateDieCutPdf } from '../utils/diecutPdfGenerator.js';
 import { generateDieCutDxf } from '../utils/diecutDxfGenerator.js';
+import { generateDieCutCyc } from '../utils/diecutCycGenerator.js';
 import { sanitizeExportFileName } from '../utils/diecutExportUtils.js';
 import {
   getDieCutNestingResult,
@@ -476,7 +477,18 @@ router.post('/export-pdf', (req, res) => {
       return res.status(400).json({ error: 'Khong co du lieu sheet de xuat PDF.' });
     }
 
-    const safeFileName = `${sanitizeExportFileName(fileNameBase, 'diecut-layouts')}.pdf`;
+    const sheetCount = sheets.length;
+    const sizeStr = `${sheetWidth}x${sheetHeight}`;
+    let baseName = fileNameBase;
+    
+    if (!baseName) {
+      baseName = `nesting-diecut-${sizeStr}-${sheetCount}sheets`;
+    } else {
+      if (!baseName.includes(sizeStr)) baseName += `-${sizeStr}`;
+      if (!baseName.includes('sheet')) baseName += `-${sheetCount}sheets`;
+    }
+
+    const safeFileName = `${sanitizeExportFileName(baseName, 'nesting-diecut')}.pdf`;
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${safeFileName}"`);
 
@@ -496,7 +508,7 @@ router.post('/export-pdf', (req, res) => {
 
 router.post('/export-dxf', (req, res) => {
   try {
-    let { sheets, sheetWidth, sheetHeight, sizeList, title, subtitle, fileNameBase, resultId } = req.body;
+    let { sheets, sheetWidth, sheetHeight, sizeList, title, subtitle, fileNameBase, resultId, labelMode } = req.body;
 
     if ((!Array.isArray(sheets) || sheets.length === 0) && resultId) {
       const cachedResult = getDieCutNestingResult(resultId);
@@ -509,12 +521,29 @@ router.post('/export-dxf', (req, res) => {
       return res.status(400).json({ error: 'Khong co du lieu sheet de xuat DXF.' });
     }
 
-    const safeFileName = `${sanitizeExportFileName(fileNameBase, 'diecut-layouts')}.dxf`;
+    const sheetCount = sheets.length;
+    const sizeStr = `${sheetWidth}x${sheetHeight}`;
+    let baseName = fileNameBase;
+    
+    if (!baseName) {
+      if (sheetCount === 1 && sheets[0].sheetIndex !== undefined) {
+        baseName = `nesting-diecut-${sizeStr}-sheet${sheets[0].sheetIndex + 1}`;
+      } else {
+        baseName = `nesting-diecut-${sizeStr}-${sheetCount}sheets`;
+      }
+    } else {
+      // Append info even if fileNameBase exists to ensure uniqueness as requested
+      if (!baseName.includes(sizeStr)) baseName += `-${sizeStr}`;
+      if (!baseName.includes('sheet')) baseName += `-${sheetCount}sheets`;
+    }
+
+    const safeFileName = `${sanitizeExportFileName(baseName, 'nesting-diecut')}.dxf`;
     const dxfContent = generateDieCutDxf({
       sheets,
       sheetWidth,
       sheetHeight,
       sizeList,
+      labelMode,
       title,
       subtitle
     });
@@ -525,6 +554,72 @@ router.post('/export-dxf', (req, res) => {
   } catch (err) {
     console.error('[DieCut] export-dxf error:', err);
     res.status(500).json({ error: err.message || 'Khong the tao file DXF.' });
+  }
+});
+
+router.post('/export-cyc', (req, res) => {
+  try {
+    let {
+      sheets,
+      sheetWidth,
+      sheetHeight,
+      sizeList,
+      title,
+      subtitle,
+      fileNameBase,
+      resultId,
+      toolCodeMap
+    } = req.body;
+
+    if ((!Array.isArray(sheets) || sheets.length === 0) && resultId) {
+      const cachedResult = getDieCutNestingResult(resultId);
+      sheets = cachedResult?.sheets || [];
+      sheetWidth = sheetWidth || cachedResult?.sheets?.[0]?.sheetWidth;
+      sheetHeight = sheetHeight || cachedResult?.sheets?.[0]?.sheetHeight;
+    }
+
+    if (!Array.isArray(sheets) || sheets.length === 0) {
+      return res.status(400).json({ error: 'Khong co du lieu sheet de xuat CYC.' });
+    }
+
+    if (sheets.length !== 1) {
+      return res.status(400).json({ error: 'CYC chi cho phep xuat tung tam mot de dam bao giong file mau.' });
+    }
+
+
+    const sizeStr = `${sheetWidth}x${sheetHeight}`;
+    let baseName = fileNameBase;
+
+    if (!baseName) {
+      if (sheets[0].sheetIndex !== undefined) {
+        baseName = `nesting-diecut-cyc-${sizeStr}-sheet${sheets[0].sheetIndex + 1}`;
+      } else {
+        baseName = `nesting-diecut-cyc-${sizeStr}`;
+      }
+    } else {
+      if (!baseName.includes(sizeStr)) baseName += `-${sizeStr}`;
+      if (!baseName.includes('sheet') && sheets[0].sheetIndex !== undefined) {
+        baseName += `-sheet${sheets[0].sheetIndex + 1}`;
+      }
+    }
+
+    const safeFileName = `${sanitizeExportFileName(baseName, 'nesting-diecut-cyc')}.CYC`;
+    const cycContent = generateDieCutCyc({
+      sheets,
+      sheetWidth,
+      sheetHeight,
+      sizeList,
+      toolCodeMap,
+      title,
+      subtitle
+    });
+
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeFileName}"`);
+    res.send(cycContent);
+  } catch (err) {
+    console.error('[DieCut] export-cyc error:', err);
+    res.status(500).json({ error: err.message || 'Khong the tao file CYC.' });
   }
 });
 

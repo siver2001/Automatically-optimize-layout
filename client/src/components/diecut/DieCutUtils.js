@@ -3,6 +3,7 @@ import { DIECUT_NESTING_STRATEGY_OPTIONS } from "./DieCutNestingStrategySelector
 export const PAIR_CAPACITY_MODE = "pair-complementary";
 export const SINGLE_INSOLE_CAPACITY_MODE = "same-side-banded";
 export const DOUBLE_INSOLE_CAPACITY_MODE = "same-side-double-contour";
+export const PREPARED_SEQUENCE_DXF_LABEL_MODE = "prepared-sequence";
 
 export const SAME_SIDE_MODE_OPTIONS = [
   {
@@ -160,4 +161,11 @@ export function getNestingStrategyLabel(strategy) {
     DIECUT_NESTING_STRATEGY_OPTIONS[0]?.title ||
     "Tối ưu - Độc Size"
   );
+}
+
+export function getDieCutDxfLabelMode(importAnalysis) {
+  return importAnalysis?.recommendation?.kind ===
+    "double-insole-double-contour"
+    ? PREPARED_SEQUENCE_DXF_LABEL_MODE
+    : "default";
 }
