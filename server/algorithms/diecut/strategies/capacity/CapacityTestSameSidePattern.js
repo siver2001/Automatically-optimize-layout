@@ -1,7 +1,8 @@
-﻿import { BaseNesting } from '../../core/BaseNesting.js';
+import { BaseNesting } from '../../core/BaseNesting.js';
 import {
   flipX,
   normalizeToOrigin,
+  translate,
   area as polygonArea,
   polygonsOverlap
 } from '../../core/polygonUtils.js';
@@ -232,13 +233,14 @@ function getAveragePitchX(placements) {
   return roundMetric(total / (placements.length - 1));
 }
 
-function buildRelativeSvgPath(polygon) {
+function buildRelativeSvgPath(polygon, isClosed = true) {
   if (!polygon || polygon.length < 2) return '';
-  return polygon.map((point, index) => {
+  const pathStr = polygon.map((point, index) => {
     const x = point.x.toFixed(2);
     const y = point.y.toFixed(2);
     return `${index === 0 ? 'M' : 'L'}${x},${y}`;
-  }).join(' ') + ' Z';
+  }).join(' ');
+  return isClosed ? pathStr + ' Z' : pathStr;
 }
 
 function getRelativeCentroid(polygon) {
@@ -701,10 +703,12 @@ export class CapacityTestSameSidePattern extends BaseNesting {
       const worldX = config.marginX + placement.x;
       const worldY = config.marginY + placement.y;
       const polygon = placement.orient.polygon;
+      const internals = placement.orient.internals || [];
       const renderKey = getRenderKey(placement.orient);
       if (!renderTemplates[renderKey]) {
         renderTemplates[renderKey] = {
           path: buildRelativeSvgPath(polygon),
+          internalsPaths: internals.map(path => buildRelativeSvgPath(path, false)),
           labelOffset: getRelativeCentroid(polygon)
         };
       }
@@ -715,6 +719,8 @@ export class CapacityTestSameSidePattern extends BaseNesting {
         x: roundMetric(worldX),
         y: roundMetric(worldY),
         angle: placement.orient.angle,
+        polygon: translate(polygon, worldX, worldY),
+        internals: internals.map(path => translate(path, worldX, worldY)),
         renderKey
       };
     });
@@ -1169,3 +1175,4 @@ export class CapacityTestSameSidePattern extends BaseNesting {
     return this._testCapacitySequential(sizeList, config);
   }
 }
+

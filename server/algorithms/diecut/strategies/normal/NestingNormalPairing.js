@@ -1,6 +1,6 @@
 
 import { BaseNesting } from '../../core/BaseNesting.js';
-import { flipX, normalizeToOrigin, area as polygonArea } from '../../core/polygonUtils.js';
+import { flipX, flipXWithCenter, normalizeToOrigin, getBoundingBox, translate, area as polygonArea } from '../../core/polygonUtils.js';
 import { PairOptimizer } from '../../core/pairOptimizer.js';
 
 export class NestingNormalPairing extends BaseNesting {
@@ -237,13 +237,39 @@ export class NestingNormalPairing extends BaseNesting {
     let idCounter = 0;
     for (const size of sizeList) {
       const qty = size.quantity || 0;
-      const leftPoly = normalizeToOrigin(size.polygon);
-      const rightPoly = normalizeToOrigin(flipX(size.polygon));
+      const poly = size.polygon;
+      const internals = size.internals || [];
+
+      // Left foot
+      const leftBB = getBoundingBox(poly);
+      const leftPoly = translate(poly, -leftBB.minX, -leftBB.minY);
+      const leftInternals = internals.map(path => translate(path, -leftBB.minX, -leftBB.minY));
+
+      // Right foot
+      const cx = leftBB.minX + leftBB.width / 2;
+      const flippedPoly = flipXWithCenter(poly, cx);
+      const flippedInternals = internals.map(path => flipXWithCenter(path, cx));
+      const rightBB = getBoundingBox(flippedPoly);
+      const rightPoly = translate(flippedPoly, -rightBB.minX, -rightBB.minY);
+      const rightInternals = flippedInternals.map(path => translate(path, -rightBB.minX, -rightBB.minY));
+
       for (let i = 0; i < qty; i++) {
         pairs.push({
           sizeName: size.sizeName,
-          left: { id: `${size.sizeName}_L_${idCounter}`, sizeName: size.sizeName, foot: 'L', polygon: leftPoly },
-          right: { id: `${size.sizeName}_R_${idCounter}`, sizeName: size.sizeName, foot: 'R', polygon: rightPoly }
+          left: { 
+            id: `${size.sizeName}_L_${idCounter}`, 
+            sizeName: size.sizeName, 
+            foot: 'L', 
+            polygon: leftPoly,
+            internals: leftInternals
+          },
+          right: { 
+            id: `${size.sizeName}_R_${idCounter}`, 
+            sizeName: size.sizeName, 
+            foot: 'R', 
+            polygon: rightPoly,
+            internals: rightInternals
+          }
         });
         idCounter++;
       }

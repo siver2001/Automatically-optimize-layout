@@ -115,7 +115,7 @@ router.post('/parse-dxf', upload.array('dxfFiles', 20), async (req, res) => {
     const stepSize = parseFloat(req.body.stepSize) || 0.5;
 
     if (!req.files || req.files.length === 0) {
-      return res.status(400).json({ error: 'Chưa upload file DXF hoặc DWG' });
+      return res.status(400).json({ error: 'Chưa upload file DXF' });
     }
 
     if (req.files.length === 1) {
@@ -128,7 +128,7 @@ router.post('/parse-dxf', upload.array('dxfFiles', 20), async (req, res) => {
       );
 
       if (shapes.length === 0) {
-        return res.status(400).json({ error: 'Không tìm thấy biên dạng hợp lệ trong file DXF/DWG' });
+        return res.status(400).json({ error: 'Không tìm thấy biên dạng hợp lệ trong file DXF' });
       }
 
       return res.json({
@@ -147,7 +147,7 @@ router.post('/parse-dxf', upload.array('dxfFiles', 20), async (req, res) => {
     }
 
     if (allPolygons.length === 0) {
-      return res.status(400).json({ error: 'Không tìm thấy biên dạng hợp lệ trong file DXF/DWG' });
+      return res.status(400).json({ error: 'Không tìm thấy biên dạng hợp lệ trong file DXF' });
     }
 
     const sizedShapes = assignSizesToPolygons(allPolygons, startSize, stepSize);

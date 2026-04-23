@@ -1,6 +1,7 @@
 import {
   area as polygonArea,
   flipX,
+  flipXWithCenter,
   getBoundingBox,
   normalizeToOrigin,
   rotatePolygon,
@@ -91,22 +92,54 @@ function createCapacityNester(config = {}) {
 }
 
 function getBasePolygonForFoot(size, foot) {
-  if (foot === 'R') return normalizeToOrigin(flipX(size.polygon));
-  return normalizeToOrigin(size.polygon);
+  const poly = size.polygon;
+  const internals = size.internals || [];
+
+  if (foot === 'R') {
+    const bb = getBoundingBox(poly);
+    const cx = bb.minX + bb.width / 2;
+    const flippedPoly = flipXWithCenter(poly, cx);
+    const flippedInternals = internals.map(path => flipXWithCenter(path, cx));
+    
+    const normBB = getBoundingBox(flippedPoly);
+    return {
+      polygon: translate(flippedPoly, -normBB.minX, -normBB.minY),
+      internals: flippedInternals.map(path => translate(path, -normBB.minX, -normBB.minY))
+    };
+  }
+  
+  const normBB = getBoundingBox(poly);
+  return {
+    polygon: translate(poly, -normBB.minX, -normBB.minY),
+    internals: internals.map(path => translate(path, -normBB.minX, -normBB.minY))
+  };
 }
 
 function materializeCapacityItems(size, rect, capacitySheet) {
   return (capacitySheet?.placed || []).map((item) => {
-    const basePolygon = getBasePolygonForFoot(size, item.foot);
-    const rotated = normalizeToOrigin(rotatePolygon(basePolygon, ((item.angle || 0) * Math.PI) / 180));
-    const x = rect.x + (item.x || 0);
-    const y = rect.y + (item.y || 0);
+    const base = getBasePolygonForFoot(size, item.foot);
+    const angleRad = ((item.angle || 0) * Math.PI) / 180;
+    
+    // Rotate main polygon
+    const rotatedPoly = rotatePolygon(base.polygon, angleRad);
+    const normBB = getBoundingBox(rotatedPoly);
+    const finalPoly = translate(rotatedPoly, -normBB.minX, -normBB.minY);
+    
+    // Rotate internals using same logic
+    const rotatedInternals = base.internals.map(path => {
+      const rot = rotatePolygon(path, angleRad);
+      return translate(rot, -normBB.minX, -normBB.minY);
+    });
+
+    const x = roundMetric(rect.x + (item.x || 0));
+    const y = roundMetric(rect.y + (item.y || 0));
 
     return {
       ...item,
-      x: roundMetric(x),
-      y: roundMetric(y),
-      polygon: translate(rotated, x, y)
+      x,
+      y,
+      polygon: translate(finalPoly, x, y),
+      internals: rotatedInternals.map(path => translate(path, x, y))
     };
   });
 }

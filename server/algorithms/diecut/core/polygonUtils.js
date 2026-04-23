@@ -135,6 +135,13 @@ export function rotate180(polygon) {
 export function flipX(polygon) {
   const bb = getBoundingBox(polygon);
   const cx = bb.minX + bb.width / 2;
+  return flipXWithCenter(polygon, cx);
+}
+
+/**
+ * Lật gương theo trục X với tâm cx cố định
+ */
+export function flipXWithCenter(polygon, cx) {
   return polygon.map(p => ({ x: 2 * cx - p.x, y: p.y }));
 }
 

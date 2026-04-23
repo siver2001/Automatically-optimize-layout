@@ -40,11 +40,20 @@ export class BaseNesting {
     const key = `${item.sizeName}-${item.foot || 'X'}-${angle}-${step}-${spacing}`;
     if (this._orientCache.has(key)) return this._orientCache.get(key);
 
-    const highPoly = normalizeToOrigin(rotatePolygon(item.polygon, angle * Math.PI / 180));
-    const bb = getBoundingBox(highPoly);
+    const angleRad = angle * Math.PI / 180;
+    const rotatedPoly = rotatePolygon(item.polygon, angleRad);
+    const bb = getBoundingBox(rotatedPoly);
+    const highPoly = translate(rotatedPoly, -bb.minX, -bb.minY);
+
+    const internals = item.internals || [];
+    const rotatedInternals = internals.map(path => {
+      const rot = rotatePolygon(path, angleRad);
+      return translate(rot, -bb.minX, -bb.minY);
+    });
+
     const lowPoly = simplifyPolygon(highPoly, 0.4);
     const raster = rasterizeToBuffer(lowPoly, step, spacing, bb);
-    const res = { angle, polygon: highPoly, raster };
+    const res = { angle, polygon: highPoly, internals: rotatedInternals, raster };
     this._orientCache.set(key, res);
     return res;
   }
@@ -115,7 +124,8 @@ export class BaseNesting {
       x: parseFloat(xm.toFixed(2)),
       y: parseFloat(ym.toFixed(2)),
       angle: orient.angle,
-      polygon: translate(orient.polygon, xm, ym)
+      polygon: translate(orient.polygon, xm, ym),
+      internals: (orient.internals || []).map(path => translate(path, xm, ym))
     };
   }
 
@@ -152,7 +162,7 @@ export class BaseNesting {
       const ordered = [...placements].sort((left, right) =>
         left.y - right.y
         || left.x - right.x
-        || polygonArea(right.item?.polygon || []) - polygonArea(left.item?.polygon || [])
+        || polygonArea(left.item?.polygon || []) - polygonArea(right.item?.polygon || [])
       );
 
       for (const placement of ordered) {

@@ -51,6 +51,23 @@ export function generateDieCutDxf(payload) {
         sanitizeLayerName(item.layerName, 'SIZE')
       );
 
+      // Thêm các đường line nội bộ (đường giữa, v.v.)
+      if (Array.isArray(item.internals)) {
+        item.internals.forEach(path => {
+          const shiftedPath = path.map(p => ({
+            x: p.x + offsetX,
+            y: p.y
+          }));
+          writer.addPolyline(
+            shiftedPath,
+            aciColor,
+            trueColor,
+            sanitizeLayerName(item.layerName + '_INTERNAL', 'INTERNAL'),
+            false
+          );
+        });
+      }
+
       if (item.label) {
         writer.addText(
           item.label,

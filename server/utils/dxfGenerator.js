@@ -154,7 +154,7 @@ export class DxfWriter {
     this.extents.maxY = Math.max(this.extents.maxY, pointY);
   }
 
-  addPolyline(points, aciColor = 7, _trueColor = null, layer = '0') {
+  addPolyline(points, aciColor = 7, _trueColor = null, layer = '0', isClosed = true) {
     if (!Array.isArray(points) || points.length < 2) return;
 
     const layerName = this.registerLayer(layer, aciColor);
@@ -167,7 +167,7 @@ export class DxfWriter {
     this.push(this.entityLines, 6, 'CONTINUOUS');
     this.push(this.entityLines, 62, entityColor);
     this.push(this.entityLines, 66, 1);
-    this.push(this.entityLines, 70, 1);
+    this.push(this.entityLines, 70, isClosed ? 1 : 0);
     this.push(this.entityLines, 10, 0.0);
     this.push(this.entityLines, 20, 0.0);
     this.push(this.entityLines, 30, 0.0);

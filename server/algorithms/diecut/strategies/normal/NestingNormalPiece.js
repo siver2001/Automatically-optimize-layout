@@ -1,5 +1,5 @@
 import { BaseNesting } from '../../core/BaseNesting.js';
-import { flipX, normalizeToOrigin, area as polygonArea } from '../../core/polygonUtils.js';
+import { flipX, flipXWithCenter, normalizeToOrigin, getBoundingBox, translate, area as polygonArea } from '../../core/polygonUtils.js';
 import { PairOptimizer } from '../../core/pairOptimizer.js';
 
 function isPreparedDoubleContourMode(config = {}) {
@@ -396,7 +396,13 @@ export class NestingNormalPiece extends BaseNesting {
 
     for (const size of sizeList) {
       const qty = size.quantity || 0;
-      const normalizedPolygon = normalizeToOrigin(size.polygon);
+      const poly = size.polygon;
+      const internals = size.internals || [];
+
+      // Normalize Left
+      const bbL = getBoundingBox(poly);
+      const normPolyL = translate(poly, -bbL.minX, -bbL.minY);
+      const normInternalsL = internals.map(path => translate(path, -bbL.minX, -bbL.minY));
 
       for (let i = 0; i < qty; i++) {
         if (usePreparedUnits) {
@@ -404,13 +410,36 @@ export class NestingNormalPiece extends BaseNesting {
             id: `${size.sizeName}_DC_${idCounter}`,
             sizeName: size.sizeName,
             foot: 'X',
-            polygon: normalizedPolygon,
+            polygon: normPolyL,
+            internals: normInternalsL,
             pieceCount: 2
           });
         } else {
+          // Right Foot flip
+          const cx = bbL.minX + bbL.width / 2;
+          const flippedPoly = flipXWithCenter(poly, cx);
+          const flippedInternals = internals.map(path => flipXWithCenter(path, cx));
+          const bbR = getBoundingBox(flippedPoly);
+          const normPolyR = translate(flippedPoly, -bbR.minX, -bbR.minY);
+          const normInternalsR = flippedInternals.map(path => translate(path, -bbR.minX, -bbR.minY));
+
           items.push(
-            { id: `${size.sizeName}_L_${idCounter}`, sizeName: size.sizeName, foot: 'L', polygon: normalizedPolygon, pieceCount: 1 },
-            { id: `${size.sizeName}_R_${idCounter}`, sizeName: size.sizeName, foot: 'R', polygon: normalizeToOrigin(flipX(size.polygon)), pieceCount: 1 }
+            { 
+              id: `${size.sizeName}_L_${idCounter}`, 
+              sizeName: size.sizeName, 
+              foot: 'L', 
+              polygon: normPolyL, 
+              internals: normInternalsL,
+              pieceCount: 1 
+            },
+            { 
+              id: `${size.sizeName}_R_${idCounter}`, 
+              sizeName: size.sizeName, 
+              foot: 'R', 
+              polygon: normPolyR, 
+              internals: normInternalsR,
+              pieceCount: 1 
+            }
           );
         }
         idCounter++;
