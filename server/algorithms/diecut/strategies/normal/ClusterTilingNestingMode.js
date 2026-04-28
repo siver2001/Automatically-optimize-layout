@@ -16,6 +16,7 @@
 
 import { area as polygonArea } from '../../core/polygonUtils.js';
 import { CapacityTestComplementaryPattern } from '../capacity/CapacityTestComplementaryPattern.js';
+import { CapacityTestDoubleInsoleDoubleContourPattern } from '../capacity/CapacityTestDoubleInsoleDoubleContourPattern.js';
 import { CapacityTestSameSidePattern } from '../capacity/CapacityTestSameSidePattern.js';
 import { finalizeNestingResult } from './nestingPlanUtils.js';
 
@@ -27,6 +28,13 @@ function toPairQuantity(size) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }
 
+function resolveSameSideCapacityLayoutMode(config = {}) {
+  return config.capacityLayoutMode === 'same-side-double-contour'
+    || config.sameSidePreparedVariant === 'double-contour'
+    ? 'same-side-double-contour'
+    : 'same-side-banded';
+}
+
 function buildCapacityConfig(config = {}) {
   const pairingStrategy = config.pairingStrategy === 'same-side' || config.mirrorPairs === false
     ? 'same-side'
@@ -36,7 +44,9 @@ function buildCapacityConfig(config = {}) {
     ...config,
     mirrorPairs: pairingStrategy !== 'same-side',
     pairingStrategy,
-    capacityLayoutMode: pairingStrategy === 'same-side' ? 'same-side-banded' : 'pair-complementary',
+    capacityLayoutMode: pairingStrategy === 'same-side'
+      ? resolveSameSideCapacityLayoutMode(config)
+      : 'pair-complementary',
     parallelSizes: false,
     maxTimeMs: config.maxTimeMs || 60000
   };
@@ -44,11 +54,21 @@ function buildCapacityConfig(config = {}) {
 
 function createCapacityNester(config = {}) {
   if (config.pairingStrategy === 'same-side' || config.mirrorPairs === false) {
+    const sameSideMode = resolveSameSideCapacityLayoutMode(config);
+    if (sameSideMode === 'same-side-double-contour') {
+      return new CapacityTestDoubleInsoleDoubleContourPattern({
+        ...config,
+        pairingStrategy: 'same-side',
+        mirrorPairs: false,
+        capacityLayoutMode: sameSideMode
+      });
+    }
+
     return new CapacityTestSameSidePattern({
       ...config,
       pairingStrategy: 'same-side',
       mirrorPairs: false,
-      capacityLayoutMode: 'same-side-banded'
+      capacityLayoutMode: sameSideMode
     });
   }
 
@@ -73,7 +93,8 @@ async function buildCapacityTemplate(size, config) {
 function createFullSheet(templateSheet, pieceArea, sheetIndex, config) {
   const totalArea = (config.sheetWidth || 0) * (config.sheetHeight || 0);
   const placedCount = templateSheet.placedCount;
-  const usedArea = placedCount * Math.max(0, pieceArea || 0);
+  const usedArea = templateSheet?.usedArea
+    ?? (templateSheet?.placed || []).reduce((sum, item) => sum + Math.max(0, item?.areaMm2 || pieceArea || 0), 0);
 
   return {
     ...templateSheet,
@@ -91,7 +112,7 @@ function createFullSheet(templateSheet, pieceArea, sheetIndex, config) {
 function createPartialSheet(templateSheet, takeCount, pieceArea, sheetIndex, config) {
   const totalArea = (config.sheetWidth || 0) * (config.sheetHeight || 0);
   const placed = templateSheet.placed.slice(0, takeCount);
-  const usedArea = takeCount * Math.max(0, pieceArea || 0);
+  const usedArea = placed.reduce((sum, item) => sum + Math.max(0, item?.areaMm2 || pieceArea || 0), 0);
 
   return {
     ...templateSheet,

@@ -1,5 +1,5 @@
 import { BaseNesting } from '../../core/BaseNesting.js';
-import { flipX, flipXWithCenter, normalizeToOrigin, getBoundingBox, translate, area as polygonArea } from '../../core/polygonUtils.js';
+import { flipXWithCenter, getBoundingBox, translate, area as polygonArea } from '../../core/polygonUtils.js';
 import { PairOptimizer } from '../../core/pairOptimizer.js';
 
 function isPreparedDoubleContourMode(config = {}) {

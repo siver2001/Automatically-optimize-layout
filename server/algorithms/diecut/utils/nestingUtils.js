@@ -1,13 +1,6 @@
 
 import {
-  getBoundingBox,
-  translate,
-  rotatePolygon,
-  flipX,
-  normalizeToOrigin,
-  simplifyPolygon,
-  area as polygonArea
-} from '../core/polygonUtils.js';
+  getBoundingBox} from '../core/polygonUtils.js';
 
 export function pointInPoly(px, py, polygon) {
   let inside = false;

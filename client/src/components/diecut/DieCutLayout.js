@@ -77,6 +77,7 @@ const DieCutLayout = () => {
     marginX: 5,
     marginY: 5,
     allowRotate90: true,
+    allowRotate180: true,
     mirrorPairs: true,
     pairingStrategy: 'pair',
     gridStep: 0.5,

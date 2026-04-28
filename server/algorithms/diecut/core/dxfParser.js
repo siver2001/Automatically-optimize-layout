@@ -3,7 +3,6 @@ import path from 'path';
 import {
   getBoundingBox,
   area,
-  normalizeToOrigin,
   roundPolygon,
   simplifyPolygon,
   pointInPolygon,
@@ -221,6 +220,31 @@ function isClosedPointPath(points, tolerance = 0.5) {
   return Math.hypot(last.x - first.x, last.y - first.y) <= tolerance;
 }
 
+function isLikelyNearClosedMainContour(points, absoluteTolerance = 10) {
+  if (!points || points.length < 20) return false;
+
+  const first = points[0];
+  const last = points[points.length - 1];
+  const closeDistance = Math.hypot(last.x - first.x, last.y - first.y);
+  if (closeDistance <= 0.5) return true;
+
+  const bb = getBoundingBox(points);
+  const diagonal = Math.hypot(bb.width, bb.height);
+  const polygonArea = area(points);
+
+  const isLargeMainContour = polygonArea >= 30000 && Math.max(bb.width, bb.height) >= 150;
+  const closeRatioLimit = isLargeMainContour ? 0.12 : 0.035;
+  const closeDistanceLimit = isLargeMainContour
+    ? Math.max(absoluteTolerance, diagonal * closeRatioLimit)
+    : Math.min(absoluteTolerance, diagonal * closeRatioLimit);
+
+  return (
+    polygonArea >= 10000 &&
+    Math.max(bb.width, bb.height) >= 100 &&
+    closeDistance <= closeDistanceLimit
+  );
+}
+
 // ─────────────────────────────────────────────
 // 5. PARSE DXF → POLYGON LIST (chính xác)
 // ─────────────────────────────────────────────
@@ -293,7 +317,7 @@ function parseDxfDocumentToPolygonAnalysis(dxf) {
       }
 
       // Nếu closed → bỏ điểm trùng lặp cuối-đầu
-      const isClosedShape = entity.closed || isClosedPointPath(pts, 0.5);
+      const isClosedShape = entity.closed || isClosedPointPath(pts, 0.5) || isLikelyNearClosedMainContour(pts);
 
       if (isClosedShape && pts.length > 0) {
         const last = pts[pts.length - 1];
@@ -335,7 +359,7 @@ function parseDxfDocumentToPolygonAnalysis(dxf) {
         }
       }
 
-      const isClosedShape = entity.closed || isClosedPointPath(pts, 0.5);
+      const isClosedShape = entity.closed || isClosedPointPath(pts, 0.5) || isLikelyNearClosedMainContour(pts);
       if (isClosedShape && pts.length > 0) {
         const last = pts[pts.length - 1];
         const first = pts[0];
@@ -532,15 +556,18 @@ function extractDetectedSizeLabelsFromDxf(dxf) {
       .replace(/,/g, '.')
       .trim();
 
-    if (!/^\d+(?:\.\d+)?$/.test(rawText)) continue;
+    const sizeMatch = rawText.match(/^\d+(?:\.\d+)?$/)
+      || rawText.match(/(?:^|[^a-z0-9])(?:uk|us|eu|size|sz|ms)\s*:?\s*(\d+(?:\.\d+)?)(?:\s*#)?(?:$|[^a-z0-9])/i);
+    if (!sizeMatch) continue;
 
-    const sizeValue = Number.parseFloat(rawText);
+    const sizeText = sizeMatch[1] || sizeMatch[0];
+    const sizeValue = Number.parseFloat(sizeText);
     if (!Number.isFinite(sizeValue) || sizeValue < 3 || sizeValue > 20) continue;
 
     const key = String(sizeValue);
     if (!uniqueLabels.has(key)) {
       uniqueLabels.set(key, {
-        sizeName: Number.isInteger(sizeValue) ? String(sizeValue) : rawText.replace(/\.0+$/, ''),
+        sizeName: Number.isInteger(sizeValue) ? String(sizeValue) : sizeText.replace(/\.0+$/, ''),
         sizeValue
       });
     }

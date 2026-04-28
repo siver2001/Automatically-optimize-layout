@@ -3,7 +3,6 @@ import {
   getBoundingBox,
   translate,
   rotatePolygon,
-  normalizeToOrigin,
   simplifyPolygon,
   area as polygonArea
 } from './polygonUtils.js';

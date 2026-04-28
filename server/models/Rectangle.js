@@ -11,7 +11,7 @@ class Rectangle {
     this.rotated = false;
     this.layer = 0;
 
-    // ✅ Thêm các thuộc tính metadata
+    // Thêm các thuộc tính metadata
     this.typeId = id; 
     this.originalTypeId = id; 
     this.pairId = null;
@@ -60,7 +60,7 @@ class Rectangle {
     cloned.rotated = this.rotated;
     cloned.layer = this.layer;
     
-    // ✅ Sao chép metadata
+    // Sao chép metadata
     cloned.typeId = this.typeId;
     cloned.originalTypeId = this.originalTypeId;
     cloned.pairId = this.pairId;
@@ -86,7 +86,7 @@ class Rectangle {
       rotated: this.rotated,
       layer: this.layer,
       
-      // ✅ Thêm metadata vào JSON
+      // Thêm metadata vào JSON
       typeId: this.typeId,
       originalTypeId: this.originalTypeId,
       pairId: this.pairId,
@@ -106,7 +106,7 @@ class Rectangle {
     rect.rotated = data.rotated || false;
     rect.layer = data.layer || 0;
 
-    // ✅ Khôi phục metadata từ JSON
+    // Khôi phục metadata từ JSON
     rect.typeId = data.typeId ?? data.id;
     rect.originalTypeId = data.originalTypeId ?? data.id;
     rect.pairId = data.pairId ?? null;

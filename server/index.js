@@ -35,11 +35,11 @@ app.use('/api/packing', packingRoutes);
 app.use('/api/modbus', modbusRoutes);
 app.use('/api/diecut', diecutRoutes);
 
-// ✅ THÊM: Serve React build folder
+// Serve React build folder
 const buildPath = path.join(__dirname, '../client/build');
 app.use(express.static(buildPath));
 
-// ✅ THÊM: Fallback để hỗ trợ React Router
+// Fallback để hỗ trợ React Router
 app.get('*', (req, res) => {
   res.sendFile(path.join(buildPath, 'index.html'));
 });

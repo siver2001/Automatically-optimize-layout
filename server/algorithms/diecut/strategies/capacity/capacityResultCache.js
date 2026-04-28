@@ -1,8 +1,9 @@
 // In-memory cache for per-size capacity test results.
 // This cache lives only for the current server process and is not persisted.
-// Change CACHE_KEY_VERSION only when the cache key shape or result semantics change.
+// Change CAPACITY_VERSION_TAG in capacityVersion.js when result semantics change.
 
-const CACHE_KEY_VERSION = 'capacity-cache-v23';
+import { CAPACITY_CACHE_KEY_VERSION } from './capacityVersion.js';
+
 const CACHE_TTL_MS = 15 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 256;
 
@@ -77,7 +78,7 @@ function enforceCacheLimit() {
 
 export function buildCapacityResultCacheKey(strategyKey, size, config) {
   return JSON.stringify({
-    version: CACHE_KEY_VERSION,
+    version: CAPACITY_CACHE_KEY_VERSION,
     strategyKey,
     sizeName: size?.sizeName ?? null,
     sizeValue: normalizeNumber(size?.sizeValue),

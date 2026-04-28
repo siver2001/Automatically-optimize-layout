@@ -2,10 +2,6 @@
 import React from 'react';
 import { packingService } from '../services/packingService.js';
 
-// ============================================================
-// ✅ HELPER 1: Tách Giai đoạn 3 - MERGE
-// (Hàm này nhận vào 1 danh sách pieces, trả về danh sách đã merge)
-// ============================================================
 const PackingContext = React.createContext();
 
 const initialState = {

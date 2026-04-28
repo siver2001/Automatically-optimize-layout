@@ -30,6 +30,21 @@ function boundingBoxCenter(points) {
   return { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
 }
 
+function isSplitHalfItem(item) {
+  return String(item?.foot || '').startsWith('split-') || String(item?.id || '').includes('split_fill');
+}
+
+function resolveCycPolygon(item) {
+  if (isSplitHalfItem(item) && !Array.isArray(item?.cycPolygon)) {
+    throw new Error(
+      `Thieu bien dang CYC goc cho mieng tach nua size ${item?.sizeName || 'UNK'}. ` +
+      'Khong xuat CYC de tranh may dap sai.'
+    );
+  }
+
+  return item?.cycPolygon || item?.polygon;
+}
+
 /**
  * Resolve tool code for a given item from the user-provided toolCodeMap.
  */
@@ -65,7 +80,7 @@ export function generateDieCutCyc(payload = {}) {
   const [sheet] = exportData.sheets;
   const cycles = sheet.placed.map((item, index) => {
     const toolCode = resolveToolCode(item, toolCodeMap);
-    const center = boundingBoxCenter(item?.polygon);
+    const center = boundingBoxCenter(resolveCycPolygon(item));
 
     return {
       toolCode,

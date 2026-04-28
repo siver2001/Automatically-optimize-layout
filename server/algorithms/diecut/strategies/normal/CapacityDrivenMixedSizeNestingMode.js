@@ -1,13 +1,12 @@
 import {
   area as polygonArea,
-  flipX,
   flipXWithCenter,
   getBoundingBox,
-  normalizeToOrigin,
   rotatePolygon,
   translate
 } from '../../core/polygonUtils.js';
 import { CapacityTestComplementaryPattern } from '../capacity/CapacityTestComplementaryPattern.js';
+import { CapacityTestDoubleInsoleDoubleContourPattern } from '../capacity/CapacityTestDoubleInsoleDoubleContourPattern.js';
 import { CapacityTestSameSidePattern } from '../capacity/CapacityTestSameSidePattern.js';
 import { cachedPolygonsOverlap } from '../capacity/patternCapacityUtils.js';
 import { finalizeNestingResult, sortSizesByDescendingArea } from './nestingPlanUtils.js';
@@ -18,7 +17,6 @@ const MIN_BATCH_FULL_SHEETS = 4;
 const RESERVED_FULL_SHEETS_FOR_MIXING = 2;
 const MAX_SALVAGE_RECTS = 3;
 const MAX_SALVAGE_SIZE_CANDIDATES = 4;
-const MAX_SALVAGE_INSERTIONS = 2;
 
 function toPairQuantity(size) {
   const raw = size?.quantity ?? size?.pairQuantity ?? 0;
@@ -41,7 +39,6 @@ function resolveMixedBehavior(config = {}) {
     candidateBoost: 0,
     salvageRects: MAX_SALVAGE_RECTS,
     salvageCandidateSizes: MAX_SALVAGE_SIZE_CANDIDATES,
-    salvageInsertions: MAX_SALVAGE_INSERTIONS,
     salvageMinArea: 30000,
     salvageEfficiencyThreshold: 86,
     salvageFreeAreaThreshold: 45000,
@@ -52,6 +49,13 @@ function resolveMixedBehavior(config = {}) {
     irregular: true,
     orderingMode: config.nestingOrderingMode === 'input' ? 'input' : 'area'
   };
+}
+
+function resolveSameSideCapacityLayoutMode(config = {}) {
+  return config.capacityLayoutMode === 'same-side-double-contour'
+    || config.sameSidePreparedVariant === 'double-contour'
+    ? 'same-side-double-contour'
+    : 'same-side-banded';
 }
 
 function buildCapacityConfig(config = {}, width, height) {
@@ -67,7 +71,9 @@ function buildCapacityConfig(config = {}, width, height) {
     marginY: 0,
     mirrorPairs: pairingStrategy !== 'same-side',
     pairingStrategy,
-    capacityLayoutMode: pairingStrategy === 'same-side' ? 'same-side-banded' : 'pair-complementary',
+    capacityLayoutMode: pairingStrategy === 'same-side'
+      ? resolveSameSideCapacityLayoutMode(config)
+      : 'pair-complementary',
     parallelSizes: false,
     maxTimeMs: config.maxTimeMs || 60000
   };
@@ -75,11 +81,21 @@ function buildCapacityConfig(config = {}, width, height) {
 
 function createCapacityNester(config = {}) {
   if (config.pairingStrategy === 'same-side' || config.mirrorPairs === false) {
+    const sameSideMode = resolveSameSideCapacityLayoutMode(config);
+    if (sameSideMode === 'same-side-double-contour') {
+      return new CapacityTestDoubleInsoleDoubleContourPattern({
+        ...config,
+        pairingStrategy: 'same-side',
+        mirrorPairs: false,
+        capacityLayoutMode: sameSideMode
+      });
+    }
+
     return new CapacityTestSameSidePattern({
       ...config,
       pairingStrategy: 'same-side',
       mirrorPairs: false,
-      capacityLayoutMode: 'same-side-banded'
+      capacityLayoutMode: sameSideMode
     });
   }
 
@@ -117,6 +133,21 @@ function getBasePolygonForFoot(size, foot) {
 
 function materializeCapacityItems(size, rect, capacitySheet) {
   return (capacitySheet?.placed || []).map((item) => {
+    if (Array.isArray(item?.polygon) && item.polygon.length > 0) {
+      const x = roundMetric(rect.x);
+      const y = roundMetric(rect.y);
+      return {
+        ...item,
+        x: roundMetric(x + (item.x || 0)),
+        y: roundMetric(y + (item.y || 0)),
+        polygon: translate(item.polygon, x, y),
+        cycPolygon: Array.isArray(item?.cycPolygon) ? translate(item.cycPolygon, x, y) : undefined,
+        internals: Array.isArray(item?.internals)
+          ? item.internals.map((path) => translate(path, x, y))
+          : []
+      };
+    }
+
     const base = getBasePolygonForFoot(size, item.foot);
     const angleRad = ((item.angle || 0) * Math.PI) / 180;
     
@@ -914,6 +945,31 @@ function isClusterSafeAgainstExisting(placed, existingPlacedIndex, spacing = 0) 
   return true;
 }
 
+function buildPositiveShiftCandidates(limit, step, denseSteps = 12, maxSamples = 36) {
+  const normalizedLimit = Math.max(0, roundMetric(limit, 3));
+  if (normalizedLimit <= 0 || step <= 0) return [0];
+
+  const denseLimit = Math.min(normalizedLimit, denseSteps * step);
+  const values = [0];
+
+  for (let value = step; value <= denseLimit + 1e-6; value += step) {
+    values.push(roundMetric(value, 3));
+  }
+
+  if (denseLimit < normalizedLimit) {
+    const remainingSlots = Math.max(4, maxSamples - values.length);
+    for (let index = 1; index <= remainingSlots; index++) {
+      const ratio = index / remainingSlots;
+      const sampled = denseLimit + (normalizedLimit - denseLimit) * ratio;
+      const quantized = roundMetric(Math.round(sampled / step) * step, 3);
+      values.push(Math.min(normalizedLimit, quantized));
+    }
+    values.push(normalizedLimit);
+  }
+
+  return [...new Set(values)].sort((a, b) => a - b);
+}
+
 function adjustClusterWithinRect(placed, rect, existingPlacedIndex, config) {
   if (!placed?.length) return null;
 
@@ -927,30 +983,32 @@ function adjustClusterWithinRect(placed, rect, existingPlacedIndex, config) {
 
   const slackX = Math.max(0, roundMetric(rect.x + rect.width - snapped.bounds.maxX, 3));
   const slackY = Math.max(0, roundMetric(rect.y + rect.height - snapped.bounds.maxY, 3));
-  const maxShiftX = Math.min(slackX, Math.max(step * 8, spacing * 2));
-  const maxShiftY = Math.min(slackY, Math.max(step * 24, spacing * 4));
-  const shiftCandidatesX = [0];
-  const shiftCandidatesY = [0];
-
-  for (let value = step; value <= maxShiftX + 1e-6; value += step) {
-    shiftCandidatesX.push(roundMetric(value, 3));
-  }
-  for (let value = step; value <= maxShiftY + 1e-6; value += step) {
-    shiftCandidatesY.push(roundMetric(value, 3));
-  }
+  const shiftCandidatesX = buildPositiveShiftCandidates(slackX, step, 16, 40);
+  const shiftCandidatesY = buildPositiveShiftCandidates(slackY, step, 24, 48);
+  const shiftPairs = [];
 
   for (const dy of shiftCandidatesY) {
     for (const dx of shiftCandidatesX) {
       if (dx === 0 && dy === 0) continue;
-      const shifted = shiftPlacedCluster(snapped.placed, dx, dy);
-      if (!isClusterSafeAgainstExisting(shifted, existingPlacedIndex, spacing)) continue;
-      const shiftedBounds = computePlacedBounds(shifted);
-      if (!shiftedBounds) continue;
-      return {
-        placed: shifted,
-        bounds: shiftedBounds
-      };
+      shiftPairs.push({ dx, dy });
     }
+  }
+
+  shiftPairs.sort((left, right) =>
+    (left.dx + left.dy) - (right.dx + right.dy)
+    || left.dy - right.dy
+    || left.dx - right.dx
+  );
+
+  for (const { dx, dy } of shiftPairs) {
+    const shifted = shiftPlacedCluster(snapped.placed, dx, dy);
+    if (!isClusterSafeAgainstExisting(shifted, existingPlacedIndex, spacing)) continue;
+    const shiftedBounds = computePlacedBounds(shifted);
+    if (!shiftedBounds) continue;
+    return {
+      placed: shifted,
+      bounds: shiftedBounds
+    };
   }
 
   return null;
@@ -961,6 +1019,25 @@ function shouldAttemptClusterAdjustment(rect, bounds, existingPlacedIndex, sizeN
   const narrowRect = rect.width <= 260 || rect.height <= 260 || (rect.depth || 0) > 0;
   if (!narrowRect) return false;
   return hasCrossSizeNeighbor(existingPlacedIndex, bounds, sizeName, spacing);
+}
+
+function positionPlacedClusterWithinRect(placed, rect, existingPlacedIndex, sizeName, config, options = {}) {
+  const snapped = snapPlacedClusterToRect(placed, rect);
+  if (!snapped) return null;
+
+  const spacing = config.spacing || 0;
+  if (isClusterSafeAgainstExisting(snapped.placed, existingPlacedIndex, spacing)) {
+    return snapped;
+  }
+
+  if (
+    options.forceAdjustment
+    || shouldAttemptClusterAdjustment(rect, snapped.bounds, existingPlacedIndex, sizeName, spacing)
+  ) {
+    return adjustClusterWithinRect(placed, rect, existingPlacedIndex, config);
+  }
+
+  return null;
 }
 
 function shouldRunSheetSalvage(sheetPlaced, remainingPieces, config, behavior) {
@@ -1006,8 +1083,10 @@ async function runSheetSalvagePass({
   }
 
   let insertedAnything = false;
+  let remainingPasses = Math.max(1, sumRemainingPieces(remainingPieces));
 
-  for (let insertionIndex = 0; insertionIndex < behavior.salvageInsertions; insertionIndex++) {
+  while (remainingPasses > 0) {
+    remainingPasses -= 1;
     const salvageRects = buildSalvageFreeRects(sheetPlaced, config, behavior);
     let bestCandidate = null;
 
@@ -1026,9 +1105,15 @@ async function runSheetSalvagePass({
         }
         if (!trimmed?.placedCount || !trimmed.bounds) continue;
 
-        const snapped = snapPlacedClusterToRect(trimmed.placed, rect);
-        if (!snapped) continue;
-        if (!isClusterSafeAgainstExisting(snapped.placed, sheetPlacedIndex, config.spacing || 0)) continue;
+        const positioned = positionPlacedClusterWithinRect(
+          trimmed.placed,
+          rect,
+          sheetPlacedIndex,
+          size.sizeName,
+          config,
+          { forceAdjustment: true }
+        );
+        if (!positioned) continue;
 
         const fillRatio = trimmed.usedArea / Math.max(1, rectArea);
         const score = trimmed.usedArea + fillRatio * behavior.stripFillWeight + trimmed.placedCount * 300;
@@ -1043,8 +1128,8 @@ async function runSheetSalvagePass({
             score,
             trimmed: {
               ...trimmed,
-              placed: snapped.placed,
-              bounds: snapped.bounds
+              placed: positioned.placed,
+              bounds: positioned.bounds
             }
           };
         }
@@ -1091,7 +1176,6 @@ function buildTailOptimizationBehavior(behavior) {
     candidateBoost: Math.max(behavior.candidateBoost || 0, 1),
     salvageRects: Math.max(behavior.salvageRects || 0, 4),
     salvageCandidateSizes: Math.max(behavior.salvageCandidateSizes || 0, 5),
-    salvageInsertions: Math.max(behavior.salvageInsertions || 0, 3),
     salvageMinArea: Math.min(behavior.salvageMinArea || 30000, 22000),
     salvageFreeAreaThreshold: Math.min(behavior.salvageFreeAreaThreshold || 45000, 22000),
     salvageEfficiencyThreshold: Math.max(behavior.salvageEfficiencyThreshold || 86, 90),
@@ -1194,18 +1278,13 @@ async function packRemainingPiecesIntoLocalSheets({
 
       let bestCandidate = null;
       for (const candidate of rankedCandidates.slice(0, 3)) {
-        const snapped = snapPlacedClusterToRect(candidate.trimmed.placed, rect);
-        if (!snapped) continue;
-        const requiresAdjustment = shouldAttemptClusterAdjustment(
+        const adjusted = positionPlacedClusterWithinRect(
+          candidate.trimmed.placed,
           rect,
-          snapped.bounds,
           sheetPlacedIndex,
           candidate.size.sizeName,
-          config.spacing || 0
+          config
         );
-        const adjusted = requiresAdjustment
-          ? adjustClusterWithinRect(candidate.trimmed.placed, rect, sheetPlacedIndex, config)
-          : snapped;
         if (!adjusted) continue;
         bestCandidate = {
           ...candidate,
@@ -1478,18 +1557,13 @@ export async function runCapacityDrivenMixedSizeNestingMode({
 
       let bestCandidate = null;
       for (const candidate of rankedCandidates.slice(0, 2)) {
-        const snapped = snapPlacedClusterToRect(candidate.trimmed.placed, rect);
-        if (!snapped) continue;
-        const requiresAdjustment = shouldAttemptClusterAdjustment(
+        const adjusted = positionPlacedClusterWithinRect(
+          candidate.trimmed.placed,
           rect,
-          snapped.bounds,
           sheetPlacedIndex,
           candidate.size.sizeName,
-          config.spacing || 0
+          config
         );
-        const adjusted = requiresAdjustment
-          ? adjustClusterWithinRect(candidate.trimmed.placed, rect, sheetPlacedIndex, config)
-          : snapped;
         if (!adjusted) continue;
         bestCandidate = {
           ...candidate,

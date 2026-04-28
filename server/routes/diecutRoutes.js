@@ -15,9 +15,6 @@ import {
   parseCadBufferToSizedShapesWithAnalysis,
   assignSizesToPolygons
 } from '../algorithms/diecut/core/dxfParser.js';
-// Các thuật toán cũ (giữ lại để tương thích nếu cần, hoặc có thể xóa sau)
-import { TrueShapeNesting } from '../algorithms/diecut/TrueShapeNesting.js';
-// Các thuật toán mới tách ra
 import { NestingNormalPairing } from '../algorithms/diecut/strategies/normal/NestingNormalPairing.js';
 import { NestingNormalPiece } from '../algorithms/diecut/strategies/normal/NestingNormalPiece.js';
 import {
@@ -42,7 +39,63 @@ import {
   storeDieCutNestingResult
 } from '../utils/diecutNestingResultCache.js';
 
-import { area as polygonArea } from '../algorithms/diecut/core/polygonUtils.js';
+const DEFAULT_DIECUT_UI_CONFIG = {
+  sheetWidth: 1100,
+  sheetHeight: 2000,
+  spacing: 3,
+  staggerSpacing: 3,
+  marginX: 5,
+  marginY: 5,
+  allowRotate90: true,
+  allowRotate180: true,
+  gridStep: 0.5,
+  pairingStrategy: 'pair',
+  mirrorPairs: true,
+  capacityLayoutMode: 'pair-complementary',
+  layers: 1,
+  nestingStrategy: 'single-size-per-sheet'
+};
+
+function numberFromUi(value, fallback) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function resolveCapacityLayoutMode(pairingStrategy, capacityLayoutMode) {
+  if (pairingStrategy === 'pair') return 'pair-complementary';
+  if (capacityLayoutMode === 'same-side-double-contour') return 'same-side-double-contour';
+  if (capacityLayoutMode === 'same-side-orthogonal') return 'same-side-orthogonal';
+  return 'same-side-banded';
+}
+
+function buildDieCutConfigFromUi(body = {}, options = {}) {
+  const resolvedPairingStrategy = body.pairingStrategy
+    || (body.mirrorPairs !== false ? 'pair' : 'same-side');
+  const resolvedCapacityLayoutMode = resolveCapacityLayoutMode(
+    resolvedPairingStrategy,
+    body.capacityLayoutMode
+  );
+  const spacing = numberFromUi(body.spacing, DEFAULT_DIECUT_UI_CONFIG.spacing);
+
+  return {
+    sheetWidth: numberFromUi(body.sheetWidth, DEFAULT_DIECUT_UI_CONFIG.sheetWidth),
+    sheetHeight: numberFromUi(body.sheetHeight, DEFAULT_DIECUT_UI_CONFIG.sheetHeight),
+    spacing,
+    staggerSpacing: numberFromUi(body.staggerSpacing, body.staggerSpacing == null ? spacing : DEFAULT_DIECUT_UI_CONFIG.staggerSpacing),
+    marginX: numberFromUi(body.marginX, DEFAULT_DIECUT_UI_CONFIG.marginX),
+    marginY: numberFromUi(body.marginY, DEFAULT_DIECUT_UI_CONFIG.marginY),
+    allowRotate90: body.allowRotate90 ?? DEFAULT_DIECUT_UI_CONFIG.allowRotate90,
+    allowRotate180: body.allowRotate180 ?? DEFAULT_DIECUT_UI_CONFIG.allowRotate180,
+    mirrorPairs: resolvedPairingStrategy !== 'same-side',
+    pairingStrategy: resolvedPairingStrategy,
+    capacityLayoutMode: resolvedCapacityLayoutMode,
+    gridStep: numberFromUi(body.gridStep, DEFAULT_DIECUT_UI_CONFIG.gridStep),
+    layers: normalizeLayers(body.layers ?? DEFAULT_DIECUT_UI_CONFIG.layers),
+    nestingStrategy: normalizeNestingStrategy(body.nestingStrategy ?? DEFAULT_DIECUT_UI_CONFIG.nestingStrategy),
+    maxTimeMs: options.maxTimeMs ?? 60000
+  };
+}
+
 import ExcelJS from 'exceljs';
 
 const router = express.Router();
@@ -281,25 +334,7 @@ router.post('/nest', async (req, res) => {
       return res.status(400).json({ error: 'Danh sách size rỗng' });
     }
 
-    const resolvedPairingStrategy = pairingStrategy || (mirrorPairs !== false ? 'pair' : 'same-side');
-
-    const config = {
-      sheetWidth: sheetWidth || 1400,
-      sheetHeight: sheetHeight || 700,
-      spacing: spacing ?? 2,
-      staggerSpacing: staggerSpacing ?? spacing ?? 2,
-      marginX: marginX ?? 5,
-      marginY: marginY ?? 5,
-      allowRotate90: allowRotate90 !== false,
-      allowRotate180: allowRotate180 !== false,
-      mirrorPairs: resolvedPairingStrategy !== 'same-side',
-      pairingStrategy: resolvedPairingStrategy,
-      capacityLayoutMode,
-      gridStep: gridStep ?? 0.5,
-      layers: normalizeLayers(layers),
-      nestingStrategy: normalizeNestingStrategy(nestingStrategy),
-      maxTimeMs: 60000
-    };
+    const config = buildDieCutConfigFromUi(req.body, { maxTimeMs: 60000 });
 
     const createNester = () => (
       config.pairingStrategy === 'same-side' || config.mirrorPairs === false
@@ -332,7 +367,11 @@ router.post('/nest', async (req, res) => {
     });
 
     const compactResult = storeDieCutNestingResult(finalizedResult);
-    res.json({ success: true, ...compactResult });
+    res.json({
+      success: true,
+      ...compactResult,
+      effectiveConfig: config
+    });
   } catch (err) {
     console.error('[DieCut] nest error:', err);
     res.status(500).json({ error: err.message });
@@ -398,29 +437,10 @@ router.post('/test-capacity', async (req, res) => {
       return res.status(400).json({ error: 'Danh sách size rỗng' });
     }
 
-    const resolvedPairingStrategy = pairingStrategy || (mirrorPairs !== false ? 'pair' : 'same-side');
-    const resolvedCapacityLayoutMode = resolvedPairingStrategy === 'pair'
-      ? 'pair-complementary'
-      : capacityLayoutMode === 'same-side-double-contour'
-        ? 'same-side-double-contour'
-        : capacityLayoutMode === 'same-side-orthogonal'
-          ? 'same-side-orthogonal'
-          : 'same-side-banded';
-
     const config = {
-      sheetWidth: sheetWidth || 1400,
-      sheetHeight: sheetHeight || 700,
-      spacing: spacing ?? 2,
-      staggerSpacing: staggerSpacing ?? spacing ?? 2,
-      marginX: marginX ?? 5,
-      marginY: marginY ?? 5,
-      allowRotate90: allowRotate90 !== false,
-      allowRotate180: allowRotate180 !== false,
-      mirrorPairs: resolvedPairingStrategy !== 'same-side',
-      pairingStrategy: resolvedPairingStrategy,
-      gridStep: gridStep || 2,
-      maxTimeMs: 120000,
-      capacityLayoutMode: resolvedCapacityLayoutMode
+      ...buildDieCutConfigFromUi(req.body, { maxTimeMs: 120000 }),
+      parallelSizes: true,
+      preparedSplitFillDeep: false
     };
 
     const totalArea = config.sheetWidth * config.sheetHeight;
@@ -445,7 +465,7 @@ router.post('/test-capacity', async (req, res) => {
     } else {
       nester = new CapacityTestSameSidePattern({
         ...config,
-        capacityLayoutMode: resolvedCapacityLayoutMode,
+        capacityLayoutMode: config.capacityLayoutMode,
         pairingStrategy: 'same-side',
         mirrorPairs: false
       });
@@ -454,7 +474,10 @@ router.post('/test-capacity', async (req, res) => {
     const result = await nester.testCapacity(sizeList, config);
 
     // Kết quả từ testCapacity đã bao gồm summary và sheetsBySize
-    res.json(result);
+    res.json({
+      ...result,
+      effectiveConfig: config
+    });
     return; // Kết thúc sớm vì result đã chứa dữ liệu trả về mong muốn
   } catch (err) {
     console.error('[DieCut] test-capacity error:', err);

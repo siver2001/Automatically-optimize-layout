@@ -42,8 +42,8 @@ const TestCapacityResult = ({
     : sheet;
   // eslint-disable-next-line no-unused-vars
   const patternInfo = selectedSheet?.patternInfo || {};
-  const totalPairs = selectedSummary?.pairs ?? (selectedSummary?.totalPieces != null ? Math.floor(selectedSummary.totalPieces / 2) : 0);
-  const totalPieces = selectedSummary?.totalPieces ?? 0;
+  const totalPieces = selectedSheet?.placedCount ?? selectedSummary?.totalPieces ?? selectedSheet?.placed?.length ?? 0;
+  const totalPairs = selectedSummary?.pairs ?? Math.floor(totalPieces / 2);
   const selectedEfficiency = selectedSummary?.efficiency ?? efficiency ?? 0;
 
   return (
@@ -142,7 +142,10 @@ const TestCapacityResult = ({
                   </tr>
                 </thead>
                 <tbody>
-                  {summary.map((s, i) => (
+                  {summary.map((s, i) => {
+                    const rowSheet = sheetsBySize?.[s.sizeName];
+                    const rowPieces = rowSheet?.placedCount ?? s.totalPieces ?? rowSheet?.placed?.length ?? 0;
+                    return (
                     <tr
                       key={s.sizeName}
                       onClick={() => setSelectedSize(s.sizeName)}
@@ -154,9 +157,10 @@ const TestCapacityResult = ({
                       {config.mirrorPairs && (
                         <td className="py-1 px-1 text-center"><span className="text-emerald-300/90">{s.pairs ?? '—'}</span></td>
                       )}
-                      <td className="py-1 px-1 text-center"><span className="text-amber-300/90">{s.totalPieces}</span></td>
+                      <td className="py-1 px-1 text-center"><span className="text-amber-300/90">{rowPieces}</span></td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

@@ -29,29 +29,36 @@ export function buildPairConfig(config) {
   };
 }
 
-export function buildSameSideConfig(config, importAnalysis) {
+export function buildSameSideConfig(config, importAnalysis, options = {}) {
+  const { preserveSelectedMode = true } = options;
+  const currentMode = config?.capacityLayoutMode;
+  const recommendedSameSideMode =
+    importAnalysis?.recommendation?.capacityLayoutMode ===
+    DOUBLE_INSOLE_CAPACITY_MODE
+      ? DOUBLE_INSOLE_CAPACITY_MODE
+      : SINGLE_INSOLE_CAPACITY_MODE;
+  const resolvedSameSideMode =
+    preserveSelectedMode &&
+    (
+      currentMode === DOUBLE_INSOLE_CAPACITY_MODE ||
+      currentMode === SINGLE_INSOLE_CAPACITY_MODE ||
+      currentMode === "same-side-orthogonal" ||
+      currentMode === "same-side-fine-rotate-5deg"
+    )
+      ? currentMode
+      : recommendedSameSideMode;
+
   return {
     ...config,
     mirrorPairs: false,
     pairingStrategy: "same-side",
-    capacityLayoutMode:
-      importAnalysis?.recommendation?.capacityLayoutMode ===
-      DOUBLE_INSOLE_CAPACITY_MODE
-        ? DOUBLE_INSOLE_CAPACITY_MODE
-        : SINGLE_INSOLE_CAPACITY_MODE,
+    capacityLayoutMode: resolvedSameSideMode,
   };
 }
 
 export function applyRecommendedMode(config, importAnalysis) {
   const recommendation = importAnalysis?.recommendation;
   if (!recommendation?.autoApply) {
-    if (
-      config.capacityLayoutMode === DOUBLE_INSOLE_CAPACITY_MODE ||
-      config.capacityLayoutMode === "same-side-prepaired-tight"
-    ) {
-      return buildPairConfig(config);
-    }
-
     if (
       config.pairingStrategy === "same-side" ||
       config.mirrorPairs === false
@@ -62,7 +69,7 @@ export function applyRecommendedMode(config, importAnalysis) {
     return buildPairConfig(config);
   }
 
-  return buildSameSideConfig(config, importAnalysis);
+  return buildSameSideConfig(config, importAnalysis, { preserveSelectedMode: false });
 }
 
 export function isUsingRecommendedMode(config, importAnalysis) {
