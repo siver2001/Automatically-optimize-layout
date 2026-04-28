@@ -44,6 +44,11 @@ const MAX_SPLIT_AXIS_SAMPLES = 7;
 const MAX_SPLIT_BOUNDARY_AXIS_SAMPLES = 40;
 const MAX_SPLIT_EDGE_ANCHORS_PER_AXIS = 36;
 const MAX_SPLIT_EDGE_PLACEMENT_CANDIDATES = 260;
+const MAX_SPLIT_PARTNER_NEAR_CANDIDATES = 80;
+const MAX_SPLIT_FILL_BEAM_WIDTH = 4;
+const MAX_SPLIT_FILL_OPTIONS_PER_STATE = 12;
+const MAX_SPLIT_PAIR_GROUP_OPTIONS_PER_STATE = 8;
+const MAX_SPLIT_PAIR_TEMPLATES = 18;
 const MAX_DOUBLE_CONTOUR_VARIANTS_PER_ANGLE = 14;
 const DEFAULT_DOUBLE_CONTOUR_FINE_ROTATE_OFFSETS = [0];
 const MAX_SPLIT_AUGMENT_CANDIDATES = 3;
@@ -1387,6 +1392,386 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     return true;
   }
 
+  _getSplitPartnerDirection(lastPlacement, partnerOrient) {
+    const lastSide = lastPlacement?.orient?.splitOutwardSide;
+    const partnerSide = partnerOrient?.splitOutwardSide;
+    const validPair = (
+      (lastSide === 'right' && partnerSide === 'left') ||
+      (lastSide === 'left' && partnerSide === 'right') ||
+      (lastSide === 'bottom' && partnerSide === 'top') ||
+      (lastSide === 'top' && partnerSide === 'bottom')
+    );
+    if (!validPair) return null;
+
+    if (lastSide === 'right') return { axis: 'x', sign: 1 };
+    if (lastSide === 'left') return { axis: 'x', sign: -1 };
+    if (lastSide === 'bottom') return { axis: 'y', sign: 1 };
+    if (lastSide === 'top') return { axis: 'y', sign: -1 };
+    return null;
+  }
+
+  _buildSplitPartnerNearCandidates(lastPlacement, partnerOrient, workWidth, workHeight, step) {
+    if (!lastPlacement || !partnerOrient) return [];
+
+    const direction = this._getSplitPartnerDirection(lastPlacement, partnerOrient);
+    if (!direction) return [];
+
+    const lastBounds = this._getPlacementBounds(lastPlacement);
+    const partnerBounds = partnerOrient.bb || getBoundingBox(partnerOrient.polygon);
+    const minX = -partnerBounds.minX;
+    const maxX = workWidth - partnerBounds.maxX;
+    const minY = -partnerBounds.minY;
+    const maxY = workHeight - partnerBounds.maxY;
+    if (maxX < minX - 1e-6 || maxY < minY - 1e-6) return [];
+
+    const safeStep = Math.max(0.5, step || 1);
+    const candidates = [];
+    const seen = new Set();
+    const addCandidate = (x, y) => {
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+      const clampedX = roundMetric(Math.max(minX, Math.min(maxX, x)), 3);
+      const clampedY = roundMetric(Math.max(minY, Math.min(maxY, y)), 3);
+      const key = `${clampedX}|${clampedY}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      candidates.push({ x: clampedX, y: clampedY });
+    };
+
+    const lastCenterX = (lastBounds.minX + lastBounds.maxX) / 2;
+    const lastCenterY = (lastBounds.minY + lastBounds.maxY) / 2;
+    const partnerCenterX = (partnerBounds.minX + partnerBounds.maxX) / 2;
+    const partnerCenterY = (partnerBounds.minY + partnerBounds.maxY) / 2;
+
+    if (direction.axis === 'x') {
+      const baseX = direction.sign > 0
+        ? lastBounds.maxX - partnerBounds.minX
+        : lastBounds.minX - partnerBounds.maxX;
+      const yAnchors = [
+        lastCenterY - partnerCenterY,
+        lastBounds.minY - partnerBounds.minY,
+        lastBounds.maxY - partnerBounds.maxY,
+        lastBounds.minY - partnerBounds.maxY,
+        lastBounds.maxY - partnerBounds.minY
+      ];
+
+      for (const yAnchor of yAnchors) {
+        for (let unit = -8; unit <= 8; unit++) {
+          addCandidate(baseX, yAnchor + unit * safeStep);
+        }
+      }
+    } else {
+      const baseY = direction.sign > 0
+        ? lastBounds.maxY - partnerBounds.minY
+        : lastBounds.minY - partnerBounds.maxY;
+      const xAnchors = [
+        lastCenterX - partnerCenterX,
+        lastBounds.minX - partnerBounds.minX,
+        lastBounds.maxX - partnerBounds.maxX,
+        lastBounds.minX - partnerBounds.maxX,
+        lastBounds.maxX - partnerBounds.minX
+      ];
+
+      for (const xAnchor of xAnchors) {
+        for (let unit = -8; unit <= 8; unit++) {
+          addCandidate(xAnchor + unit * safeStep, baseY);
+        }
+      }
+    }
+
+    return candidates
+      .sort((left, right) => {
+        const leftBounds = {
+          minX: left.x + partnerBounds.minX,
+          minY: left.y + partnerBounds.minY,
+          maxX: left.x + partnerBounds.maxX,
+          maxY: left.y + partnerBounds.maxY
+        };
+        const rightBounds = {
+          minX: right.x + partnerBounds.minX,
+          minY: right.y + partnerBounds.minY,
+          maxX: right.x + partnerBounds.maxX,
+          maxY: right.y + partnerBounds.maxY
+        };
+        const leftGap = direction.axis === 'x'
+          ? Math.max(0, direction.sign > 0 ? leftBounds.minX - lastBounds.maxX : lastBounds.minX - leftBounds.maxX)
+          : Math.max(0, direction.sign > 0 ? leftBounds.minY - lastBounds.maxY : lastBounds.minY - leftBounds.maxY);
+        const rightGap = direction.axis === 'x'
+          ? Math.max(0, direction.sign > 0 ? rightBounds.minX - lastBounds.maxX : lastBounds.minX - rightBounds.maxX)
+          : Math.max(0, direction.sign > 0 ? rightBounds.minY - lastBounds.maxY : lastBounds.minY - rightBounds.maxY);
+        const leftCrossOffset = direction.axis === 'x'
+          ? Math.abs(((leftBounds.minY + leftBounds.maxY) / 2) - lastCenterY)
+          : Math.abs(((leftBounds.minX + leftBounds.maxX) / 2) - lastCenterX);
+        const rightCrossOffset = direction.axis === 'x'
+          ? Math.abs(((rightBounds.minY + rightBounds.maxY) / 2) - lastCenterY)
+          : Math.abs(((rightBounds.minX + rightBounds.maxX) / 2) - lastCenterX);
+
+        return leftGap - rightGap
+          || leftCrossOffset - rightCrossOffset
+          || left.y - right.y
+          || left.x - right.x;
+      })
+      .slice(0, MAX_SPLIT_PARTNER_NEAR_CANDIDATES);
+  }
+
+  _compactSplitFillCandidatePlacement(candidate, orient, occupiedPlacements, config, workWidth, workHeight) {
+    const spacing = config.spacing || 0;
+    const step = Math.max(0.1, (config.gridStep || 1) / 4);
+    const bb = orient.bb || getBoundingBox(orient.polygon);
+    
+    const minX = -bb.minX;
+    const maxX = workWidth - bb.maxX;
+    const minY = -bb.minY;
+    const maxY = workHeight - bb.maxY;
+
+    let currentX = candidate.x;
+    let currentY = candidate.y;
+
+    const isSafe = (cx, cy) => {
+      return this._canPlaceSplitOrient(
+        orient,
+        cx,
+        cy,
+        occupiedPlacements,
+        workWidth,
+        workHeight,
+        spacing
+      );
+    };
+
+    if (!isSafe(currentX, currentY)) return candidate;
+
+    const directions = [
+      { axis: 'x', sign: -1 }, // Left
+      { axis: 'x', sign: 1 },  // Right
+      { axis: 'y', sign: -1 }, // Up
+      { axis: 'y', sign: 1 }   // Down
+    ];
+
+    let moved = true;
+    let passes = 0;
+    while (moved && passes < 3) {
+      moved = false;
+      passes++;
+
+      for (const dir of directions) {
+        const currentValue = dir.axis === 'x' ? currentX : currentY;
+        const limitValue = dir.sign < 0
+          ? (dir.axis === 'x' ? minX : minY)
+          : (dir.axis === 'x' ? maxX : maxY);
+
+        let low = 0;
+        let high = Math.abs(limitValue - currentValue);
+        let bestSafeOffset = 0;
+
+        while (high - low > step) {
+          const mid = (low + high) / 2;
+          const testValue = currentValue + dir.sign * mid;
+          const testX = dir.axis === 'x' ? testValue : currentX;
+          const testY = dir.axis === 'y' ? testValue : currentY;
+
+          if (isSafe(testX, testY)) {
+            bestSafeOffset = mid;
+            low = mid;
+          } else {
+            high = mid;
+          }
+        }
+
+        if (bestSafeOffset > 1e-3) {
+          const finalValue = currentValue + dir.sign * bestSafeOffset;
+          const roundedX = dir.axis === 'x' ? roundMetric(finalValue, 3) : currentX;
+          const roundedY = dir.axis === 'y' ? roundMetric(finalValue, 3) : currentY;
+
+          if (Math.abs(roundedX - currentX) > 1e-3 || Math.abs(roundedY - currentY) > 1e-3) {
+            currentX = roundedX;
+            currentY = roundedY;
+            moved = true;
+          }
+        }
+      }
+    }
+
+    return { x: currentX, y: currentY };
+  }
+
+  _compactSplitPartnerPlacement(candidate, orient, lastPlacement, occupiedPlacements, config, workWidth, workHeight) {
+    const direction = this._getSplitPartnerDirection(lastPlacement, orient);
+    if (!direction) return candidate;
+
+    const spacing = config.spacing || 0;
+    const step = Math.max(0.25, (config.gridStep || 1) / 2);
+    const bb = orient.bb || getBoundingBox(orient.polygon);
+    const minStart = direction.axis === 'x' ? -bb.minX : -bb.minY;
+    const maxStart = direction.axis === 'x' ? workWidth - bb.maxX : workHeight - bb.maxY;
+    const startValue = direction.axis === 'x' ? candidate.x : candidate.y;
+    const isSafe = (value) => {
+      const x = direction.axis === 'x' ? value : candidate.x;
+      const y = direction.axis === 'y' ? value : candidate.y;
+      return this._canPlaceSplitOrient(
+        orient,
+        x,
+        y,
+        occupiedPlacements,
+        workWidth,
+        workHeight,
+        spacing
+      );
+    };
+
+    let best = isSafe(startValue) ? startValue : null;
+    const sign = direction.sign;
+    for (
+      let value = startValue - sign * step;
+      value >= minStart - 1e-6 && value <= maxStart + 1e-6;
+      value -= sign * step
+    ) {
+      const rounded = roundMetric(value, 3);
+      if (!isSafe(rounded)) break;
+      best = rounded;
+    }
+
+    if (best == null) return null;
+    return {
+      x: direction.axis === 'x' ? roundMetric(best, 3) : candidate.x,
+      y: direction.axis === 'y' ? roundMetric(best, 3) : candidate.y
+    };
+  }
+
+  _findSplitPartnerNearPlacement(lastPlacement, orientVariants, occupiedPlacements, config, workWidth, workHeight, step, filterFn = null) {
+    const options = this._findSplitPartnerNearPlacementOptions(
+      lastPlacement,
+      orientVariants,
+      occupiedPlacements,
+      config,
+      workWidth,
+      workHeight,
+      step,
+      filterFn,
+      1
+    );
+    return options[0] || null;
+  }
+
+  _scoreSplitPlacementOption(option, workWidth, workHeight, partnerPlacement = null) {
+    if (!option?.orient) return Infinity;
+    const baseScore = this._scorePreparedEdgePlacementCandidate(option, option.orient, workWidth, workHeight);
+    if (!partnerPlacement) return baseScore;
+
+    const optionBounds = this._getPlacementBounds(option);
+    const partnerBounds = this._getPlacementBounds(partnerPlacement);
+    const optionCenterX = (optionBounds.minX + optionBounds.maxX) / 2;
+    const optionCenterY = (optionBounds.minY + optionBounds.maxY) / 2;
+    const partnerCenterX = (partnerBounds.minX + partnerBounds.maxX) / 2;
+    const partnerCenterY = (partnerBounds.minY + partnerBounds.maxY) / 2;
+    const direction = this._getSplitPartnerDirection(partnerPlacement, option.orient);
+    const facingGap = direction?.axis === 'x'
+      ? Math.max(
+        0,
+        direction.sign > 0
+          ? optionBounds.minX - partnerBounds.maxX
+          : partnerBounds.minX - optionBounds.maxX
+      )
+      : Math.max(
+        0,
+        direction?.sign > 0
+          ? optionBounds.minY - partnerBounds.maxY
+          : partnerBounds.minY - optionBounds.maxY
+      );
+    const crossOffset = direction?.axis === 'x'
+      ? Math.abs(optionCenterY - partnerCenterY)
+      : Math.abs(optionCenterX - partnerCenterX);
+
+    return facingGap * 10 + crossOffset * 0.8 + baseScore * 0.05;
+  }
+
+  _pushSplitPlacementOption(options, seen, placement, workWidth, workHeight, partnerPlacement = null) {
+    if (!placement?.orient) return;
+    const key = `${placement.orient.foot}|${placement.orient.angle}|${roundMetric(placement.x, 3)}|${roundMetric(placement.y, 3)}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    options.push({
+      ...placement,
+      x: roundMetric(placement.x, 3),
+      y: roundMetric(placement.y, 3),
+      _splitOptionScore: this._scoreSplitPlacementOption(placement, workWidth, workHeight, partnerPlacement)
+    });
+  }
+
+  _findSplitPartnerNearPlacementOptions(
+    lastPlacement,
+    orientVariants,
+    occupiedPlacements,
+    config,
+    workWidth,
+    workHeight,
+    step,
+    filterFn = null,
+    maxOptions = MAX_SPLIT_FILL_OPTIONS_PER_STATE
+  ) {
+    const options = [];
+    const seen = new Set();
+
+    for (const orient of orientVariants) {
+      if (filterFn && !filterFn(orient)) continue;
+      const nearCandidates = this._buildSplitPartnerNearCandidates(
+        lastPlacement,
+        orient,
+        workWidth,
+        workHeight,
+        step
+      );
+
+      for (const candidate of nearCandidates) {
+        const compacted = this._compactSplitPartnerPlacement(
+          candidate,
+          orient,
+          lastPlacement,
+          occupiedPlacements,
+          config,
+          workWidth,
+          workHeight
+        );
+        if (!compacted) continue;
+
+        this._pushSplitPlacementOption(options, seen, {
+          orient,
+          x: compacted.x,
+          y: compacted.y,
+          effectiveArea: orient.areaMm2
+        }, workWidth, workHeight, lastPlacement);
+        if (options.length >= maxOptions * 2) break;
+      }
+      if (options.length >= maxOptions * 2) break;
+    }
+
+    const topOptions = options
+      .sort((left, right) => left._splitOptionScore - right._splitOptionScore)
+      .slice(0, Math.max(1, maxOptions));
+
+    const compactedOptions = [];
+    const finalSeen = new Set();
+    for (const option of topOptions) {
+      const fineCompacted = this._compactSplitFillCandidatePlacement(
+        option,
+        option.orient,
+        occupiedPlacements,
+        config,
+        workWidth,
+        workHeight
+      );
+      const key = `${option.orient.foot}|${option.orient.angle}|${roundMetric(fineCompacted.x, 3)}|${roundMetric(fineCompacted.y, 3)}`;
+      if (finalSeen.has(key)) continue;
+      finalSeen.add(key);
+      compactedOptions.push({
+        ...option,
+        x: roundMetric(fineCompacted.x, 3),
+        y: roundMetric(fineCompacted.y, 3)
+      });
+    }
+
+    return compactedOptions;
+  }
+
   _getSplitPairPartnerFoot(foot) {
     if (foot === 'split-left') return 'split-right';
     if (foot === 'split-right') return 'split-left';
@@ -1444,12 +1829,37 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
   }
 
   _findNextSplitFillPlacement(orientVariants, occupiedPlacements, config, workWidth, workHeight, step, filterFn = null) {
+    const options = this._findNextSplitFillPlacementOptions(
+      orientVariants,
+      occupiedPlacements,
+      config,
+      workWidth,
+      workHeight,
+      step,
+      filterFn,
+      1
+    );
+    return options[0] || null;
+  }
+
+  _findNextSplitFillPlacementOptions(
+    orientVariants,
+    occupiedPlacements,
+    config,
+    workWidth,
+    workHeight,
+    step,
+    filterFn = null,
+    maxOptions = MAX_SPLIT_FILL_OPTIONS_PER_STATE
+  ) {
     const freeRects = this._buildPreparedSplitFreeRects(
       occupiedPlacements,
       workWidth,
       workHeight,
       config.spacing
     );
+    const options = [];
+    const seen = new Set();
 
     for (const orient of orientVariants) {
       if (filterFn && !filterFn(orient)) continue;
@@ -1473,17 +1883,21 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
             continue;
           }
 
-          return {
+          this._pushSplitPlacementOption(options, seen, {
             orient,
             x: candidate.x,
             y: candidate.y,
             effectiveArea: orient.areaMm2
-          };
+          }, workWidth, workHeight);
+          if (options.length >= maxOptions * 2) break;
         }
+        if (options.length >= maxOptions * 2) break;
       }
+      if (options.length >= maxOptions * 2) break;
     }
 
     for (const orient of orientVariants) {
+      if (options.length >= maxOptions * 2) break;
       if (filterFn && !filterFn(orient)) continue;
       const boundaryCandidates = this._buildPreparedBoundaryPlacementCandidates(
         orient,
@@ -1505,16 +1919,18 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
           continue;
         }
 
-        return {
+        this._pushSplitPlacementOption(options, seen, {
           orient,
           x: candidate.x,
           y: candidate.y,
           effectiveArea: orient.areaMm2
-        };
+        }, workWidth, workHeight);
+        if (options.length >= maxOptions * 2) break;
       }
     }
 
     for (const orient of orientVariants) {
+      if (options.length >= maxOptions * 2) break;
       if (filterFn && !filterFn(orient)) continue;
       const edgeCandidates = this._buildPreparedEdgePlacementCandidates(
         occupiedPlacements,
@@ -1537,16 +1953,321 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
           continue;
         }
 
-        return {
+        this._pushSplitPlacementOption(options, seen, {
           orient,
           x: candidate.x,
           y: candidate.y,
           effectiveArea: orient.areaMm2
-        };
+        }, workWidth, workHeight);
+        if (options.length >= maxOptions * 2) break;
       }
     }
 
-    return null;
+    const topOptions = options
+      .sort((left, right) => left._splitOptionScore - right._splitOptionScore)
+      .slice(0, Math.max(1, maxOptions));
+
+    const compactedOptions = [];
+    const finalSeen = new Set();
+    for (const option of topOptions) {
+      const fineCompacted = this._compactSplitFillCandidatePlacement(
+        option,
+        option.orient,
+        occupiedPlacements,
+        config,
+        workWidth,
+        workHeight
+      );
+      const key = `${option.orient.foot}|${option.orient.angle}|${roundMetric(fineCompacted.x, 3)}|${roundMetric(fineCompacted.y, 3)}`;
+      if (finalSeen.has(key)) continue;
+      finalSeen.add(key);
+      compactedOptions.push({
+        ...option,
+        x: roundMetric(fineCompacted.x, 3),
+        y: roundMetric(fineCompacted.y, 3)
+      });
+    }
+
+    return compactedOptions;
+  }
+
+  _rankSplitFillState(state) {
+    const pairStats = this._getSplitPlacementPairStats(state.extraPlacements);
+    const bounds = computeEnvelope(state.occupiedPlacements);
+    return {
+      count: state.extraPlacements.length,
+      pairs: pairStats.splitPairCount,
+      unpaired: pairStats.splitUnpairedCount,
+      height: bounds.height,
+      width: bounds.width,
+      waste: bounds.width * bounds.height
+    };
+  }
+
+  _compareSplitFillStates(left, right) {
+    const leftRank = this._rankSplitFillState(left);
+    const rightRank = this._rankSplitFillState(right);
+    return rightRank.count - leftRank.count
+      || rightRank.pairs - leftRank.pairs
+      || leftRank.unpaired - rightRank.unpaired
+      || leftRank.height - rightRank.height
+      || leftRank.width - rightRank.width
+      || leftRank.waste - rightRank.waste;
+  }
+
+  _dedupeSplitFillStates(states) {
+    const unique = [];
+    const seen = new Set();
+    for (const state of states.sort((left, right) => this._compareSplitFillStates(left, right))) {
+      const key = state.extraPlacements
+        .map((placement) => `${placement.orient.foot}:${placement.orient.angle}:${roundMetric(placement.x, 1)}:${roundMetric(placement.y, 1)}`)
+        .join('|');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      unique.push(state);
+      if (unique.length >= MAX_SPLIT_FILL_BEAM_WIDTH) break;
+    }
+    return unique;
+  }
+
+  _buildTightSplitPairTemplate(firstOrient, secondOrient, config, step) {
+    const direction = this._getSplitPartnerDirection({ orient: firstOrient }, secondOrient);
+    if (!direction) return null;
+
+    const spacing = config.spacing || 0;
+    const safeStep = Math.max(0.5, step || 1);
+    const firstBounds = firstOrient.bb || getBoundingBox(firstOrient.polygon);
+    const secondBounds = secondOrient.bb || getBoundingBox(secondOrient.polygon);
+    const firstBase = {
+      orient: firstOrient,
+      x: -firstBounds.minX,
+      y: -firstBounds.minY,
+      effectiveArea: firstOrient.areaMm2
+    };
+    const firstWorldBounds = this._getPlacementBounds(firstBase);
+    const firstCenterX = (firstWorldBounds.minX + firstWorldBounds.maxX) / 2;
+    const firstCenterY = (firstWorldBounds.minY + firstWorldBounds.maxY) / 2;
+    const secondCenterX = (secondBounds.minX + secondBounds.maxX) / 2;
+    const secondCenterY = (secondBounds.minY + secondBounds.maxY) / 2;
+    const crossAnchors = direction.axis === 'x'
+      ? [
+          firstCenterY - secondCenterY,
+          firstWorldBounds.minY - secondBounds.minY,
+          firstWorldBounds.maxY - secondBounds.maxY
+        ]
+      : [
+          firstCenterX - secondCenterX,
+          firstWorldBounds.minX - secondBounds.minX,
+          firstWorldBounds.maxX - secondBounds.maxX
+        ];
+
+    let bestTemplate = null;
+    for (const crossAnchor of crossAnchors) {
+      for (let crossUnit = -10; crossUnit <= 10; crossUnit++) {
+        const crossValue = crossAnchor + crossUnit * safeStep;
+        for (let gapUnit = 0; gapUnit <= 40; gapUnit++) {
+          const gap = gapUnit * safeStep;
+          let secondX;
+          let secondY;
+          if (direction.axis === 'x') {
+            secondX = direction.sign > 0
+              ? firstWorldBounds.maxX + gap - secondBounds.minX
+              : firstWorldBounds.minX - gap - secondBounds.maxX;
+            secondY = crossValue;
+          } else {
+            secondX = crossValue;
+            secondY = direction.sign > 0
+              ? firstWorldBounds.maxY + gap - secondBounds.minY
+              : firstWorldBounds.minY - gap - secondBounds.maxY;
+          }
+
+          const secondBase = {
+            orient: secondOrient,
+            x: roundMetric(secondX, 3),
+            y: roundMetric(secondY, 3),
+            effectiveArea: secondOrient.areaMm2
+          };
+          const localValidation = validateLocalPlacements([firstBase, secondBase], spacing);
+          if (!localValidation.valid) continue;
+
+          const bounds = computeEnvelope([firstBase, secondBase]);
+          const placements = [firstBase, secondBase].map((placement) => ({
+            ...placement,
+            x: roundMetric(placement.x - bounds.minX, 3),
+            y: roundMetric(placement.y - bounds.minY, 3)
+          }));
+          const rebasedBounds = computeEnvelope(placements);
+          const template = {
+            placements,
+            width: rebasedBounds.width,
+            height: rebasedBounds.height,
+            gap,
+            crossOffset: Math.abs(crossUnit * safeStep),
+            score: gap * 10 + Math.abs(crossUnit * safeStep) + rebasedBounds.width * rebasedBounds.height * 0.000001
+          };
+
+          if (!bestTemplate || template.score < bestTemplate.score) {
+            bestTemplate = template;
+          }
+          break;
+        }
+      }
+    }
+
+    return bestTemplate;
+  }
+
+  _buildSplitPairTemplates(orientVariants, config, step) {
+    const templates = [];
+    const seen = new Set();
+    for (const firstOrient of orientVariants) {
+      const partnerFoot = this._getSplitPairPartnerFoot(firstOrient?.foot);
+      if (!partnerFoot) continue;
+
+      for (const secondOrient of orientVariants) {
+        if (secondOrient?.foot !== partnerFoot) continue;
+        if (secondOrient?.splitPairAngleFamily !== firstOrient?.splitPairAngleFamily) continue;
+        const key = `${firstOrient.foot}:${firstOrient.angle}|${secondOrient.foot}:${secondOrient.angle}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+
+        const template = this._buildTightSplitPairTemplate(firstOrient, secondOrient, config, step);
+        if (!template) continue;
+        templates.push({
+          ...template,
+          key
+        });
+      }
+    }
+
+    return templates
+      .sort((left, right) =>
+        left.score - right.score
+        || left.height - right.height
+        || left.width - right.width
+      )
+      .slice(0, MAX_SPLIT_PAIR_TEMPLATES);
+  }
+
+  _canPlaceSplitPairTemplate(template, originX, originY, occupiedPlacements, config, workWidth, workHeight) {
+    const placed = template.placements.map((placement) => ({
+      ...placement,
+      x: roundMetric(originX + placement.x, 3),
+      y: roundMetric(originY + placement.y, 3)
+    }));
+
+    for (let index = 0; index < placed.length; index++) {
+      const previous = [...occupiedPlacements, ...placed.slice(0, index)];
+      if (!this._canPlaceSplitOrient(
+        placed[index].orient,
+        placed[index].x,
+        placed[index].y,
+        previous,
+        workWidth,
+        workHeight,
+        config.spacing
+      )) {
+        return null;
+      }
+    }
+
+    return placed;
+  }
+
+  _buildSplitPairGroupOrigins(template, occupiedPlacements, workWidth, workHeight, step) {
+    if (!template || template.width > workWidth + 1e-6 || template.height > workHeight + 1e-6) return [];
+
+    const safeStep = Math.max(1, (step || 1) * 2);
+    const maxX = workWidth - template.width;
+    const maxY = workHeight - template.height;
+    const origins = [];
+    const seen = new Set();
+    const addOrigin = (x, y) => {
+      const originX = roundMetric(Math.max(0, Math.min(maxX, x)), 3);
+      const originY = roundMetric(Math.max(0, Math.min(maxY, y)), 3);
+      const key = `${originX}|${originY}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      origins.push({ x: originX, y: originY });
+    };
+
+    const xs = buildDenseAxisCandidates(0, maxX, safeStep, 24);
+    const ys = buildDenseAxisCandidates(0, maxY, safeStep, 24);
+    for (const x of xs) {
+      addOrigin(x, 0);
+      addOrigin(x, maxY);
+    }
+    for (const y of ys) {
+      addOrigin(0, y);
+      addOrigin(maxX, y);
+    }
+
+    for (const placement of occupiedPlacements) {
+      const bounds = this._getPlacementBounds(placement);
+      const candidateOrigins = [
+        { x: bounds.minX - template.width, y: bounds.minY },
+        { x: bounds.maxX, y: bounds.minY },
+        { x: bounds.minX, y: bounds.minY - template.height },
+        { x: bounds.minX, y: bounds.maxY }
+      ];
+      for (const origin of candidateOrigins) {
+        for (const dx of [-safeStep, 0, safeStep]) {
+          for (const dy of [-safeStep, 0, safeStep]) {
+            addOrigin(origin.x + dx, origin.y + dy);
+          }
+        }
+      }
+    }
+
+    return origins.sort((left, right) => {
+      const leftEdge = Math.min(left.x, maxX - left.x, left.y, maxY - left.y);
+      const rightEdge = Math.min(right.x, maxX - right.x, right.y, maxY - right.y);
+      return leftEdge - rightEdge || left.y - right.y || left.x - right.x;
+    });
+  }
+
+  _findSplitPairGroupPlacementOptions(
+    pairTemplates,
+    occupiedPlacements,
+    config,
+    workWidth,
+    workHeight,
+    step,
+    maxOptions = MAX_SPLIT_PAIR_GROUP_OPTIONS_PER_STATE
+  ) {
+    const options = [];
+    const seen = new Set();
+    for (const template of pairTemplates) {
+      const origins = this._buildSplitPairGroupOrigins(template, occupiedPlacements, workWidth, workHeight, step);
+      for (const origin of origins) {
+        const placedGroup = this._canPlaceSplitPairTemplate(
+          template,
+          origin.x,
+          origin.y,
+          occupiedPlacements,
+          config,
+          workWidth,
+          workHeight
+        );
+        if (!placedGroup) continue;
+
+        const key = placedGroup
+          .map((placement) => `${placement.orient.foot}:${placement.orient.angle}:${roundMetric(placement.x, 3)}:${roundMetric(placement.y, 3)}`)
+          .join('|');
+        if (seen.has(key)) continue;
+        seen.add(key);
+        options.push({
+          placements: placedGroup,
+          score: template.score + origin.y * 0.001 + origin.x * 0.0005
+        });
+        if (options.length >= maxOptions * 2) break;
+      }
+      if (options.length >= maxOptions * 2) break;
+    }
+
+    return options
+      .sort((left, right) => left.score - right.score)
+      .slice(0, Math.max(1, maxOptions));
   }
 
   _findSplitFillPlacements(sizeName, polygon, baseCandidate, config, workWidth, workHeight) {
@@ -1589,48 +2310,126 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       || left.width - right.width
       || (left.angle || 0) - (right.angle || 0)
     );
+    const pairTemplates = this._buildSplitPairTemplates(orientVariants, config, step);
 
-    const occupiedPlacements = [...baseCandidate.placements];
-    const extraPlacements = [];
+    let states = [{
+      occupiedPlacements: [...baseCandidate.placements],
+      extraPlacements: []
+    }];
+    let bestState = states[0];
 
-    while (extraPlacements.length < maxExtraFillers) {
-      let nextPlacement = null;
-      if (config.preparedSplitFillPreferPairs !== false && extraPlacements.length > 0) {
-        const lastPlacement = extraPlacements[extraPlacements.length - 1];
-        const partnerFoot = this._getSplitPairPartnerFoot(lastPlacement?.orient?.foot);
-        const partnerAngleFamily = lastPlacement?.orient?.splitPairAngleFamily;
-        if (partnerFoot) {
-          nextPlacement = this._findNextSplitFillPlacement(
-            orientVariants,
-            occupiedPlacements,
+    for (let depth = 0; depth < maxExtraFillers; depth++) {
+      const expandedStates = [];
+
+      for (const state of states) {
+        if (state.extraPlacements.length + 1 < maxExtraFillers && pairTemplates.length) {
+          const groupOptions = this._findSplitPairGroupPlacementOptions(
+            pairTemplates,
+            state.occupiedPlacements,
             config,
             workWidth,
             workHeight,
             step,
-            (orient) =>
-              orient?.foot === partnerFoot
-              && orient?.splitPairAngleFamily === partnerAngleFamily
+            MAX_SPLIT_PAIR_GROUP_OPTIONS_PER_STATE
           );
+
+          for (const groupOption of groupOptions) {
+            const nextGroupPlacements = groupOption.placements.map((placement, index) => ({
+              ...placement,
+              id: `split_fill_${state.extraPlacements.length + index}`
+            }));
+            expandedStates.push({
+              occupiedPlacements: [...state.occupiedPlacements, ...nextGroupPlacements],
+              extraPlacements: [...state.extraPlacements, ...nextGroupPlacements]
+            });
+          }
+        }
+
+        let options = [];
+        if (config.preparedSplitFillPreferPairs !== false && state.extraPlacements.length > 0) {
+          const lastPlacement = state.extraPlacements[state.extraPlacements.length - 1];
+        const partnerFoot = this._getSplitPairPartnerFoot(lastPlacement?.orient?.foot);
+        const partnerAngleFamily = lastPlacement?.orient?.splitPairAngleFamily;
+        if (partnerFoot) {
+          const partnerFilter = (orient) =>
+            orient?.foot === partnerFoot
+            && orient?.splitPairAngleFamily === partnerAngleFamily;
+            options = this._findSplitPartnerNearPlacementOptions(
+            lastPlacement,
+            orientVariants,
+              state.occupiedPlacements,
+            config,
+            workWidth,
+            workHeight,
+            step,
+              partnerFilter,
+              MAX_SPLIT_FILL_OPTIONS_PER_STATE
+          );
+
+            if (!options.length) {
+              options = this._findNextSplitFillPlacementOptions(
+            orientVariants,
+                state.occupiedPlacements,
+            config,
+            workWidth,
+            workHeight,
+            step,
+                partnerFilter,
+                MAX_SPLIT_FILL_OPTIONS_PER_STATE
+            );
+          }
         }
       }
 
-      if (!nextPlacement) {
-        nextPlacement = this._findNextSplitFillPlacement(
+        const genericOptions = this._findNextSplitFillPlacementOptions(
           orientVariants,
-          occupiedPlacements,
+            state.occupiedPlacements,
           config,
           workWidth,
           workHeight,
-          step
+            step,
+            null,
+            MAX_SPLIT_FILL_OPTIONS_PER_STATE
         );
+        const seenOptions = new Set(options.map((option) =>
+          `${option.orient.foot}|${option.orient.angle}|${roundMetric(option.x, 3)}|${roundMetric(option.y, 3)}`
+        ));
+        for (const option of genericOptions) {
+          const key = `${option.orient.foot}|${option.orient.angle}|${roundMetric(option.x, 3)}|${roundMetric(option.y, 3)}`;
+          if (seenOptions.has(key)) continue;
+          seenOptions.add(key);
+          options.push(option);
+        }
+        options = [
+          ...options.slice(0, Math.ceil(MAX_SPLIT_FILL_OPTIONS_PER_STATE / 2)),
+          ...genericOptions
+            .filter((option) => {
+              const key = `${option.orient.foot}|${option.orient.angle}|${roundMetric(option.x, 3)}|${roundMetric(option.y, 3)}`;
+              return seenOptions.has(key);
+            })
+            .slice(0, Math.floor(MAX_SPLIT_FILL_OPTIONS_PER_STATE / 2))
+        ].slice(0, MAX_SPLIT_FILL_OPTIONS_PER_STATE);
+
+        for (const option of options) {
+          const nextPlacement = {
+            ...option,
+            id: `split_fill_${state.extraPlacements.length}`
+          };
+          expandedStates.push({
+            occupiedPlacements: [...state.occupiedPlacements, nextPlacement],
+            extraPlacements: [...state.extraPlacements, nextPlacement]
+          });
+        }
       }
 
-      if (!nextPlacement) break;
-      nextPlacement.id = `split_fill_${extraPlacements.length}`;
-      occupiedPlacements.push(nextPlacement);
-      extraPlacements.push(nextPlacement);
+      if (!expandedStates.length) break;
+      states = this._dedupeSplitFillStates(expandedStates);
+      if (this._compareSplitFillStates(states[0], bestState) < 0) {
+        bestState = states[0];
+      }
     }
 
+    const extraPlacements = bestState.extraPlacements;
     if (config.preparedSplitFillPreferPairs !== false) {
       return this._balanceSplitFillPlacementsForPairs(extraPlacements);
     }
@@ -1639,7 +2438,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
   }
 
   _augmentCandidateWithSplitFillers(sizeName, polygon, candidate, config, workWidth, workHeight) {
-    const extraPlacements = this._findSplitFillPlacements(
+    const primaryExtraPlacements = this._findSplitFillPlacements(
       sizeName,
       polygon,
       candidate,
@@ -1647,15 +2446,10 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       workWidth,
       workHeight
     );
-    const usableExtraCount = extraPlacements.length;
-    if (usableExtraCount < 1) {
-      return candidate;
-    }
+    const extraPlacementVariants = [primaryExtraPlacements]
+      .filter((placements) => placements?.length);
+    if (!extraPlacementVariants.length) return candidate;
 
-    const keptPlacements = extraPlacements.slice(0, usableExtraCount);
-    const pairStats = this._getSplitPlacementPairStats(keptPlacements);
-    const usedAreaMm2 = (candidate.usedAreaMm2 ?? candidate.placedCount * candidate.pieceArea)
-      + keptPlacements.reduce((sum, placement) => sum + (placement.effectiveArea || 0), 0);
     const {
       placedCount: _ignoredPlacedCount,
       usedWidthMm: _ignoredUsedWidthMm,
@@ -1664,25 +2458,38 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       efficiency: _ignoredEfficiency,
       ...candidateMetadata
     } = candidate;
+    let bestAugmentedCandidate = candidate;
 
-    const augmentedCandidate = this._buildCandidate(
-      sizeName,
-      candidate.selectedFoot ?? candidate.foot ?? candidate.placements?.[0]?.orient?.foot ?? 'L',
-      candidate.pieceArea,
-      [...candidate.placements, ...keptPlacements],
-      {
-        ...candidateMetadata,
-        splitFillUsed: true,
-        splitFillCount: usableExtraCount,
-        ...pairStats,
-        usedAreaMm2
-      },
-      workWidth,
-      workHeight,
-      config
-    );
+    for (const extraPlacements of extraPlacementVariants) {
+      const usableExtraCount = extraPlacements.length;
+      const keptPlacements = extraPlacements.slice(0, usableExtraCount);
+      const pairStats = this._getSplitPlacementPairStats(keptPlacements);
+      const usedAreaMm2 = (candidate.usedAreaMm2 ?? candidate.placedCount * candidate.pieceArea)
+        + keptPlacements.reduce((sum, placement) => sum + (placement.effectiveArea || 0), 0);
 
-    return augmentedCandidate ? this._finalizeCandidate(augmentedCandidate, config) : candidate;
+      const augmentedCandidate = this._buildCandidate(
+        sizeName,
+        candidate.selectedFoot ?? candidate.foot ?? candidate.placements?.[0]?.orient?.foot ?? 'L',
+        candidate.pieceArea,
+        [...candidate.placements, ...keptPlacements],
+        {
+          ...candidateMetadata,
+          splitFillUsed: true,
+          splitFillCount: usableExtraCount,
+          ...pairStats,
+          usedAreaMm2
+        },
+        workWidth,
+        workHeight,
+        config
+      );
+      const finalized = augmentedCandidate ? this._finalizeCandidate(augmentedCandidate, config) : null;
+      if (finalized && compareDoubleInsoleCandidates(finalized, bestAugmentedCandidate) < 0) {
+        bestAugmentedCandidate = finalized;
+      }
+    }
+
+    return bestAugmentedCandidate;
   }
 
   _countRowsWithTrailingBlock(maxHeight, dyMm, workHeight, trailingOffsetMm = 0, trailingBlockHeightMm = 0) {
@@ -2177,6 +2984,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
           bestCandidate = augmentedCandidate;
         }
       }
+
     }
 
     return bestCandidate;
