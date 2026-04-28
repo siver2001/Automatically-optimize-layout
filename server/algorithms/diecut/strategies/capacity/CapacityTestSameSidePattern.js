@@ -617,23 +617,6 @@ export class CapacityTestSameSidePattern extends BaseNesting {
     return rows;
   }
 
-  _buildBodyPlacements(primaryOrient, alternateOrient, rowMode, cols, rows, dxMm, dyMm, startY = 0) {
-    const placements = [];
-
-    for (let row = 0; row < rows; row++) {
-      for (let col = 0; col < cols; col++) {
-        const orient = this._resolveBodyOrient(primaryOrient, alternateOrient, rowMode, row, col);
-        placements.push({
-          id: `body_${row}_${col}`,
-          orient,
-          x: roundMetric(col * dxMm),
-          y: roundMetric(startY + row * dyMm)
-        });
-      }
-    }
-
-    return placements;
-  }
 
   _buildUniformPlacements(orient, cols, rows, dxMm, dyMm, startY = 0) {
     const placements = [];

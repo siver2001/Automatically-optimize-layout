@@ -1637,20 +1637,6 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     };
   }
 
-  _findSplitPartnerNearPlacement(lastPlacement, orientVariants, occupiedPlacements, config, workWidth, workHeight, step, filterFn = null) {
-    const options = this._findSplitPartnerNearPlacementOptions(
-      lastPlacement,
-      orientVariants,
-      occupiedPlacements,
-      config,
-      workWidth,
-      workHeight,
-      step,
-      filterFn,
-      1
-    );
-    return options[0] || null;
-  }
 
   _scoreSplitPlacementOption(option, workWidth, workHeight, partnerPlacement = null) {
     if (!option?.orient) return Infinity;
@@ -1828,19 +1814,6 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     return balanced;
   }
 
-  _findNextSplitFillPlacement(orientVariants, occupiedPlacements, config, workWidth, workHeight, step, filterFn = null) {
-    const options = this._findNextSplitFillPlacementOptions(
-      orientVariants,
-      occupiedPlacements,
-      config,
-      workWidth,
-      workHeight,
-      step,
-      filterFn,
-      1
-    );
-    return options[0] || null;
-  }
 
   _findNextSplitFillPlacementOptions(
     orientVariants,
@@ -2785,21 +2758,35 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         }
 
         const bodyRowPlacements = variant.rowPlacements;
-        const fillerColOptions = buildFillerColumnChoices(filler90Cols);
+        const isFastMode = config.preparedSplitFillDeep === false;
+        
+        let fillerColOptions = buildFillerColumnChoices(filler90Cols);
+        if (isFastMode && fillerColOptions.length > 0) {
+          fillerColOptions = [fillerColOptions[0]];
+        }
+        
         const fillerRowOptions = filler90Cols > 0 ? maxFiller90Rows : 0;
-        const fillerRowCountOptions = buildFillerRowCountChoices(fillerRowOptions);
+        let fillerRowCountOptions = buildFillerRowCountChoices(fillerRowOptions);
+        if (isFastMode && fillerRowCountOptions.length > 0) {
+          fillerRowCountOptions = fillerRowCountOptions.length > 1
+            ? [0, fillerRowCountOptions[fillerRowCountOptions.length - 1]]
+            : [0];
+        }
 
         for (const filler90ColsChoice of fillerColOptions) {
           const fillerRowWidth = filler90ColsChoice > 0
             ? roundMetric(filler90Orient.width + (filler90ColsChoice - 1) * filler90DxMm)
             : 0;
-          const fillerStartXCandidates = filler90ColsChoice > 0
+          let fillerStartXCandidates = filler90ColsChoice > 0
             ? [...new Set([
               0,
               roundMetric(Math.max(0, (workWidth - fillerRowWidth) / 2)),
               roundMetric(Math.max(0, workWidth - fillerRowWidth))
             ])]
             : [0];
+          if (isFastMode && filler90ColsChoice > 0) {
+            fillerStartXCandidates = [0];
+          }
 
           for (const filler90TopRows of fillerRowCountOptions) {
             const topStartOptions = filler90TopRows > 0 ? fillerStartXCandidates : [0];
@@ -3240,7 +3227,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         ?? null,
       preparedSplitFillCandidateLimit: overrideConfig.preparedSplitFillCandidateLimit
         ?? this.config.preparedSplitFillCandidateLimit
-        ?? (deepSplitFillEnabled ? DEEP_SPLIT_AUGMENT_CANDIDATES : MAX_SPLIT_AUGMENT_CANDIDATES)
+        ?? (deepSplitFillEnabled ? DEEP_SPLIT_AUGMENT_CANDIDATES : 1)
     };
 
     const normalizedSizeList = sizeList.map((size) => ({
