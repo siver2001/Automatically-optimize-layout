@@ -2461,10 +2461,6 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     }
 
     const extraPlacements = bestState.extraPlacements;
-    if (config.preparedSplitFillPreferPairs === true) {
-      return this._balanceSplitFillPlacementsForPairs(extraPlacements);
-    }
-
     return extraPlacements;
   }
 
