@@ -233,7 +233,7 @@ function isLikelyNearClosedMainContour(points, absoluteTolerance = 10) {
   const polygonArea = area(points);
 
   const isLargeMainContour = polygonArea >= 30000 && Math.max(bb.width, bb.height) >= 150;
-  const closeRatioLimit = isLargeMainContour ? 0.12 : 0.035;
+  const closeRatioLimit = isLargeMainContour ? 0.20 : 0.035;
   const closeDistanceLimit = isLargeMainContour
     ? Math.max(absoluteTolerance, diagonal * closeRatioLimit)
     : Math.min(absoluteTolerance, diagonal * closeRatioLimit);
