@@ -495,6 +495,7 @@ router.post('/test-capacity', async (req, res) => {
     const config = {
       ...buildDieCutConfigFromUi(req.body, { maxTimeMs: 120000 }),
       parallelSizes: true,
+      preparedSplitFillEnabled: true,
       preparedSplitFillDeep: false
     };
 

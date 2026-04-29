@@ -1892,6 +1892,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     const seen = new Set();
 
     for (const orient of orientVariants) {
+      if (options.length >= maxOptions * 2) break;
       if (filterFn && !filterFn(orient)) continue;
       const compatibleRects = freeRects.filter((rect) =>
         rect.width + 1e-6 >= orient.width &&
@@ -2460,7 +2461,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     }
 
     const extraPlacements = bestState.extraPlacements;
-    if (config.preparedSplitFillPreferPairs !== false) {
+    if (config.preparedSplitFillPreferPairs === true) {
       return this._balanceSplitFillPlacementsForPairs(extraPlacements);
     }
 
