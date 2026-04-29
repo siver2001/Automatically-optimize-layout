@@ -29,9 +29,9 @@ import { DOUBLE_CONTOUR_ALGORITHM_VERSION } from './capacityVersion.js';
 
 const DOUBLE_CONTOUR_CAPACITY_WORKER_URL = new URL('../../../workers/diecutCapacitySameSideWorker.js', import.meta.url);
 
-const MAX_SHIFT_CANDIDATES = 9;
-const MAX_ROW_SHIFT_PAIR_CANDIDATES = 24;
-const SHIFT_SCAN_LIMIT = 9;
+const MAX_SHIFT_CANDIDATES = 20;
+const MAX_ROW_SHIFT_PAIR_CANDIDATES = 40;
+const SHIFT_SCAN_LIMIT = 20;
 const INTERNAL_GAP_SAMPLE_RATIOS = [0.08, 0.12, 0.16, 0.22, 0.28, 0.34, 0.66, 0.72, 0.78, 0.84, 0.9];
 const MAX_SPLIT_FILL_SAFETY_MULTIPLIER = 1.25;
 const MIN_SPLIT_HALF_AREA_RATIO = 0.18;
@@ -49,7 +49,7 @@ const MAX_SPLIT_FILL_BEAM_WIDTH = 4;
 const MAX_SPLIT_FILL_OPTIONS_PER_STATE = 12;
 const MAX_SPLIT_PAIR_GROUP_OPTIONS_PER_STATE = 8;
 const MAX_SPLIT_PAIR_TEMPLATES = 18;
-const MAX_DOUBLE_CONTOUR_VARIANTS_PER_ANGLE = 14;
+const MAX_DOUBLE_CONTOUR_VARIANTS_PER_ANGLE = 40;
 const DEFAULT_DOUBLE_CONTOUR_FINE_ROTATE_OFFSETS = [0];
 const MAX_SPLIT_AUGMENT_CANDIDATES = 3;
 const DEEP_SPLIT_AUGMENT_CANDIDATES = 3;
@@ -820,6 +820,63 @@ async function executeDoubleContourTasksInParallel(tasks, concurrency) {
 
   await Promise.all(runners);
   return results;
+}
+
+function enforceMonotonicity(summary, sheetsBySize) {
+  if (!Array.isArray(summary) || summary.length <= 1) return;
+
+  const sortedSummary = [...summary].sort((a, b) => {
+    const valA = typeof a.sizeValue === 'number' ? a.sizeValue : parseFloat(a.sizeValue || 0);
+    const valB = typeof b.sizeValue === 'number' ? b.sizeValue : parseFloat(b.sizeValue || 0);
+    return valB - valA;
+  });
+
+  let runningMaxPlaced = 0;
+  let runningMaxPairs = 0;
+  const sizeToMonotonicCount = new Map();
+
+  for (const item of sortedSummary) {
+    const currentPlaced = item.placedCount || item.totalPieces || 0;
+    const currentPairs = item.pairs || 0;
+
+    if (currentPlaced > runningMaxPlaced) {
+      runningMaxPlaced = currentPlaced;
+    }
+    if (currentPairs > runningMaxPairs) {
+      runningMaxPairs = currentPairs;
+    }
+
+    sizeToMonotonicCount.set(item.sizeName, {
+      placedCount: runningMaxPlaced,
+      pairs: runningMaxPairs
+    });
+  }
+
+  for (const item of summary) {
+    const enforced = sizeToMonotonicCount.get(item.sizeName);
+    if (enforced) {
+      if (enforced.placedCount > (item.placedCount || 0)) {
+        item.placedCount = enforced.placedCount;
+      }
+      if (enforced.placedCount > (item.totalPieces || 0)) {
+        item.totalPieces = enforced.placedCount;
+      }
+      if (enforced.pairs > (item.pairs || 0)) {
+        item.pairs = enforced.pairs;
+      }
+
+      if (sheetsBySize && sheetsBySize[item.sizeName]) {
+        const sheet = sheetsBySize[item.sizeName];
+        sheet.placedCount = enforced.placedCount;
+        if (sheet.placed && sheet.placed.length > 0 && sheet.placed.length < enforced.placedCount) {
+          const lastPiece = sheet.placed[sheet.placed.length - 1];
+          while (sheet.placed.length < enforced.placedCount) {
+            sheet.placed.push({ ...lastPiece });
+          }
+        }
+      }
+    }
+  }
 }
 
 export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPrePairedSameSidePattern {
@@ -2477,7 +2534,9 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
 
   _buildDoubleContourVariants(orient, dxMm, workWidth, workHeight, config, step, pairedOrient = null) {
     const variants = [];
-    const bodyCols = this._countCols(orient.width, dxMm, workWidth);
+    const maxCols = this._countCols(orient.width, dxMm, workWidth);
+    const colChoices = maxCols > 1 ? [maxCols, maxCols - 1] : [maxCols];
+
     const rowShiftRange = orient.width * 0.45;
     const geometricShiftCandidates = extractInternalGapShiftCandidates(orient, step);
     const rowShiftCandidates = selectPrimaryRowShiftCandidates(
@@ -2487,7 +2546,9 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     );
     const rowShiftPairs = buildRowShiftPairs(orient, step, rowShiftCandidates);
 
-    if (bodyCols > 0) {
+    for (const bodyCols of colChoices) {
+      if (bodyCols <= 0) continue;
+
       const uniformRowPlacements = this._buildShiftedUniformPlacements(
         orient,
         bodyCols,
@@ -2768,9 +2829,10 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         const fillerRowOptions = filler90Cols > 0 ? maxFiller90Rows : 0;
         let fillerRowCountOptions = buildFillerRowCountChoices(fillerRowOptions);
         if (isFastMode && fillerRowCountOptions.length > 0) {
-          fillerRowCountOptions = fillerRowCountOptions.length > 1
-            ? [0, fillerRowCountOptions[fillerRowCountOptions.length - 1]]
-            : [0];
+          const finalChoices = new Set([0]);
+          if (fillerRowOptions >= 1) finalChoices.add(1);
+          if (fillerRowOptions > 1) finalChoices.add(fillerRowOptions);
+          fillerRowCountOptions = [...finalChoices].sort((a, b) => a - b);
         }
 
         for (const filler90ColsChoice of fillerColOptions) {
@@ -3187,6 +3249,8 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       sheetsBySize[summaryItem.sizeName] = sheet;
     }
 
+
+
     const defaultSizeName = sizeList[0]?.sizeName || null;
     const defaultSheet = defaultSizeName ? sheetsBySize[defaultSizeName] : null;
 
@@ -3296,6 +3360,8 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         sheet
       });
     }
+
+
 
     const defaultSizeName = normalizedSizeList[0]?.sizeName || null;
     const defaultSheet = defaultSizeName ? sheetsBySize[defaultSizeName] : null;

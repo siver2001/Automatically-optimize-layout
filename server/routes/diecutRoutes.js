@@ -29,6 +29,61 @@ import { CapacityTestComplementaryPattern } from '../algorithms/diecut/strategie
 import { CapacityTestSameSidePattern } from '../algorithms/diecut/strategies/capacity/CapacityTestSameSidePattern.js';
 import { CapacityTestDoubleInsoleDoubleContourPattern } from '../algorithms/diecut/strategies/capacity/CapacityTestDoubleInsoleDoubleContourPattern.js';
 import { generateDieCutPdf } from '../utils/diecutPdfGenerator.js';
+
+function enforceMonotonicity(summary, sheetsBySize) {
+  if (!Array.isArray(summary) || summary.length <= 1) return;
+
+  const sortedSummary = [...summary].sort((a, b) => {
+    const valA = typeof a.sizeValue === 'number' ? a.sizeValue : parseFloat(a.sizeValue || 0);
+    const valB = typeof b.sizeValue === 'number' ? b.sizeValue : parseFloat(b.sizeValue || 0);
+    return valB - valA;
+  });
+
+  let runningMaxPlaced = 0;
+  let runningMaxPairs = 0;
+  const sizeToMonotonicCount = new Map();
+
+  for (const item of sortedSummary) {
+    const currentPlaced = item.placedCount || item.totalPieces || 0;
+    const currentPairs = item.pairs || 0;
+
+    if (currentPlaced > runningMaxPlaced) {
+      runningMaxPlaced = currentPlaced;
+    }
+    if (currentPairs > runningMaxPairs) {
+      runningMaxPairs = currentPairs;
+    }
+
+    sizeToMonotonicCount.set(item.sizeName, {
+      placedCount: runningMaxPlaced,
+      pairs: runningMaxPairs
+    });
+  }
+
+  for (const item of summary) {
+    const enforced = sizeToMonotonicCount.get(item.sizeName);
+    if (enforced) {
+      if (enforced.placedCount > (item.placedCount || 0)) {
+        item.placedCount = enforced.placedCount;
+      }
+      if (enforced.placedCount > (item.totalPieces || 0)) {
+        item.totalPieces = enforced.placedCount;
+      }
+      if (enforced.pairs > (item.pairs || 0)) {
+        item.pairs = enforced.pairs;
+      }
+
+      if (sheetsBySize && sheetsBySize[item.sizeName]) {
+        const sheet = sheetsBySize[item.sizeName];
+        // Keep the physical placement count corresponding strictly to valid elements
+        if (sheet.placed && sheet.placed.length > 0) {
+          sheet.placedCount = sheet.placed.length;
+        }
+      }
+    }
+  }
+}
+
 import { generateDieCutDxf } from '../utils/diecutDxfGenerator.js';
 import { generateDieCutCyc } from '../utils/diecutCycGenerator.js';
 import { sanitizeExportFileName } from '../utils/diecutExportUtils.js';
@@ -443,11 +498,13 @@ router.post('/test-capacity', async (req, res) => {
       preparedSplitFillDeep: false
     };
 
+
     const totalArea = config.sheetWidth * config.sheetHeight;
     const startTime = Date.now();
 
     let nester;
 
+    let result;
     if (config.pairingStrategy === 'pair' && config.mirrorPairs !== false) {
       nester = new CapacityTestComplementaryPattern({
         ...config,
@@ -455,30 +512,94 @@ router.post('/test-capacity', async (req, res) => {
         pairingStrategy: 'pair',
         mirrorPairs: true
       });
-    } else if (config.capacityLayoutMode === 'same-side-double-contour') {
-      nester = new CapacityTestDoubleInsoleDoubleContourPattern({
-        ...config,
-        capacityLayoutMode: 'same-side-double-contour',
-        pairingStrategy: 'same-side',
-        mirrorPairs: false
-      });
+      result = await nester.testCapacity(sizeList, config);
+
+      if (Array.isArray(result.summary)) {
+        for (const item of result.summary) {
+          const pairs = item.placedCount || item.totalPieces || 0;
+          item.placedCount = pairs * 2;
+          item.totalPieces = pairs * 2;
+          item.pairs = pairs; 
+          if (result.sheetsBySize && result.sheetsBySize[item.sizeName]) {
+            result.sheetsBySize[item.sizeName].placedCount = pairs * 2;
+          }
+        }
+      }
     } else {
-      nester = new CapacityTestSameSidePattern({
-        ...config,
-        capacityLayoutMode: config.capacityLayoutMode,
-        pairingStrategy: 'same-side',
-        mirrorPairs: false
+      if (config.capacityLayoutMode === 'same-side-double-contour') {
+        nester = new CapacityTestDoubleInsoleDoubleContourPattern({
+          ...config,
+          capacityLayoutMode: 'same-side-double-contour',
+          pairingStrategy: 'same-side',
+          mirrorPairs: false
+        });
+      } else {
+        nester = new CapacityTestSameSidePattern({
+          ...config,
+          capacityLayoutMode: config.capacityLayoutMode || 'same-side-banded',
+          pairingStrategy: 'same-side',
+          mirrorPairs: false
+        });
+      }
+      
+      result = await nester.testCapacity(sizeList, config);
+    }
+
+    // Explicitly enforce blocks to pieces mapping
+    if (result && Array.isArray(result.summary)) {
+      result.summary = result.summary.map(item => {
+        let rawBlocks = 0;
+        if (result.sheetsBySize && result.sheetsBySize[item.sizeName] && result.sheetsBySize[item.sizeName].placed) {
+          rawBlocks = result.sheetsBySize[item.sizeName].placed.length;
+        } else {
+          rawBlocks = item.pairs || item.placedCount || item.totalPieces || 0;
+        }
+        const pieces = rawBlocks * 2;
+        
+        const mappedItem = {
+          ...item,
+          placedCount: pieces,
+          totalPieces: pieces,
+          pairs: rawBlocks
+        };
+
+        if (result.sheetsBySize && result.sheetsBySize[item.sizeName]) {
+          result.sheetsBySize[item.sizeName] = {
+            ...result.sheetsBySize[item.sizeName],
+            placedCount: pieces,
+            pairs: rawBlocks
+          };
+        }
+
+        return mappedItem;
       });
     }
 
-    const result = await nester.testCapacity(sizeList, config);
+    // enforceMonotonicity(result.summary, result.sheetsBySize);
 
-    // Kết quả từ testCapacity đã bao gồm summary và sheetsBySize
+    const defaultSizeName = sizeList[0]?.sizeName || null;
+    const defaultSheet = defaultSizeName ? result.sheetsBySize?.[defaultSizeName] : null;
+
+    if (defaultSheet && result.sheet) {
+      result.sheet = {
+         ...result.sheet,
+         placedCount: defaultSheet.placedCount,
+         pairs: defaultSheet.pairs
+      };
+    }
+
     res.json({
       ...result,
-      effectiveConfig: config
+      success: true,
+      effectiveConfig: config,
+      timeMs: Date.now() - startTime,
+      totalPlaced: defaultSheet?.placedCount || 0,
+      efficiency: defaultSheet?.efficiency || 0,
+      sheet: defaultSheet || result.sheet
     });
-    return; // Kết thúc sớm vì result đã chứa dữ liệu trả về mong muốn
+    return;
+
+
   } catch (err) {
     console.error('[DieCut] test-capacity error:', err);
     res.status(500).json({ error: err.message });

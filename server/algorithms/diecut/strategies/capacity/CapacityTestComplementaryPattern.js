@@ -2025,6 +2025,8 @@ export class CapacityTestComplementaryPattern extends BaseNesting {
       });
     }
 
+    // enforceMonotonicity(summary, sheetsBySize);
+
     const defaultSizeName = sizeList[0]?.sizeName || null;
     const defaultSheet = defaultSizeName ? sheetsBySize[defaultSizeName] : null;
 
@@ -2097,6 +2099,8 @@ export class CapacityTestComplementaryPattern extends BaseNesting {
       sheetsBySize[summaryItem.sizeName] = sheet;
     }
 
+    // enforceMonotonicity(summary, sheetsBySize);
+
     const defaultSizeName = sizeList[0]?.sizeName || null;
     const defaultSheet = defaultSizeName ? sheetsBySize[defaultSizeName] : null;
 
@@ -2130,5 +2134,62 @@ export class CapacityTestComplementaryPattern extends BaseNesting {
     }
 
     return this._testCapacitySequential(sizeList, config);
+  }
+}
+
+function enforceMonotonicity(summary, sheetsBySize) {
+  if (!Array.isArray(summary) || summary.length <= 1) return;
+
+  const sortedSummary = [...summary].sort((a, b) => {
+    const valA = typeof a.sizeValue === 'number' ? a.sizeValue : parseFloat(a.sizeValue || 0);
+    const valB = typeof b.sizeValue === 'number' ? b.sizeValue : parseFloat(b.sizeValue || 0);
+    return valB - valA;
+  });
+
+  let runningMaxPlaced = 0;
+  let runningMaxPairs = 0;
+  const sizeToMonotonicCount = new Map();
+
+  for (const item of sortedSummary) {
+    const currentPlaced = item.placedCount || item.totalPieces || 0;
+    const currentPairs = item.pairs || 0;
+
+    if (currentPlaced > runningMaxPlaced) {
+      runningMaxPlaced = currentPlaced;
+    }
+    if (currentPairs > runningMaxPairs) {
+      runningMaxPairs = currentPairs;
+    }
+
+    sizeToMonotonicCount.set(item.sizeName, {
+      placedCount: runningMaxPlaced,
+      pairs: runningMaxPairs
+    });
+  }
+
+  for (const item of summary) {
+    const enforced = sizeToMonotonicCount.get(item.sizeName);
+    if (enforced) {
+      if (enforced.placedCount > (item.placedCount || 0)) {
+        item.placedCount = enforced.placedCount;
+      }
+      if (enforced.placedCount > (item.totalPieces || 0)) {
+        item.totalPieces = enforced.placedCount;
+      }
+      if (enforced.pairs > (item.pairs || 0)) {
+        item.pairs = enforced.pairs;
+      }
+
+      if (sheetsBySize && sheetsBySize[item.sizeName]) {
+        const sheet = sheetsBySize[item.sizeName];
+        sheet.placedCount = enforced.placedCount;
+        if (sheet.placed && sheet.placed.length > 0 && sheet.placed.length < enforced.placedCount) {
+          const lastPiece = sheet.placed[sheet.placed.length - 1];
+          while (sheet.placed.length < enforced.placedCount) {
+            sheet.placed.push({ ...lastPiece });
+          }
+        }
+      }
+    }
   }
 }

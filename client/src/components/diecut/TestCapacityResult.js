@@ -137,7 +137,7 @@ const TestCapacityResult = ({
                 <thead className="sticky top-0 bg-gray-900 border-b border-white/10 z-10">
                   <tr>
                     <th className="text-white/50 font-medium text-left py-1 px-2">Size</th>
-                    {config.mirrorPairs && <th className="text-white/50 font-medium text-center py-1 px-1">Đôi</th>}
+                    <th className="text-white/50 font-medium text-center py-1 px-1">Đôi</th>
                     <th className="text-white/50 font-medium text-center py-1 px-1">Chiếc</th>
                   </tr>
                 </thead>
@@ -154,8 +154,8 @@ const TestCapacityResult = ({
                       }`}
                     >
                       <td className="py-1 px-2 text-white/80 font-medium">{s.sizeName}</td>
-                      {config.mirrorPairs && (
-                        <td className="py-1 px-1 text-center"><span className="text-emerald-300/90">{s.pairs ?? '—'}</span></td>
+                      {true && (
+                        <td className="py-1 px-1 text-center"><span className="text-emerald-300/90">{s.pairs ?? Math.floor(rowPieces / 2)}</span></td>
                       )}
                       <td className="py-1 px-1 text-center"><span className="text-amber-300/90">{rowPieces}</span></td>
                     </tr>
