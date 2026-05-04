@@ -50,7 +50,7 @@ const MAX_SPLIT_FILL_OPTIONS_PER_STATE = 12;
 const MAX_SPLIT_PAIR_GROUP_OPTIONS_PER_STATE = 8;
 const MAX_SPLIT_PAIR_TEMPLATES = 18;
 const MAX_DOUBLE_CONTOUR_VARIANTS_PER_ANGLE = 40;
-const DEFAULT_DOUBLE_CONTOUR_FINE_ROTATE_OFFSETS = [0];
+const DEFAULT_DOUBLE_CONTOUR_FINE_ROTATE_OFFSETS = [-4, -3, -2, -1, 0, 1, 2, 3, 4];
 const MAX_SPLIT_AUGMENT_CANDIDATES = 3;
 const DEEP_SPLIT_AUGMENT_CANDIDATES = 3;
 
@@ -318,11 +318,11 @@ function limitDoubleContourVariants(variants, workHeight, limit = MAX_DOUBLE_CON
 }
 
 function buildRowShiftPairs(orient, step, primaryShiftCandidates) {
-  const shiftYRange = Math.max(0, (orient?.height || 0) * 0.22);
+  const shiftYRange = Math.max(0, (orient?.height || 0) * 0.55);
   const yCandidates = selectPrimaryRowShiftCandidates(
     [],
-    buildShiftCandidates(shiftYRange, step, 7),
-    7
+    buildShiftCandidates(shiftYRange, step, 11),
+    11
   );
   const xRank = new Map(primaryShiftCandidates.map((value, index) => [roundMetric(value, 3), index]));
   const pairs = [];
@@ -909,9 +909,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
 
     const offsets = this._getDoubleContourFineRotateOffsets(config);
     const preferredAngles = [];
-    const baseAngles = config.allowRotate90 === false
-      ? [0]
-      : [0, 90];
+    const baseAngles = [0];
     for (const baseAngle of baseAngles) {
       for (const offset of offsets) {
         preferredAngles.push(normalizeAngleDegrees(baseAngle + offset));
@@ -2592,38 +2590,144 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       }
     }
 
-    const sequentialRows = [
-      {
-        placements: this._buildSequentialBodyRow(
-          orient,
-          orient,
-          'rows',
-          workWidth,
-          config,
-          step
-        ),
-        scanOrder: 'sequential-double-contour',
-        bodyPatternMode: 'double-insole-sequential-row',
-        primaryAngle: orient.angle,
-        alternateAngle: orient.angle
+    const sequentialRows = [];
+    const buildUniqueSequentialRows = (pOrient, aOrient, scanOrder, patternMode) => {
+      const allRows = [];
+      const height = Math.max(pOrient.height, aOrient.height);
+      const rangeY = height * 0.55;
+      const safeStep = Math.max(step, 1);
+      const candidateStep = Math.max(safeStep * 2, 4);
+      const precision = Math.min(step, 0.2);
+
+      const colShiftYCandidates = [0];
+      for (let dy = candidateStep; dy <= rangeY; dy += candidateStep) {
+        colShiftYCandidates.push(roundMetric(dy, 3));
+        colShiftYCandidates.push(roundMetric(-dy, 3));
       }
-    ];
+
+      const computePlacementsWidth = (placements) => {
+        if (!placements.length) return 0;
+        let minX = Infinity;
+        let maxX = -Infinity;
+        for (const p of placements) {
+          minX = Math.min(minX, p.x + p.orient.bb.minX);
+          maxX = Math.max(maxX, p.x + p.orient.bb.maxX);
+        }
+        return maxX - minX;
+      };
+
+      const findMinimalContinuousValueLocal = (minVal, maxVal, prec, isSafe) => {
+        let low = minVal;
+        let high = maxVal;
+        if (low > high) return null;
+        if (!isSafe(high)) return null;
+
+        let best = high;
+        while (high - low > prec) {
+          const mid = (low + high) / 2;
+          if (isSafe(mid)) {
+            best = mid;
+            high = mid;
+          } else {
+            low = mid;
+          }
+        }
+        return roundMetric(best, 3);
+      };
+
+      for (const colShiftYmm of colShiftYCandidates) {
+        const placements = [];
+
+        for (let col = 0; ; col++) {
+          const orient = this._resolveBodyOrient(pOrient, aOrient, 'rows', 0, col);
+          const maxX = roundMetric(workWidth - orient.bb.maxX, 3);
+          if (maxX < -1e-6) break;
+
+          const itemId = `body_0_${col}`;
+          const yOffset = col % 2 === 1 ? colShiftYmm : 0;
+
+          if (!placements.length) {
+            const startX = roundMetric(Math.max(0, -orient.bb.minX), 3);
+            if (startX > maxX + 1e-6) break;
+            placements.push({
+              id: itemId,
+              orient,
+              x: startX,
+              y: yOffset
+            });
+            continue;
+          }
+
+          const previous = placements[placements.length - 1];
+          let minX = Math.max(0, roundMetric(previous.x - orient.width * 0.55, 3));
+
+          const candidateX = findMinimalContinuousValueLocal(minX, maxX, precision, (x) => {
+            for (const other of placements) {
+              if (
+                cachedPolygonsOverlap(
+                  orient.polygon,
+                  other.orient.polygon,
+                  { x, y: yOffset },
+                  { x: other.x, y: other.y },
+                  config.spacing,
+                  orient.bb,
+                  other.orient.bb
+                )
+              ) {
+                return false;
+              }
+            }
+            return true;
+          });
+
+          if (candidateX == null || candidateX + orient.bb.maxX > workWidth + 1e-6) {
+            break;
+          }
+
+          placements.push({
+            id: itemId,
+            orient,
+            x: candidateX,
+            y: yOffset
+          });
+        }
+
+        if (placements.length > 0) {
+          allRows.push({
+            placements,
+            colShiftYmm,
+            width: computePlacementsWidth(placements),
+            count: placements.length
+          });
+        }
+      }
+
+      allRows.sort((a, b) => b.count - a.count || a.width - b.width);
+      const seen = new Set();
+      const unique = [];
+      for (const item of allRows) {
+        const key = `${item.count}_${item.width.toFixed(2)}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        unique.push(item);
+        if (unique.length >= 3) break;
+      }
+
+      for (const item of unique) {
+        sequentialRows.push({
+          placements: item.placements,
+          scanOrder: item.colShiftYmm === 0 ? scanOrder : `${scanOrder}-col-shift-${item.colShiftYmm}`,
+          bodyPatternMode: patternMode,
+          primaryAngle: pOrient.angle,
+          alternateAngle: aOrient.angle
+        });
+      }
+    };
+
+    buildUniqueSequentialRows(orient, orient, 'sequential-double-contour', 'double-insole-sequential-row');
 
     if (pairedOrient && normalizeAngleDegrees(pairedOrient.angle) !== normalizeAngleDegrees(orient.angle)) {
-      sequentialRows.push({
-        placements: this._buildSequentialBodyRow(
-          orient,
-          pairedOrient,
-          'rows',
-          workWidth,
-          config,
-          step
-        ),
-        scanOrder: 'paired-sequential-double-contour',
-        bodyPatternMode: 'double-insole-paired-sequential-row',
-        primaryAngle: orient.angle,
-        alternateAngle: pairedOrient.angle
-      });
+      buildUniqueSequentialRows(orient, pairedOrient, 'paired-sequential-double-contour', 'double-insole-paired-sequential-row');
     }
 
     for (const sequentialRow of sequentialRows) {
