@@ -651,9 +651,54 @@ router.post('/export-pdf', (req, res) => {
   }
 });
 
+function resolveDieCutExportSizeNames(sheets = [], sizeList = []) {
+  const names = new Set();
+
+  for (const sheet of sheets || []) {
+    for (const item of sheet?.placed || []) {
+      const sizeName = String(item?.sizeName || '').trim();
+      if (sizeName) names.add(sizeName);
+    }
+  }
+
+  if (!names.size) {
+    for (const size of sizeList || []) {
+      const sizeName = String(size?.sizeName || size || '').trim();
+      if (sizeName) names.add(sizeName);
+    }
+  }
+
+  return [...names].sort((left, right) => {
+    const numericLeft = Number(left);
+    const numericRight = Number(right);
+    if (Number.isFinite(numericLeft) && Number.isFinite(numericRight)) {
+      return numericLeft - numericRight;
+    }
+    return left.localeCompare(right, undefined, { numeric: true });
+  });
+}
+
+function buildDieCutExportSizePart(sheets = [], sizeList = []) {
+  const sizeNames = resolveDieCutExportSizeNames(sheets, sizeList);
+  if (sizeNames.length === 1) return `size-${sizeNames[0]}`;
+  if (sizeNames.length > 1) return `sizes-${sizeNames.join('-')}`;
+  return 'size-unknown';
+}
+
 router.post('/export-dxf', (req, res) => {
   try {
-    let { sheets, sheetWidth, sheetHeight, sizeList, title, subtitle, fileNameBase, resultId, labelMode } = req.body;
+    let {
+      sheets,
+      sheetWidth,
+      sheetHeight,
+      sizeList,
+      title,
+      subtitle,
+      fileNameBase,
+      resultId,
+      labelMode,
+      includeSizeInFileName = false
+    } = req.body;
 
     if ((!Array.isArray(sheets) || sheets.length === 0) && resultId) {
       const cachedResult = getDieCutNestingResult(resultId);
@@ -667,17 +712,21 @@ router.post('/export-dxf', (req, res) => {
     }
 
     const sheetCount = sheets.length;
-    const sizeStr = `${sheetWidth}x${sheetHeight}`;
+    const resolvedSheetWidth = sheetWidth || sheets[0]?.sheetWidth;
+    const resolvedSheetHeight = sheetHeight || sheets[0]?.sheetHeight;
+    const sizeStr = `${resolvedSheetWidth}x${resolvedSheetHeight}`;
+    const sizePart = includeSizeInFileName ? buildDieCutExportSizePart(sheets, sizeList) : null;
     let baseName = fileNameBase;
     
     if (!baseName) {
       if (sheetCount === 1 && sheets[0].sheetIndex !== undefined) {
-        baseName = `nesting-diecut-${sizeStr}-sheet${sheets[0].sheetIndex + 1}`;
+        baseName = `nesting-diecut-${sizePart ? `${sizePart}-` : ''}${sizeStr}-sheet${sheets[0].sheetIndex + 1}`;
       } else {
-        baseName = `nesting-diecut-${sizeStr}-${sheetCount}sheets`;
+        baseName = `nesting-diecut-${sizePart ? `${sizePart}-` : ''}${sizeStr}-${sheetCount}sheets`;
       }
     } else {
       // Append info even if fileNameBase exists to ensure uniqueness as requested
+      if (sizePart && !baseName.includes('size')) baseName += `-${sizePart}`;
       if (!baseName.includes(sizeStr)) baseName += `-${sizeStr}`;
       if (!baseName.includes('sheet')) baseName += `-${sheetCount}sheets`;
     }
@@ -713,6 +762,7 @@ router.post('/export-cyc', (req, res) => {
       subtitle,
       fileNameBase,
       resultId,
+      labelMode,
       toolCodeMap
     } = req.body;
 
@@ -754,6 +804,7 @@ router.post('/export-cyc', (req, res) => {
       sheetWidth,
       sheetHeight,
       sizeList,
+      labelMode,
       toolCodeMap,
       title,
       subtitle

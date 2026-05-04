@@ -33,6 +33,17 @@ function averagePolygonPoint(points) {
   };
 }
 
+function polygonArea(points = []) {
+  if (!points.length) return 0;
+  let sum = 0;
+  for (let index = 0; index < points.length; index++) {
+    const current = points[index];
+    const next = points[(index + 1) % points.length];
+    sum += current.x * next.y - next.x * current.y;
+  }
+  return Math.abs(sum) / 2;
+}
+
 function parseRelativeSvgPath(pathData) {
   if (!pathData || typeof pathData !== 'string') return null;
   const matches = [...pathData.matchAll(/[ML](-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g)];
@@ -101,6 +112,38 @@ function getFiniteSortValue(value) {
   return Number.isFinite(Number(value)) ? Number(value) : 0;
 }
 
+function getItemArea(item) {
+  const explicitArea = Number(item?.areaMm2 ?? item?.area);
+  if (Number.isFinite(explicitArea) && explicitArea > 0) return explicitArea;
+  return polygonArea(item?.polygon || []);
+}
+
+function isSplitHalfItem(item) {
+  return String(item?.foot || '').startsWith('split-') || String(item?.id || '').includes('split_fill');
+}
+
+function buildMaxAreaBySize(items = []) {
+  const maxAreaBySize = new Map();
+  for (const item of items) {
+    const sizeName = String(item?.sizeName || '');
+    const itemArea = getItemArea(item);
+    if (!sizeName || itemArea <= 0) continue;
+    maxAreaBySize.set(sizeName, Math.max(maxAreaBySize.get(sizeName) || 0, itemArea));
+  }
+  return maxAreaBySize;
+}
+
+function isPreparedSequenceSplitHalfItem(item, maxAreaBySize = new Map()) {
+  if (isSplitHalfItem(item)) return true;
+
+  const sizeName = String(item?.sizeName || '');
+  const maxArea = maxAreaBySize.get(sizeName) || 0;
+  const itemArea = getItemArea(item);
+  if (!maxArea || !itemArea) return false;
+
+  return itemArea / maxArea <= 0.82;
+}
+
 function buildPreparedSequenceKey(item, fallbackIndex) {
   if (item?.id) return String(item.id);
 
@@ -111,6 +154,7 @@ function buildPreparedSequenceKey(item, fallbackIndex) {
 }
 
 function applyPreparedSequenceLabels(items = []) {
+  const maxAreaBySize = buildMaxAreaBySize(items);
   const keyedItems = items.map((item, index) => ({
     item,
     key: buildPreparedSequenceKey(item, index)
@@ -119,6 +163,10 @@ function applyPreparedSequenceLabels(items = []) {
   const sequenceByKey = new Map(
     [...keyedItems]
       .sort((left, right) => {
+        const splitRank = Number(isPreparedSequenceSplitHalfItem(left.item, maxAreaBySize))
+          - Number(isPreparedSequenceSplitHalfItem(right.item, maxAreaBySize));
+        if (splitRank !== 0) return splitRank;
+
         const deltaY = getFiniteSortValue(left.item?.centroid?.y) - getFiniteSortValue(right.item?.centroid?.y);
         if (Math.abs(deltaY) > 0.001) return deltaY;
 
@@ -218,6 +266,7 @@ export function normalizeDieCutExportData(payload = {}) {
 export {
   averagePolygonPoint,
   hexToRgb,
+  isSplitHalfItem,
   rgbToTrueColor,
   sanitizeExportFileName,
   sanitizeLayerName

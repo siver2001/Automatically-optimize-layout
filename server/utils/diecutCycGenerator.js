@@ -1,4 +1,5 @@
 import {
+  isSplitHalfItem,
   normalizeDieCutExportData
 } from './diecutExportUtils.js';
 
@@ -11,6 +12,14 @@ function normalizeAngle(value) {
   const numeric = Number.isFinite(Number(value)) ? Number(value) : 0;
   const normalized = ((numeric % 360) + 360) % 360;
   return Math.abs(normalized - 360) < 1e-6 ? 0 : normalized;
+}
+
+function parsePreparedSequenceLabel(label) {
+  const match = String(label || '').match(/\bN=(\d+)\b/);
+  if (!match) return null;
+
+  const parsed = Number.parseInt(match[1], 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
 /**
@@ -28,10 +37,6 @@ function boundingBoxCenter(points) {
     if (p.y > maxY) maxY = p.y;
   }
   return { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
-}
-
-function isSplitHalfItem(item) {
-  return String(item?.foot || '').startsWith('split-') || String(item?.id || '').includes('split_fill');
 }
 
 function resolveCycPolygon(item) {
@@ -87,6 +92,8 @@ export function generateDieCutCyc(payload = {}) {
       x: center.x,
       y: center.y,
       angle: normalizeAngle(item?.angle),
+      splitRank: isSplitHalfItem(item) ? 1 : 0,
+      preparedSequenceNumber: parsePreparedSequenceLabel(item?.label),
       sequenceNumber: index + 1
     };
   });
@@ -95,6 +102,10 @@ export function generateDieCutCyc(payload = {}) {
   // processes each tool's items with their own sequential numbering.
   const sortedCycles = [...cycles].sort((a, b) => {
     if (a.toolCode !== b.toolCode) return a.toolCode - b.toolCode;
+    if (a.preparedSequenceNumber != null && b.preparedSequenceNumber != null) {
+      return a.preparedSequenceNumber - b.preparedSequenceNumber;
+    }
+    if (a.splitRank !== b.splitRank) return a.splitRank - b.splitRank;
     return a.sequenceNumber - b.sequenceNumber;
   });
 
@@ -102,7 +113,7 @@ export function generateDieCutCyc(payload = {}) {
   for (const cycle of sortedCycles) {
     const count = (toolSequenceCounters.get(cycle.toolCode) || 0) + 1;
     toolSequenceCounters.set(cycle.toolCode, count);
-    cycle.groupSequence = count;
+    cycle.groupSequence = cycle.preparedSequenceNumber ?? count;
   }
 
   const lines = ['<CycleFile>'];

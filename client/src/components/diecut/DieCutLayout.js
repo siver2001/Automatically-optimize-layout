@@ -266,6 +266,7 @@ const DieCutLayout = () => {
               sheetHeight: item.sheet?.sheetHeight || config.sheetHeight,
               sizeList: activeSizes,
               labelMode,
+              includeSizeInFileName: true,
               title: item.sizeName ? `Capacity Test - Size ${item.sizeName}` : 'Capacity Test Result',
               subtitle: buildExportSubtitle(config, `${item.totalPieces ?? item.sheet?.placed?.length ?? 0} pieces | 1 sheet`)
             });
@@ -310,6 +311,7 @@ const DieCutLayout = () => {
               sheetWidth: item.sheet?.sheetWidth || config.sheetWidth,
               sheetHeight: item.sheet?.sheetHeight || config.sheetHeight,
               sizeList: activeSizes.length ? activeSizes.map((sizeName) => ({ sizeName })) : shapes,
+              labelMode,
               toolCodeMap,
               fileNameBase: buildExportFileBase({
                 orderNames: exportOrderNames,
@@ -331,6 +333,7 @@ const DieCutLayout = () => {
               sheetWidth: sheet?.sheetWidth || config.sheetWidth,
               sheetHeight: sheet?.sheetHeight || config.sheetHeight,
               sizeList: sheetActiveSizes.length ? sheetActiveSizes.map((sizeName) => ({ sizeName })) : sizeList,
+              labelMode,
               toolCodeMap,
               fileNameBase: buildExportFileBase({
                 orderNames: exportOrderNames,
