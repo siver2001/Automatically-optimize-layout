@@ -50,7 +50,7 @@ const MAX_SPLIT_FILL_OPTIONS_PER_STATE = 12;
 const MAX_SPLIT_PAIR_GROUP_OPTIONS_PER_STATE = 8;
 const MAX_SPLIT_PAIR_TEMPLATES = 18;
 const MAX_DOUBLE_CONTOUR_VARIANTS_PER_ANGLE = 40;
-const DEFAULT_DOUBLE_CONTOUR_FINE_ROTATE_OFFSETS = [-4, -3, -2, -1, 0, 1, 2, 3, 4];
+const DEFAULT_DOUBLE_CONTOUR_FINE_ROTATE_OFFSETS = [-3, -2, -1, 0, 1, 2, 3];
 const MAX_SPLIT_AUGMENT_CANDIDATES = 3;
 const DEEP_SPLIT_AUGMENT_CANDIDATES = 3;
 
@@ -321,8 +321,8 @@ function buildRowShiftPairs(orient, step, primaryShiftCandidates) {
   const shiftYRange = Math.max(0, (orient?.height || 0) * 0.55);
   const yCandidates = selectPrimaryRowShiftCandidates(
     [],
-    buildShiftCandidates(shiftYRange, step, 11),
-    11
+    buildShiftCandidates(shiftYRange, step, 7),
+    7
   );
   const xRank = new Map(primaryShiftCandidates.map((value, index) => [roundMetric(value, 3), index]));
   const pairs = [];
@@ -2596,7 +2596,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       const height = Math.max(pOrient.height, aOrient.height);
       const rangeY = height * 0.55;
       const safeStep = Math.max(step, 1);
-      const candidateStep = Math.max(safeStep * 2, 4);
+      const candidateStep = Math.max(safeStep * 3, 8);
       const precision = Math.min(step, 0.2);
 
       const colShiftYCandidates = [0];
@@ -2710,7 +2710,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         if (seen.has(key)) continue;
         seen.add(key);
         unique.push(item);
-        if (unique.length >= 3) break;
+        if (unique.length >= 2) break;
       }
 
       for (const item of unique) {
