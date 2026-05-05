@@ -170,7 +170,7 @@ function buildUpperBound(step, ...values) {
   return Math.max(step, ...values);
 }
 
-function findMinimalContinuousValue(minValue, maxValue, precision, isSafe) {
+export function findMinimalContinuousValue(minValue, maxValue, precision, isSafe) {
   if (minValue > maxValue) return null;
   if (!isSafe(maxValue)) return null;
 
@@ -597,21 +597,27 @@ export class CapacityTestSameSidePattern extends BaseNesting {
     );
   }
 
-  _countCols(maxWidth, dxMm, workWidth) {
+  _countCols(maxWidth, dxMm, workWidth, rowShiftXmm = 0) {
     let cols = 0;
+    const baseX = -Math.min(0, rowShiftXmm);
+    const maxShiftX = Math.max(0, rowShiftXmm);
     while (true) {
-      const x = cols * dxMm;
-      if (x + maxWidth > workWidth + 1e-6) break;
+      const maxX = baseX + cols * dxMm + maxShiftX + maxWidth;
+      if (maxX > workWidth + 1e-6) break;
       cols += 1;
     }
     return cols;
   }
 
-  _countRows(maxHeight, dyMm, workHeight) {
+  _countRows(maxHeight, dyMm, workHeight, rowShiftYmm = 0) {
     let rows = 0;
+    const baseY = -Math.min(0, rowShiftYmm);
+    let maxY = 0;
     while (true) {
-      const y = rows * dyMm;
-      if (y + maxHeight > workHeight + 1e-6) break;
+      const isOddRow = rows % 2 === 1;
+      const y = baseY + rows * dyMm + (isOddRow ? rowShiftYmm : 0);
+      maxY = Math.max(maxY, y + maxHeight);
+      if (maxY > workHeight + 1e-6) break;
       rows += 1;
     }
     return rows;

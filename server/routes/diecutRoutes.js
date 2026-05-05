@@ -117,8 +117,8 @@ function numberFromUi(value, fallback) {
 }
 
 function resolveCapacityLayoutMode(pairingStrategy, capacityLayoutMode) {
-  if (pairingStrategy === 'pair') return 'pair-complementary';
   if (capacityLayoutMode === 'same-side-double-contour') return 'same-side-double-contour';
+  if (pairingStrategy === 'pair') return 'same-side-double-contour';
   if (capacityLayoutMode === 'same-side-orthogonal') return 'same-side-orthogonal';
   return 'same-side-banded';
 }
@@ -546,17 +546,23 @@ router.post('/test-capacity', async (req, res) => {
       result = await nester.testCapacity(sizeList, config);
     }
 
-    // Explicitly enforce blocks to pieces mapping
     if (result && Array.isArray(result.summary)) {
+      const isDoubleContour = result.mode?.includes('double-contour');
       result.summary = result.summary.map(item => {
+        if (isDoubleContour) {
+          // Preserve backend's accurate pieces and pairs
+          return item;
+        }
+
         let rawBlocks = 0;
         if (result.sheetsBySize && result.sheetsBySize[item.sizeName] && result.sheetsBySize[item.sizeName].placed) {
           rawBlocks = result.sheetsBySize[item.sizeName].placed.length;
         } else {
           rawBlocks = item.pairs || item.placedCount || item.totalPieces || 0;
         }
-        const pieces = rawBlocks * 2;
         
+        // For non-double strategies, we still need to map blocks to pieces/pairs
+        const pieces = rawBlocks * 2;
         const mappedItem = {
           ...item,
           placedCount: pieces,
@@ -576,7 +582,7 @@ router.post('/test-capacity', async (req, res) => {
       });
     }
 
-    // enforceMonotonicity(result.summary, result.sheetsBySize);
+    // Removed enforceMonotonicity call to ensure UI matches physical layout exactly
 
     const defaultSizeName = sizeList[0]?.sizeName || null;
     const defaultSheet = defaultSizeName ? result.sheetsBySize?.[defaultSizeName] : null;

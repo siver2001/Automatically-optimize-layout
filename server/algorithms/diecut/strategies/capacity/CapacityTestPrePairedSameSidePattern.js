@@ -59,9 +59,9 @@ function buildSummaryItem(size, sheet) {
   return {
     sizeName: size.sizeName,
     sizeValue: size.sizeValue,
-    totalPieces: sheet.placedCount,
-    pairs: 0,
-    placedCount: sheet.placedCount,
+    totalPieces: sheet.placedCount * 2,
+    pairs: sheet.placedCount,
+    placedCount: sheet.placedCount * 2,
     efficiency: sheet.efficiency
   };
 }
@@ -126,6 +126,17 @@ async function executeTasksInParallel(tasks, concurrency) {
 export class CapacityTestPrePairedSameSidePattern extends CapacityTestSameSidePattern {
   _getPreferredAngles() {
     return [0, 90];
+  }
+
+  _materializePlacedItems(sizeName, placements, config) {
+    const materialized = super._materializePlacedItems(sizeName, placements, config);
+    if (materialized && materialized.placed) {
+      for (const item of materialized.placed) {
+        item.pieceCount = 2;
+        item.foot = 'X';
+      }
+    }
+    return materialized;
   }
 
   _evaluateFootCandidate(sizeName, foot, polygon, config, workWidth, workHeight) {

@@ -14,7 +14,7 @@ import {
   roundMetric,
   validateLocalPlacements
 } from './patternCapacityUtils.js';
-import { CapacityTestSameSidePattern } from './CapacityTestSameSidePattern.js';
+import { CapacityTestSameSidePattern, findMinimalContinuousValue } from './CapacityTestSameSidePattern.js';
 import {
   buildCapacityResultCacheKey,
   getCachedCapacityResult,
@@ -29,9 +29,9 @@ import { DOUBLE_CONTOUR_ALGORITHM_VERSION } from './capacityVersion.js';
 
 const DOUBLE_CONTOUR_CAPACITY_WORKER_URL = new URL('../../../workers/diecutCapacitySameSideWorker.js', import.meta.url);
 
-const MAX_SHIFT_CANDIDATES = 20;
-const MAX_ROW_SHIFT_PAIR_CANDIDATES = 40;
-const SHIFT_SCAN_LIMIT = 20;
+const MAX_SHIFT_CANDIDATES = 15;
+const MAX_ROW_SHIFT_PAIR_CANDIDATES = 15;
+const SHIFT_SCAN_LIMIT = 30;
 const INTERNAL_GAP_SAMPLE_RATIOS = [0.08, 0.12, 0.16, 0.22, 0.28, 0.34, 0.66, 0.72, 0.78, 0.84, 0.9];
 const MAX_SPLIT_FILL_SAFETY_MULTIPLIER = 1.25;
 const MIN_SPLIT_HALF_AREA_RATIO = 0.18;
@@ -45,26 +45,34 @@ const MAX_SPLIT_BOUNDARY_AXIS_SAMPLES = 40;
 const MAX_SPLIT_EDGE_ANCHORS_PER_AXIS = 36;
 const MAX_SPLIT_EDGE_PLACEMENT_CANDIDATES = 260;
 const MAX_SPLIT_PARTNER_NEAR_CANDIDATES = 80;
-const MAX_SPLIT_FILL_BEAM_WIDTH = 4;
-const MAX_SPLIT_FILL_OPTIONS_PER_STATE = 12;
-const MAX_SPLIT_PAIR_GROUP_OPTIONS_PER_STATE = 8;
-const MAX_SPLIT_PAIR_TEMPLATES = 18;
-const MAX_DOUBLE_CONTOUR_VARIANTS_PER_ANGLE = 40;
-const DEFAULT_DOUBLE_CONTOUR_FINE_ROTATE_OFFSETS = [-3, -2, -1, 0, 1, 2, 3];
-const MAX_SPLIT_AUGMENT_CANDIDATES = 3;
-const DEEP_SPLIT_AUGMENT_CANDIDATES = 3;
+const MAX_SPLIT_FILL_BEAM_WIDTH = 2;
+const MAX_SPLIT_FILL_OPTIONS_PER_STATE = 6;
+const MAX_SPLIT_PAIR_GROUP_OPTIONS_PER_STATE = 3;
+const MAX_SPLIT_PAIR_TEMPLATES = 12;
+const MAX_DOUBLE_CONTOUR_VARIANTS_PER_ANGLE = 6;
+const DEFAULT_DOUBLE_CONTOUR_FINE_ROTATE_OFFSETS = [0];
+const MAX_SPLIT_AUGMENT_CANDIDATES = 1;
+const DEEP_SPLIT_AUGMENT_CANDIDATES = 1;
 
 function compareDoubleInsoleCandidates(nextCandidate, bestCandidate) {
   if (!bestCandidate) return -1;
-  if (nextCandidate.placedCount !== bestCandidate.placedCount) {
-    return bestCandidate.placedCount - nextCandidate.placedCount;
+
+  const nextDc = nextCandidate.dcCount ?? 0;
+  const bestDc = bestCandidate.dcCount ?? 0;
+
+  if (nextDc !== bestDc) {
+    return bestDc - nextDc;
   }
-  const nextPairs = Math.floor(Math.max(0, nextCandidate.placedCount - (nextCandidate.splitFillCount || 0)) / 2)
-    + (nextCandidate.splitPairCount || 0);
-  const bestPairs = Math.floor(Math.max(0, bestCandidate.placedCount - (bestCandidate.splitFillCount || 0)) / 2)
-    + (bestCandidate.splitPairCount || 0);
+
+  const nextPairs = nextCandidate.actualPairs ?? Math.floor(nextCandidate.placedCount / 2);
+  const bestPairs = bestCandidate.actualPairs ?? Math.floor(bestCandidate.placedCount / 2);
+
   if (nextPairs !== bestPairs) {
     return bestPairs - nextPairs;
+  }
+
+  if (nextCandidate.placedCount !== bestCandidate.placedCount) {
+    return bestCandidate.placedCount - nextCandidate.placedCount;
   }
   if ((nextCandidate.splitPairCount || 0) !== (bestCandidate.splitPairCount || 0)) {
     return (bestCandidate.splitPairCount || 0) - (nextCandidate.splitPairCount || 0);
@@ -177,21 +185,7 @@ function extractInternalGapShiftCandidates(orient, step) {
     .sort((left, right) => Math.abs(left) - Math.abs(right) || left - right);
 }
 
-function mergeShiftCandidateLists(primaryCandidates, secondaryCandidates) {
-  const merged = new Set();
-  for (const value of [...primaryCandidates, ...secondaryCandidates]) {
-    if (Number.isFinite(value)) {
-      merged.add(roundMetric(value, 3));
-    }
-  }
-  return [...merged].sort((left, right) => Math.abs(left) - Math.abs(right) || left - right);
-}
 
-function limitShiftCandidates(candidates, limit = 7) {
-  return [...candidates]
-    .sort((left, right) => Math.abs(left) - Math.abs(right) || left - right)
-    .slice(0, Math.max(1, limit));
-}
 
 function selectPrimaryRowShiftCandidates(geometricCandidates, sampledCandidates, limit = MAX_SHIFT_CANDIDATES) {
   const normalized = [...new Set([...geometricCandidates, ...sampledCandidates]
@@ -688,6 +682,24 @@ function getPlacementsBottom(placements = []) {
   return roundMetric(maxY, 3);
 }
 
+function getPlacementsLeft(placements = []) {
+  if (!placements.length) return 0;
+  let minX = Infinity;
+  for (const placement of placements) {
+    minX = Math.min(minX, getPlacementBounds(placement).minX);
+  }
+  return roundMetric(minX, 3);
+}
+
+function getPlacementsRight(placements = []) {
+  if (!placements.length) return 0;
+  let maxX = -Infinity;
+  for (const placement of placements) {
+    maxX = Math.max(maxX, getPlacementBounds(placement).maxX);
+  }
+  return roundMetric(maxX, 3);
+}
+
 function getAveragePitchX(placements = []) {
   if (placements.length < 2) return null;
   let total = 0;
@@ -711,19 +723,36 @@ function buildEmptyDoubleContourSummaryItem(size) {
 function buildDoubleContourSummaryItem(size, sheet) {
   if (!sheet) return buildEmptyDoubleContourSummaryItem(size);
   const info = sheet.patternInfo || {};
-  const splitFillCount = info.splitFillCount || 0;
-  const splitPairCount = info.splitPairCount || 0;
-  const fullPieceCount = Math.max(0, sheet.placedCount - splitFillCount);
+  
+  let leftCount = 0;
+  let rightCount = 0;
+  let dcCount = 0;
+  
+  if (Array.isArray(sheet.placed)) {
+    for (const item of sheet.placed) {
+      const foot = item.foot || 'X';
+      if (foot === 'L' || foot === 'split-left') {
+        leftCount++;
+      } else if (foot === 'R' || foot === 'split-right') {
+        rightCount++;
+      } else {
+        dcCount++;
+      }
+    }
+  }
+
+  const actualPairs = sheet.actualPairs ?? (dcCount + Math.min(leftCount, rightCount));
+  const totalPieces = sheet.placedCount ?? (sheet.placed?.reduce((sum, item) => sum + (item.pieceCount ?? 1), 0) || 0);
 
   return {
     sizeName: size.sizeName,
     sizeValue: size.sizeValue,
-    totalPieces: sheet.placedCount,
-    pairs: Math.floor(fullPieceCount / 2) + splitPairCount,
-    placedCount: sheet.placedCount,
+    totalPieces: totalPieces,
+    pairs: actualPairs,
+    placedCount: totalPieces,
     efficiency: sheet.efficiency,
-    splitFillCount,
-    splitPairCount,
+    splitFillCount: info.splitFillCount || 0,
+    splitPairCount: info.splitPairCount || 0,
     splitUnpairedCount: info.splitUnpairedCount || 0
   };
 }
@@ -755,7 +784,7 @@ function resolveDoubleContourWorkerCount(tasks, config) {
 
   const adaptiveCap = resolveAdaptiveParallelWorkerCount(tasks.map((task) => task.size), config);
   const logicalCpuCount = getLogicalCpuCount();
-  const cpuRatio = config.preparedSplitFillEnabled === false ? 0.75 : 0.55;
+  const cpuRatio = config.preparedSplitFillEnabled === false ? 0.75 : 0.65;
   const responsiveCpuCap = Math.max(1, Math.floor(logicalCpuCount * cpuRatio));
   const sizeCurveCap = Math.max(
     1,
@@ -792,7 +821,7 @@ function runDoubleContourWorkerTask(worker, task) {
   });
 }
 
-async function executeDoubleContourTasksInParallel(tasks, concurrency) {
+async function executeDoubleContourTasksInParallel(tasks, concurrency, onProgress) {
   if (!tasks.length) return [];
 
   const workerCount = Math.min(tasks.length, Math.max(1, concurrency));
@@ -806,12 +835,18 @@ async function executeDoubleContourTasksInParallel(tasks, concurrency) {
     });
     try {
       while (true) {
-        const taskIndex = nextTaskIndex;
+        const taskBatchIndex = nextTaskIndex;
         nextTaskIndex += 1;
-        if (taskIndex >= tasks.length) break;
-        const task = tasks[taskIndex];
-        const resultIndex = task?.index ?? taskIndex;
+        if (taskBatchIndex >= tasks.length) break;
+        
+        const task = tasks[taskBatchIndex];
+        const resultIndex = task?.index ?? taskBatchIndex;
+        
+        if (onProgress) onProgress(resultIndex, 'started');
+        
         results[resultIndex] = await runDoubleContourWorkerTask(worker, task);
+        
+        if (onProgress) onProgress(resultIndex, 'done');
       }
     } finally {
       await worker.terminate();
@@ -910,6 +945,10 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     const offsets = this._getDoubleContourFineRotateOffsets(config);
     const preferredAngles = [];
     const baseAngles = [0];
+    if (config.allowRotate90 !== false) {
+      baseAngles.push(90);
+    }
+
     for (const baseAngle of baseAngles) {
       for (const offset of offsets) {
         preferredAngles.push(normalizeAngleDegrees(baseAngle + offset));
@@ -1754,6 +1793,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
 
     for (const orient of orientVariants) {
       if (filterFn && !filterFn(orient)) continue;
+      let orientOptions = 0;
       const nearCandidates = this._buildSplitPartnerNearCandidates(
         lastPlacement,
         orient,
@@ -1780,9 +1820,9 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
           y: compacted.y,
           effectiveArea: orient.areaMm2
         }, workWidth, workHeight, lastPlacement);
-        if (options.length >= maxOptions * 2) break;
+        orientOptions++;
+        if (orientOptions >= maxOptions * 2) break;
       }
-      if (options.length >= maxOptions * 2) break;
     }
 
     const topOptions = options
@@ -1822,16 +1862,21 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
   _getSplitPlacementPairStats(placements = []) {
     let leftCount = 0;
     let rightCount = 0;
+    let dcCount = 0;
     for (const placement of placements) {
-      if (placement?.orient?.foot === 'split-left') leftCount += 1;
-      if (placement?.orient?.foot === 'split-right') rightCount += 1;
+      if (placement?.orient?.foot === 'split-left' || placement?.orient?.foot === 'L') leftCount += 1;
+      else if (placement?.orient?.foot === 'split-right' || placement?.orient?.foot === 'R') rightCount += 1;
+      else if (placement?.orient?.foot === 'X' || placement?.orient?.foot === 'DC') dcCount += 1;
     }
 
-    const splitPairCount = Math.min(leftCount, rightCount);
+    const splitPairCount = dcCount + Math.min(leftCount, rightCount);
     const splitUnpairedCount = Math.abs(leftCount - rightCount);
+    const pieceCount = dcCount * 2 + leftCount + rightCount;
     return {
       splitLeftCount: leftCount,
       splitRightCount: rightCount,
+      dcCount,
+      pieceCount,
       splitPairCount,
       splitUnpairedCount
     };
@@ -1890,8 +1935,8 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     const seen = new Set();
 
     for (const orient of orientVariants) {
-      if (options.length >= maxOptions * 2) break;
       if (filterFn && !filterFn(orient)) continue;
+      let orientOptions = 0;
       const compatibleRects = freeRects.filter((rect) =>
         rect.width + 1e-6 >= orient.width &&
         rect.height + 1e-6 >= orient.height
@@ -1918,16 +1963,16 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
             y: candidate.y,
             effectiveArea: orient.areaMm2
           }, workWidth, workHeight);
-          if (options.length >= maxOptions * 2) break;
+          orientOptions++;
+          if (orientOptions >= maxOptions * 2) break;
         }
-        if (options.length >= maxOptions * 2) break;
+        if (orientOptions >= maxOptions * 2) break;
       }
-      if (options.length >= maxOptions * 2) break;
     }
 
     for (const orient of orientVariants) {
-      if (options.length >= maxOptions * 2) break;
       if (filterFn && !filterFn(orient)) continue;
+      let orientOptions = 0;
       const boundaryCandidates = this._buildPreparedBoundaryPlacementCandidates(
         orient,
         workWidth,
@@ -1954,13 +1999,14 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
           y: candidate.y,
           effectiveArea: orient.areaMm2
         }, workWidth, workHeight);
-        if (options.length >= maxOptions * 2) break;
+        orientOptions++;
+        if (orientOptions >= maxOptions * 2) break;
       }
     }
 
     for (const orient of orientVariants) {
-      if (options.length >= maxOptions * 2) break;
       if (filterFn && !filterFn(orient)) continue;
+      let orientOptions = 0;
       const edgeCandidates = this._buildPreparedEdgePlacementCandidates(
         occupiedPlacements,
         orient,
@@ -1988,7 +2034,8 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
           y: candidate.y,
           effectiveArea: orient.areaMm2
         }, workWidth, workHeight);
-        if (options.length >= maxOptions * 2) break;
+        orientOptions++;
+        if (orientOptions >= maxOptions * 2) break;
       }
     }
 
@@ -2024,8 +2071,9 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     const pairStats = this._getSplitPlacementPairStats(state.extraPlacements);
     const bounds = computeEnvelope(state.occupiedPlacements);
     return {
-      count: state.extraPlacements.length,
+      count: pairStats.pieceCount,
       pairs: pairStats.splitPairCount,
+      dcCount: pairStats.dcCount,
       unpaired: pairStats.splitUnpairedCount,
       height: bounds.height,
       width: bounds.width,
@@ -2036,8 +2084,9 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
   _compareSplitFillStates(left, right) {
     const leftRank = this._rankSplitFillState(left);
     const rightRank = this._rankSplitFillState(right);
-    return rightRank.count - leftRank.count
+    return rightRank.dcCount - leftRank.dcCount
       || rightRank.pairs - leftRank.pairs
+      || rightRank.count - leftRank.count
       || leftRank.unpaired - rightRank.unpaired
       || leftRank.height - rightRank.height
       || leftRank.width - rightRank.width
@@ -2328,7 +2377,9 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       : physicalSafetyLimit;
 
     const orientVariants = [];
+    const fullPolygon = sourceShape?.polygon || polygon;
     for (const angle of this._getSplitFillAngles(config)) {
+      orientVariants.push(this._decorateOrient(sizeName, 'X', fullPolygon, angle, config, step));
       for (const halfDef of halfDefs) {
         orientVariants.push(this._decorateSplitHalfOrient(sizeName, halfDef, angle, config, step));
       }
@@ -2412,32 +2463,28 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
 
         const genericOptions = this._findNextSplitFillPlacementOptions(
           orientVariants,
-            state.occupiedPlacements,
+          state.occupiedPlacements,
           config,
           workWidth,
           workHeight,
-            step,
-            null,
-            MAX_SPLIT_FILL_OPTIONS_PER_STATE
+          step,
+          null,
+          MAX_SPLIT_FILL_OPTIONS_PER_STATE
         );
-        const seenOptions = new Set(options.map((option) =>
+
+        const mergedOptions = [...options];
+        const seenOptions = new Set(mergedOptions.map((option) =>
           `${option.orient.foot}|${option.orient.angle}|${roundMetric(option.x, 3)}|${roundMetric(option.y, 3)}`
         ));
+
         for (const option of genericOptions) {
           const key = `${option.orient.foot}|${option.orient.angle}|${roundMetric(option.x, 3)}|${roundMetric(option.y, 3)}`;
           if (seenOptions.has(key)) continue;
           seenOptions.add(key);
-          options.push(option);
+          mergedOptions.push(option);
         }
-        options = [
-          ...options.slice(0, Math.ceil(MAX_SPLIT_FILL_OPTIONS_PER_STATE / 2)),
-          ...genericOptions
-            .filter((option) => {
-              const key = `${option.orient.foot}|${option.orient.angle}|${roundMetric(option.x, 3)}|${roundMetric(option.y, 3)}`;
-              return seenOptions.has(key);
-            })
-            .slice(0, Math.floor(MAX_SPLIT_FILL_OPTIONS_PER_STATE / 2))
-        ].slice(0, MAX_SPLIT_FILL_OPTIONS_PER_STATE);
+
+        options = mergedOptions.slice(0, MAX_SPLIT_FILL_OPTIONS_PER_STATE);
 
         for (const option of options) {
           const nextPlacement = {
@@ -2508,7 +2555,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         workHeight,
         config
       );
-      const finalized = augmentedCandidate ? this._finalizeCandidate(augmentedCandidate, config) : null;
+      const finalized = augmentedCandidate ? this._finalizeCandidate(augmentedCandidate, config, workWidth, workHeight) : null;
       if (finalized && compareDoubleInsoleCandidates(finalized, bestAugmentedCandidate) < 0) {
         bestAugmentedCandidate = finalized;
       }
@@ -2532,11 +2579,19 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     const maxCols = this._countCols(orient.width, dxMm, workWidth);
     const colChoices = maxCols > 1 ? [maxCols, maxCols - 1] : [maxCols];
 
-    const rowShiftRange = orient.width * 0.45;
+    const rowShiftRange = orient.width * 0.6;
     const geometricShiftCandidates = extractInternalGapShiftCandidates(orient, step);
+    
+    const manualStagger = Number(config.staggerSpacing);
+    const baseShiftCandidates = buildShiftCandidates(rowShiftRange, step, SHIFT_SCAN_LIMIT);
+    if (Number.isFinite(manualStagger) && Math.abs(manualStagger) < rowShiftRange) {
+      baseShiftCandidates.push(manualStagger);
+      baseShiftCandidates.push(-manualStagger);
+    }
+
     const rowShiftCandidates = selectPrimaryRowShiftCandidates(
       geometricShiftCandidates,
-      buildShiftCandidates(rowShiftRange, step, SHIFT_SCAN_LIMIT),
+      baseShiftCandidates,
       MAX_SHIFT_CANDIDATES
     );
     const rowShiftPairs = buildRowShiftPairs(orient, step, rowShiftCandidates);
@@ -2558,7 +2613,15 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         getPlacementsBottom(uniformRowPlacements) - getPlacementsTop(uniformRowPlacements),
         3
       );
-      const alignedDyMm = this._findUniformDy(orient, dxMm, config, step);
+
+      const dyCacheKey = `${orient.angle}_${dxMm}`;
+      if (!this._dyCache) this._dyCache = new Map();
+      let alignedDyMm = this._dyCache.get(dyCacheKey);
+      if (alignedDyMm === undefined) {
+        alignedDyMm = this._findUniformDy(orient, dxMm, config, step);
+        this._dyCache.set(dyCacheKey, alignedDyMm);
+      }
+
       if (alignedDyMm != null) {
         variants.push({
           rowPlacements: uniformRowPlacements,
@@ -2594,10 +2657,9 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     const buildUniqueSequentialRows = (pOrient, aOrient, scanOrder, patternMode) => {
       const allRows = [];
       const height = Math.max(pOrient.height, aOrient.height);
-      const rangeY = height * 0.55;
-      const safeStep = Math.max(step, 1);
-      const candidateStep = Math.max(safeStep * 3, 8);
-      const precision = Math.min(step, 0.2);
+      const rangeY = height * 0.85; 
+      const candidateStep = Math.max(1, config.gridStep || 1); 
+      const precision = 0.25;
 
       const colShiftYCandidates = [0];
       for (let dy = candidateStep; dy <= rangeY; dy += candidateStep) {
@@ -2605,99 +2667,37 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         colShiftYCandidates.push(roundMetric(-dy, 3));
       }
 
-      const computePlacementsWidth = (placements) => {
-        if (!placements.length) return 0;
-        let minX = Infinity;
-        let maxX = -Infinity;
-        for (const p of placements) {
-          minX = Math.min(minX, p.x + p.orient.bb.minX);
-          maxX = Math.max(maxX, p.x + p.orient.bb.maxX);
-        }
-        return maxX - minX;
-      };
-
-      const findMinimalContinuousValueLocal = (minVal, maxVal, prec, isSafe) => {
-        let low = minVal;
-        let high = maxVal;
-        if (low > high) return null;
-        if (!isSafe(high)) return null;
-
-        let best = high;
-        while (high - low > prec) {
-          const mid = (low + high) / 2;
-          if (isSafe(mid)) {
-            best = mid;
-            high = mid;
-          } else {
-            low = mid;
-          }
-        }
-        return roundMetric(best, 3);
-      };
+      const dxMm = this._findUniformDx(pOrient, config, step);
 
       for (const colShiftYmm of colShiftYCandidates) {
-        const placements = [];
+        const rowPlacements = this._buildShiftedUniformPlacements(
+          pOrient,
+          100, 
+          1,
+          dxMm,
+          pOrient.height + config.spacing + step * 2,
+          0,
+          colShiftYmm,
+          0,
+          aOrient
+        );
 
-        for (let col = 0; ; col++) {
-          const orient = this._resolveBodyOrient(pOrient, aOrient, 'rows', 0, col);
-          const maxX = roundMetric(workWidth - orient.bb.maxX, 3);
-          if (maxX < -1e-6) break;
-
-          const itemId = `body_0_${col}`;
-          const yOffset = col % 2 === 1 ? colShiftYmm : 0;
-
-          if (!placements.length) {
-            const startX = roundMetric(Math.max(0, -orient.bb.minX), 3);
-            if (startX > maxX + 1e-6) break;
-            placements.push({
-              id: itemId,
-              orient,
-              x: startX,
-              y: yOffset
-            });
-            continue;
-          }
-
-          const previous = placements[placements.length - 1];
-          let minX = Math.max(0, roundMetric(previous.x - orient.width * 0.55, 3));
-
-          const candidateX = findMinimalContinuousValueLocal(minX, maxX, precision, (x) => {
-            for (const other of placements) {
-              if (
-                cachedPolygonsOverlap(
-                  orient.polygon,
-                  other.orient.polygon,
-                  { x, y: yOffset },
-                  { x: other.x, y: other.y },
-                  config.spacing,
-                  orient.bb,
-                  other.orient.bb
-                )
-              ) {
-                return false;
-              }
-            }
-            return true;
-          });
-
-          if (candidateX == null || candidateX + orient.bb.maxX > workWidth + 1e-6) {
+        const actualPlacements = [];
+        for (const p of rowPlacements) {
+          if (p.x + p.orient.bb.maxX <= workWidth + 1e-6) {
+            actualPlacements.push(p);
+          } else {
             break;
           }
-
-          placements.push({
-            id: itemId,
-            orient,
-            x: candidateX,
-            y: yOffset
-          });
         }
 
-        if (placements.length > 0) {
+        if (actualPlacements.length > 0) {
+          const rowWidth = getPlacementsRight(actualPlacements) - getPlacementsLeft(actualPlacements);
           allRows.push({
-            placements,
-            colShiftYmm,
-            width: computePlacementsWidth(placements),
-            count: placements.length
+            placements: actualPlacements,
+            count: actualPlacements.length,
+            width: rowWidth,
+            colShiftYmm
           });
         }
       }
@@ -2710,7 +2710,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         if (seen.has(key)) continue;
         seen.add(key);
         unique.push(item);
-        if (unique.length >= 2) break;
+        if (unique.length >= 12) break;
       }
 
       for (const item of unique) {
@@ -2724,11 +2724,8 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       }
     };
 
-    buildUniqueSequentialRows(orient, orient, 'sequential-double-contour', 'double-insole-sequential-row');
-
-    if (pairedOrient && normalizeAngleDegrees(pairedOrient.angle) !== normalizeAngleDegrees(orient.angle)) {
-      buildUniqueSequentialRows(orient, pairedOrient, 'paired-sequential-double-contour', 'double-insole-paired-sequential-row');
-    }
+    buildUniqueSequentialRows(orient, pairedOrient, 'alternating-double-contour', 'double-insole-alternating-row');
+    buildUniqueSequentialRows(orient, orient, 'same-side-double-contour', 'double-insole-same-side-row');
 
     for (const sequentialRow of sequentialRows) {
       const sequentialRowPlacements = sequentialRow.placements;
@@ -2774,7 +2771,13 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       }
     }
 
-    return limitDoubleContourVariants(variants, workHeight, config.doubleContourVariantLimit);
+    variants.sort((a, b) => {
+      const aScore = a.bodyCols * (a.bodyRows || 1);
+      const bScore = b.bodyCols * (b.bodyRows || 1);
+      return bScore - aScore;
+    });
+
+    return variants.slice(0, 6); // Keep top 6 most promising variants
   }
 
   _evaluateFootCandidateForAngles(sizeName, foot, polygon, config, workWidth, workHeight, angles) {
@@ -2785,10 +2788,10 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     const angleStates = [];
 
     for (const angle of angles) {
-      const orient = this._decorateOrient(sizeName, foot, polygon, angle, config, step);
+      const orient = this._decorateOrient(sizeName, 'X', polygon, angle, config, step);
       const pairedOrient = this._decorateOrient(
         sizeName,
-        foot,
+        'X',
         polygon,
         normalizeAngleDegrees(angle + 180),
         config,
@@ -2808,7 +2811,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
 
       if (config.allowRotate90 !== false) {
         const filler90Angle = (angle + 90) % 360;
-        filler90Orient = this._decorateOrient(sizeName, foot, polygon, filler90Angle, config, step);
+        filler90Orient = this._decorateOrient(sizeName, 'X', polygon, filler90Angle, config, step);
         filler90DxMm = this._findUniformDx(filler90Orient, config, step);
         if (filler90DxMm != null) {
           filler90DyMm = this._findUniformDy(filler90Orient, filler90DxMm, config, step);
@@ -2835,17 +2838,37 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
 
       for (const variant of variants) {
         const bodyCols = variant.bodyCols;
-        const bodyRows = this._countRows(variant.bodyHeightMm, variant.bodyDyMm, workHeight);
+        const maxCols = this._countCols(orient.width, variant.bodyDxMm, workWidth);
+        const bodyRows = this._countRows(variant.bodyHeightMm, variant.bodyDyMm, workHeight, variant.rowShiftYmm || 0);
         if (!bodyCols || !bodyRows) continue;
 
-        const bodyPlacements = this._buildRepeatedBodyPlacements(
-          variant.rowPlacements,
-          bodyRows,
-          variant.bodyDyMm,
-          0,
-          variant.rowShiftXmm,
-          variant.rowShiftYmm
-        );
+        const bodyPlacements = [];
+        const startX = variant.rowShiftXmm < 0 ? -variant.rowShiftXmm : 0;
+        const startY = -Math.min(0, variant.rowShiftYmm);
+
+        for (let row = 0; row < bodyRows; row++) {
+          const isOddRow = row % 2 === 1;
+          const shiftX = isOddRow ? variant.rowShiftXmm : 0;
+          const shiftY = isOddRow ? variant.rowShiftYmm : 0;
+          
+          // Use maxCols instead of fixed bodyCols to allow rows to fill available width independently
+          for (let col = 0; col < maxCols; col++) {
+            const rowPlacement = variant.rowPlacements[col % variant.rowPlacements.length];
+            const itemX = roundMetric(startX + rowPlacement.x + shiftX, 3);
+            const itemY = roundMetric(startY + rowPlacement.y + row * variant.bodyDyMm + shiftY, 3);
+
+            if (itemX + orient.width > workWidth + 1e-6) continue;
+            if (itemY + orient.height > workHeight + 1e-6) continue;
+
+            bodyPlacements.push({
+              id: `body_${row}_${col}`,
+              orient: rowPlacement.orient,
+              x: itemX,
+              y: itemY
+            });
+          }
+        }
+
         const bodyOnlyCandidate = this._buildCandidate(
           sizeName,
           foot,
@@ -2887,11 +2910,15 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
           workHeight,
           config
         );
-        const finalizedBodyOnlyCandidate = bodyOnlyCandidate ? this._finalizeCandidate(bodyOnlyCandidate, config) : null;
-        if (finalizedBodyOnlyCandidate && compareDoubleInsoleCandidates(finalizedBodyOnlyCandidate, bestCandidate) < 0) {
-          bestCandidate = finalizedBodyOnlyCandidate;
+        if (candidatePool.length < 3) {
+          const finalizedBodyOnlyCandidate = bodyOnlyCandidate ? this._finalizeCandidate(bodyOnlyCandidate, config, workWidth, workHeight) : null;
+          if (finalizedBodyOnlyCandidate && compareDoubleInsoleCandidates(finalizedBodyOnlyCandidate, bestCandidate) < 0) {
+            bestCandidate = finalizedBodyOnlyCandidate;
+          }
+          if (finalizedBodyOnlyCandidate) addRankedCandidate(candidatePool, finalizedBodyOnlyCandidate, config.preparedSplitFillCandidateLimit);
+        } else if (bodyOnlyCandidate) {
+          addRankedCandidate(candidatePool, bodyOnlyCandidate, config.preparedSplitFillCandidateLimit);
         }
-        addRankedCandidate(candidatePool, finalizedBodyOnlyCandidate, config.preparedSplitFillCandidateLimit);
       }
     }
 
@@ -2910,7 +2937,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       for (const variant of variants) {
         const bodyCols = variant.bodyCols;
         if (!bodyCols) continue;
-        const bodyRowsNoFiller = this._countRows(variant.bodyHeightMm, variant.bodyDyMm, workHeight);
+        const bodyRowsNoFiller = this._countRows(variant.bodyHeightMm, variant.bodyDyMm, workHeight, variant.rowShiftYmm || 0);
         if (!bodyRowsNoFiller) continue;
 
         const bodyOnlyCount = bodyCols * bodyRowsNoFiller;
@@ -3055,14 +3082,16 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
                     )
                     : [];
                   const fillerPlacements = [...topFillerPlacements, ...bottomFillerPlacements];
-                  const placements = [...topFillerPlacements, ...bodyPlacements, ...bottomFillerPlacements];
+                  const totalPlacedCount = bodyPlacements.length + fillerPlacements.length;
+                  if (bestCandidate && totalPlacedCount < bestCandidate.placedCount - 2) continue;
 
-                  const candidate = this._buildCandidate(
+                  const candidate = {
                     sizeName,
                     foot,
                     pieceArea,
-                    placements,
-                    {
+                    placements: [...topFillerPlacements, ...bodyPlacements, ...bottomFillerPlacements],
+                    placedCount: totalPlacedCount,
+                    patternInfo: {
                       rowMode: 'uniform',
                       bodyCount: bodyPlacements.length,
                       bodyCols,
@@ -3099,17 +3128,14 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
                       fillerRotationOffset: 0,
                       fillerStartPattern: fillerPlacements.length > 0 ? 'uniform-90' : 'none',
                       scanOrder: fillerPlacements.length > 0 ? `${variant.scanOrder}-with-rotated-filler` : variant.scanOrder
-                    },
-                    workWidth,
-                    workHeight,
-                    config
-                  );
+                    }
+                  };
 
-                  const finalizedCandidate = candidate ? this._finalizeCandidate(candidate, config) : null;
-                  if (finalizedCandidate && compareDoubleInsoleCandidates(finalizedCandidate, bestCandidate) < 0) {
-                    bestCandidate = finalizedCandidate;
+                  if (!bestCandidate || compareDoubleInsoleCandidates(candidate, bestCandidate) < 0) {
+                    const finalizedVariant = this._finalizeCandidate(candidate, config, workWidth, workHeight);
+                    if (finalizedVariant) bestCandidate = finalizedVariant;
                   }
-                  addRankedCandidate(candidatePool, finalizedCandidate, config.preparedSplitFillCandidateLimit);
+                  addRankedCandidate(candidatePool, candidate, config.preparedSplitFillCandidateLimit);
                 }
               }
             }
@@ -3119,9 +3145,10 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     }
 
     if (config.preparedSplitFillEnabled === true && candidatePool.length) {
-      const splitCandidates = candidatePool.length ? candidatePool : [bestCandidate];
+      const splitCandidates = candidatePool.map(c => c.placed ? c : this._finalizeCandidate(c, config, workWidth, workHeight));
       for (const candidate of splitCandidates) {
-        if (!candidate?.placements?.length) continue;
+        if (!candidate) continue;
+        if (!candidate.placements?.length) continue;
         const augmentedCandidate = this._augmentCandidateWithSplitFillers(
           sizeName,
           polygon,
@@ -3137,6 +3164,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
 
     }
 
+    if (this._dyCache) this._dyCache.clear();
     return bestCandidate;
   }
 
@@ -3151,6 +3179,10 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       workHeight,
       preferredAngles
     );
+
+    if (bestCandidate && bestCandidate.efficiency > 75) {
+      return bestCandidate;
+    }
 
     const fallbackSameSideCandidate = CapacityTestSameSidePattern.prototype._evaluateFootCandidate.call(
       this,
@@ -3206,9 +3238,10 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       }
 
       return {
-        id: `${sizeName}_${placement.orient.foot}_${index}`,
+        id: `${sizeName}_${placement.orient.foot || 'X'}_${index}`,
         sizeName,
-        foot: placement.orient.foot,
+        foot: placement.orient.foot || 'X',
+        pieceCount: (placement.orient.foot === 'L' || placement.orient.foot === 'split-left' || placement.orient.foot === 'R' || placement.orient.foot === 'split-right') ? 1 : 2,
         x: roundMetric(worldX, 3),
         y: roundMetric(worldY, 3),
         angle: placement.orient.angle,
@@ -3225,13 +3258,25 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     return { placed: items, renderTemplates };
   }
 
-  _finalizeCandidate(candidate, config) {
+  _finalizeCandidate(candidate, config, workWidth, workHeight) {
     if (!candidate?.placements?.length) return null;
 
     const bounds = candidate.bounds || computeEnvelope(candidate.placements);
     const materialized = this._materializePlacedItems(candidate.sizeName, candidate.placements, config);
     const usedAreaMm2 = candidate.usedAreaMm2
       ?? materialized.placed.reduce((sum, item) => sum + (item.areaMm2 || 0), 0);
+
+    const totalPieces = materialized.placed.reduce((sum, item) => sum + (item.pieceCount ?? 1), 0);
+    const pairs = totalPieces / 2;
+
+    let l = 0, r = 0, dc = 0;
+    if (materialized.placed) {
+      for (const p of materialized.placed) {
+        if (p.foot === 'L' || p.foot === 'split-left') l++;
+        else if (p.foot === 'R' || p.foot === 'split-right') r++;
+        else dc++;
+      }
+    }
 
     return {
       ...candidate,
@@ -3240,12 +3285,18 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       usedAreaMm2,
       envelopeWasteMm2: roundMetric(Math.max(0, bounds.width * bounds.height - usedAreaMm2)),
       ...materialized,
+      placedCount: totalPieces,
+      pairs: pairs,
+      actualPairs: pairs,
+      dcCount: dc,
+      splitPairCount: Math.min(l, r),
+      splitUnpairedCount: Math.max(l, r) - Math.min(l, r),
       bounds
     };
   }
 
   _buildSheetFromCandidate(sizeName, candidate, config, totalArea) {
-    const placedCount = candidate.placed.length;
+    const placedCount = candidate.placedCount ?? candidate.placed.reduce((sum, item) => sum + (item.pieceCount ?? 1), 0);
     const usedAreaMm2 = candidate.usedAreaMm2
       ?? candidate.placed.reduce((sum, item) => sum + (item.areaMm2 || 0), 0);
     const efficiency = totalArea > 0
@@ -3259,6 +3310,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       sheetWidth: config.sheetWidth,
       sheetHeight: config.sheetHeight,
       placedCount,
+      actualPairs: candidate.actualPairs,
       efficiency,
       patternInfo: {
         algorithmVersion: DOUBLE_CONTOUR_ALGORITHM_VERSION,
@@ -3325,11 +3377,21 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       uncachedTasks,
       (task) => estimateDoubleContourTaskWeight(task.size, task.config)
     );
-    const workerResults = orderedTasks.length
-      ? await executeDoubleContourTasksInParallel(orderedTasks, workerCount)
-      : [];
     const sheetsBySize = {};
     const summary = [];
+
+    console.log(`[DoubleContour] Starting parallel processing of ${orderedTasks.length} tasks with ${workerCount} workers...`);
+
+    const workerResults = orderedTasks.length
+      ? await executeDoubleContourTasksInParallel(orderedTasks, workerCount, (taskIndex, status) => {
+          const task = orderedTasks.find(t => t.index === taskIndex);
+          if (status === 'started') {
+            console.log(`  - Size ${task.size.sizeName}: Started`);
+          } else if (status === 'done') {
+            console.log(`  - Size ${task.size.sizeName}: Completed`);
+          }
+        })
+      : [];
 
     for (const task of uncachedTasks) {
       const workerResult = workerResults[task.index];
@@ -3350,8 +3412,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       sheetsBySize[summaryItem.sizeName] = sheet;
     }
 
-
-
+    // enforceMonotonicity(summary, sheetsBySize);
     const defaultSizeName = sizeList[0]?.sizeName || null;
     const defaultSheet = defaultSizeName ? sheetsBySize[defaultSizeName] : null;
 

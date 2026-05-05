@@ -27,7 +27,7 @@ async function run() {
   };
 
   // Test a single medium size for quick comparison
-  const sizeIndex = 2;
+  const sizeIndex = 10; // Size 8.5
   const testSize = {
     ...shapes[sizeIndex],
     sizeName: shapes[sizeIndex].sizeName || shapes[sizeIndex].name || `Size-${sizeIndex}`
