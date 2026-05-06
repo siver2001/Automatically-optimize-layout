@@ -1571,7 +1571,12 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
 
     if (!isSafe(currentX, currentY)) return candidate;
 
-    const directions = [
+    const distLeft = currentX - minX;
+    const distRight = maxX - currentX;
+    const distTop = currentY - minY;
+    const distBottom = maxY - currentY;
+
+    let directions = [
       { axis: 'x', sign: -1, id: 'left' },
       { axis: 'x', sign: 1, id: 'right' },
       { axis: 'y', sign: -1, id: 'top' },
@@ -1587,11 +1592,14 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         'bottom': 'top'
       }[preferredSide];
 
+      // NÂNG CẤP THUẬT TOÁN: Lọc bỏ hướng đối nghịch (opposite) để tránh việc mảnh lẻ
+      // vừa trượt ra biên lại bị "dội" (bounce) trượt ngược về phía body.
+      // Điều này đảm bảo mảnh lẻ bám sát tuyệt đối vào biên (preferredSide).
+      directions = directions.filter(dir => dir.id !== opposite);
+
       directions.sort((a, b) => {
         if (a.id === preferredSide) return -1;
         if (b.id === preferredSide) return 1;
-        if (a.id === opposite) return 1;
-        if (b.id === opposite) return -1;
         return 0;
       });
     }
