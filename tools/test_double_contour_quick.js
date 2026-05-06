@@ -26,38 +26,46 @@ async function run() {
     capacityLayoutMode: 'same-side-double-contour',
   };
 
-  // Test a single medium size for quick comparison
-  const sizeIndex = 10; // Size 8.5
-  const testSize = {
-    ...shapes[sizeIndex],
-    sizeName: shapes[sizeIndex].sizeName || shapes[sizeIndex].name || `Size-${sizeIndex}`
-  };
+  const sizesToTest = shapes.filter(s => {
+    const name = s.sizeName || s.name || '';
+    return name === '3.5' || name === '4' || name.includes('3.5') || name.includes('4');
+  });
 
-  console.log(`Testing size: ${testSize.sizeName} (index ${sizeIndex})\n`);
+  console.log(`Found ${sizesToTest.length} sizes to test.`);
 
-  const nester = new CapacityTestDoubleInsoleDoubleContourPattern(config);
-  
-  const startTime = Date.now();
-  const result = await nester.testCapacity([testSize], config);
-  const elapsed = Date.now() - startTime;
-  
-  if (result && result.success) {
-    const item = result.summary[0];
-    const sheet = result.sheetsBySize?.[item.sizeName];
-    const info = sheet?.patternInfo || {};
+  for (const testSize of sizesToTest) {
+    if (!['3.5', '4'].includes(testSize.sizeName) && !['3.5', '4'].includes(testSize.name)) continue;
     
-    console.log('--- Result ---');
-    console.log(`Placed: ${item.placedCount} pieces`);
-    console.log(`Pairs: ${item.pairs}`);
-    console.log(`Efficiency: ${item.efficiency}%`);
-    console.log(`Pattern: ${info.scanOrder}`);
-    console.log(`Body: ${info.bodyCols}x${info.bodyRows}`);
-    console.log(`dx=${info.bodyDxMm}, dy=${info.bodyDyMm}`);
-    console.log(`rowShiftX=${info.rowShiftXmm}, rowShiftY=${info.rowShiftYmm}`);
-    console.log(`colShiftY=${info.colShiftYmm || 0}`);
-    console.log(`bodyPatternMode: ${info.bodyPatternMode}`);
-    console.log(`Split fill: ${info.splitFillCount || 0}`);
-    console.log(`Time: ${elapsed}ms`);
+    console.log(`\n================================================`);
+    console.log(`Testing size: ${testSize.sizeName || testSize.name}`);
+    console.log(`================================================`);
+
+    const nester = new CapacityTestDoubleInsoleDoubleContourPattern(config);
+    
+    const startTime = Date.now();
+    const result = await nester.testCapacity([testSize], config);
+    const elapsed = Date.now() - startTime;
+    
+    if (result && result.success) {
+      const item = result.summary[0];
+      const sheet = result.sheetsBySize?.[item.sizeName];
+      const info = sheet?.patternInfo || {};
+      
+      console.log('--- Result ---');
+      console.log(`Placed: ${item.placedCount} pieces`);
+      console.log(`Pairs: ${item.pairs}`);
+      console.log(`Efficiency: ${item.efficiency}%`);
+      console.log(`Pattern: ${info.scanOrder}`);
+      console.log(`Body: ${info.bodyCols}x${info.bodyRows}`);
+      console.log(`dx=${info.bodyDxMm}, dy=${info.bodyDyMm}`);
+      console.log(`rowShiftX=${info.rowShiftXmm}, rowShiftY=${info.rowShiftYmm}`);
+      console.log(`colShiftY=${info.colShiftYmm || 0}`);
+      console.log(`bodyPatternMode: ${info.bodyPatternMode}`);
+      console.log(`Split fill: ${info.splitFillCount || 0}`);
+      console.log(`Split pairs: ${info.splitPairCount || 0}`);
+      console.log(`Split unpaired: ${info.splitUnpairedCount || 0}`);
+      console.log(`Time: ${elapsed}ms`);
+    }
   }
 }
 
