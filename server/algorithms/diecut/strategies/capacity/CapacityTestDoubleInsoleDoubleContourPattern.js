@@ -29,10 +29,10 @@ import { DOUBLE_CONTOUR_ALGORITHM_VERSION } from './capacityVersion.js';
 
 const DOUBLE_CONTOUR_CAPACITY_WORKER_URL = new URL('../../../workers/diecutCapacitySameSideWorker.js', import.meta.url);
 
-const MAX_SHIFT_CANDIDATES = 15;
-const MAX_ROW_SHIFT_PAIR_CANDIDATES = 15;
-const SHIFT_SCAN_LIMIT = 30;
-const INTERNAL_GAP_SAMPLE_RATIOS = [0.08, 0.12, 0.16, 0.22, 0.28, 0.34, 0.66, 0.72, 0.78, 0.84, 0.9];
+const MAX_SHIFT_CANDIDATES = 30;
+const MAX_ROW_SHIFT_PAIR_CANDIDATES = 30;
+const SHIFT_SCAN_LIMIT = 50;
+const INTERNAL_GAP_SAMPLE_RATIOS = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95];
 const MAX_SPLIT_FILL_SAFETY_MULTIPLIER = 1.25;
 const MIN_SPLIT_HALF_AREA_RATIO = 0.18;
 const MAX_SPLIT_HALF_AREA_RATIO = 0.82;
@@ -111,6 +111,14 @@ function attachLeftoverMetrics(candidate, workWidth, workHeight) {
 
 function compareDoubleInsoleCandidates(nextCandidate, bestCandidate) {
   if (!bestCandidate) return -1;
+
+  const getActualPairs = (c) => c.actualPairs ?? c.pairs ?? ((c.placedCount || 0) / 2);
+  const nextActual = getActualPairs(nextCandidate);
+  const bestActual = getActualPairs(bestCandidate);
+  
+  if (nextActual !== bestActual) {
+    return bestActual - nextActual;
+  }
 
   const nextPairs = getWholePairsPlaced(nextCandidate);
   const bestPairs = getWholePairsPlaced(bestCandidate);
@@ -376,36 +384,32 @@ function rankDoubleContourVariant(variant, workWidth, workHeight) {
 }
 
 
-function buildRowShiftPairs(orient, step, primaryShiftCandidates) {
-  const shiftYRange = Math.max(0, (orient?.height || 0) * 0.55);
-  const yCandidates = selectPrimaryRowShiftCandidates(
-    [],
-    buildShiftCandidates(shiftYRange, step, 7),
-    7
-  );
-  const xRank = new Map(primaryShiftCandidates.map((value, index) => [roundMetric(value, 3), index]));
+function buildRowShiftPairs(orient, step, shiftXCandidates) {
   const pairs = [];
+  const shiftYCandidates = [0];
+  
+  if (orient && orient.height) {
+    const safeStep = Math.max(step, 1);
+    const range = Math.min(orient.height * 0.15, 10);
+    for (let y = safeStep; y <= range; y += safeStep * 2) {
+      shiftYCandidates.push(roundMetric(y));
+      shiftYCandidates.push(roundMetric(-y));
+    }
+  }
 
-  for (const rowShiftXmm of primaryShiftCandidates) {
-    for (const rowShiftYmm of yCandidates) {
-      if (
-        Math.abs(rowShiftXmm) < Math.max(step, 0.25) * 0.5 &&
-        Math.abs(rowShiftYmm) < Math.max(step, 0.25) * 0.5
-      ) {
-        continue;
-      }
-
+  for (const x of shiftXCandidates) {
+    for (const y of shiftYCandidates) {
       pairs.push({
-        rowShiftXmm: roundMetric(rowShiftXmm, 3),
-        rowShiftYmm: roundMetric(rowShiftYmm, 3)
+        rowShiftXmm: roundMetric(x),
+        rowShiftYmm: roundMetric(y)
       });
     }
   }
 
-  return pairs
-    .sort((left, right) =>
+  return pairs.sort((left, right) =>
       (left.rowShiftYmm === 0 ? 0 : 1) - (right.rowShiftYmm === 0 ? 0 : 1)
-      || (xRank.get(left.rowShiftXmm) ?? 999) - (xRank.get(right.rowShiftXmm) ?? 999)
+      || Math.abs(left.rowShiftXmm) - Math.abs(right.rowShiftXmm)
+      || left.rowShiftXmm - right.rowShiftXmm
       || Math.abs(left.rowShiftYmm) - Math.abs(right.rowShiftYmm)
       || left.rowShiftYmm - right.rowShiftYmm
     )
@@ -947,29 +951,8 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     return DEFAULT_DOUBLE_CONTOUR_FINE_ROTATE_OFFSETS;
   }
 
-  _getDoubleContourPreferredAngles(config = {}) {
-    if (Array.isArray(config.doubleContourPreferredAngles) && config.doubleContourPreferredAngles.length) {
-      return [...new Set(
-        config.doubleContourPreferredAngles
-          .map((angle) => Number(angle))
-          .filter((angle) => Number.isFinite(angle))
-          .map((angle) => normalizeAngleDegrees(angle))
-      )];
-    }
-
-    const offsets = this._getDoubleContourFineRotateOffsets(config);
-    const preferredAngles = [];
-    const baseAngles = [0];
-    if (config.allowRotate90 !== false) {
-      baseAngles.push(90);
-    }
-
-    for (const baseAngle of baseAngles) {
-      for (const offset of offsets) {
-        preferredAngles.push(normalizeAngleDegrees(baseAngle + offset));
-      }
-    }
-    return [...new Set(preferredAngles)];
+  _getDoubleContourPreferredAngles(sizeName, config = {}) {
+    return [0, 90, 180, 270];
   }
 
   _buildShiftedUniformNeighborhood(orient, dxMm, rowPitchMm, rowShiftXmm = 0, rowShiftYmm = 0) {
@@ -1024,7 +1007,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     return roundMetric(high, 3);
   }
 
-  _buildShiftedUniformPlacements(orient, cols, rows, dxMm, dyMm, rowShiftXmm = 0, rowShiftYmm = 0, startY = 0) {
+  _buildShiftedUniformPlacements(orient, cols, rows, dxMm, dyMm, rowShiftXmm = 0, rowShiftYmm = 0, startY = 0, alternateOrient = null) {
     const placements = [];
     const baseX = rowShiftXmm < 0 ? -rowShiftXmm : 0;
     const baseY = startY - Math.min(0, rowShiftYmm);
@@ -1035,9 +1018,12 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       const shiftY = isOddRow ? rowShiftYmm : 0;
 
       for (let col = 0; col < cols; col++) {
+        const isOddCol = col % 2 === 1;
+        const currentOrient = (isOddCol && alternateOrient) ? alternateOrient : orient;
+
         placements.push({
           id: `double_insole_${row}_${col}`,
-          orient,
+          orient: currentOrient,
           x: roundMetric(baseX + col * dxMm + shiftX, 3),
           y: roundMetric(baseY + startY + row * dyMm + shiftY, 3)
         });
@@ -2073,8 +2059,6 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       return false;
     };
 
-    // Khôi phục việc sinh ứng viên dọc theo các cạnh của mảnh đã xếp,
-    // vì đây là cách duy nhất để lấp đầy các khoảng trống lồi lõm (jagged edges) của khối chính.
     for (const orient of orientVariants) {
       if (filterFn && !filterFn(orient)) continue;
       let orientOptions = 0;
@@ -2377,12 +2361,8 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       addOrigin(maxX, y);
     }
 
-    // Sinh vị trí ngẫu nhiên dọc theo các cạnh của khối chính, NHƯNG LỌC bằng freeRects
-    // để loại bỏ các vị trí nằm sâu bên trong khối chính (nơi chắc chắn sẽ va chạm).
-    // Tính freeRects một lần
     const freeRects = this._buildPreparedSplitFreeRects(occupiedPlacements, workWidth, workHeight, 0);
     
-    // Hàm kiểm tra nhanh xem một bounding box có nằm trong vùng trống không
     const intersectsFreeSpace = (minX, minY, maxX, maxY) => {
       for (const rect of freeRects) {
         if (maxX > rect.x && minX < rect.x + rect.width &&
@@ -2396,7 +2376,6 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     for (const placement of occupiedPlacements) {
       const bounds = this._getPlacementBounds(placement);
       
-      // Chỉ xét mảnh nếu nó chạm vào freeSpace
       if (!intersectsFreeSpace(bounds.minX, bounds.minY, bounds.maxX, bounds.maxY)) {
         continue;
       }
@@ -2413,7 +2392,6 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
             const ox = origin.x + dx;
             const oy = origin.y + dy;
             
-            // Lọc các origin nằm sâu trong body
             if (intersectsFreeSpace(ox, oy, ox + template.width, oy + template.height)) {
               addOrigin(ox, oy);
             }
@@ -2555,8 +2533,6 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
             });
           }
 
-          // TỐI ƯU HÓA ĐỘT PHÁ: Nếu ghép được đôi (pair), KHÔNG CẦN tìm mảnh lẻ nữa.
-          // Ép thuật toán luôn dùng đôi nếu có thể, giúp lấp đầy cực nhanh và cắt giảm 80% số nhánh tìm kiếm.
           if (groupOptions.length > 0) {
             continue;
           }
@@ -2661,7 +2637,6 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
 
     const remainingX = Math.max(0, workWidth - maxX);
     const remainingY = Math.max(0, workHeight - maxY);
-    // Khôi phục 4 trường hợp tịnh tiến để vét cạn các góc lồi lõm của hình
     const shiftVariants = [{ dx: 0, dy: 0 }];
     const minShift = 10;
     
@@ -3067,7 +3042,6 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
           const shiftX = isOddRow ? variant.rowShiftXmm : 0;
           const shiftY = isOddRow ? variant.rowShiftYmm : 0;
           
-          // Use maxCols instead of fixed bodyCols to allow rows to fill available width independently
           for (let col = 0; col < maxCols; col++) {
             const rowPlacement = variant.rowPlacements[col % variant.rowPlacements.length];
             const itemX = roundMetric(startX + rowPlacement.x + shiftX, 3);
@@ -3391,7 +3365,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
   }
 
   _evaluateFootCandidate(sizeName, foot, polygon, config, workWidth, workHeight) {
-    const preferredAngles = this._getDoubleContourPreferredAngles(config);
+    const preferredAngles = this._getDoubleContourPreferredAngles(sizeName, config);
     let bestCandidate = this._evaluateFootCandidateForAngles(
       sizeName,
       foot,

@@ -23,6 +23,7 @@ async function run() {
     gridStep: 1,
     preparedSplitFillEnabled: true,
     capacityLayoutMode: 'same-side-double-contour',
+    allowRotate180: true,
     parallelSizes: true // Use parallel processing for speed
   };
 
