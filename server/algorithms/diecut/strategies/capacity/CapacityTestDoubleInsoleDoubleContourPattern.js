@@ -418,8 +418,8 @@ function buildRowShiftPairs(orient, step, shiftXCandidates) {
     || Math.abs(a.rowShiftXmm) - Math.abs(b.rowShiftXmm)
   );
 
-  const y0Limit = sizeVal <= 5 ? 80 : (sizeVal >= 10 ? 40 : 60);
-  const yShiftLimit = sizeVal <= 5 ? 120 : (sizeVal >= 10 ? 60 : 80);
+  const y0Limit = sizeVal <= 5 ? 80 : (sizeVal >= 8 ? 20 : 60);
+  const yShiftLimit = sizeVal <= 5 ? 120 : (sizeVal >= 8 ? 30 : 80);
 
   // Increase limits to explore more interlocking possibilities
   const combined = [...y0Pairs.slice(0, y0Limit), ...yShiftPairs.slice(0, yShiftLimit)];
@@ -968,7 +968,17 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
   }
 
   _getDoubleContourPreferredAngles(sizeName, config = {}) {
-    return [0, 90, 180, 270];
+    const sizeVal = parseFloat(sizeName);
+    const baseAngles = [0, 90, 180, 270];
+    if (sizeVal <= 5) {
+      // Small +/- 1.5 degree nudges for very small sizes to fine-tune interlocking
+      const nudged = [];
+      for (const a of baseAngles) {
+        nudged.push(a, (a + 1.5) % 360, (a + 358.5) % 360);
+      }
+      return [...new Set(nudged)];
+    }
+    return baseAngles;
   }
 
   _buildShiftedUniformNeighborhood(orient, dxMm, rowPitchMm, rowShiftXmm = 0, rowShiftYmm = 0) {
@@ -1097,6 +1107,65 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     while (high - low > precision) {
       const mid = (low + high) / 2;
       if (validatePitch(mid)) high = mid;
+      else low = mid;
+    }
+
+    return roundMetric(high, 3);
+  }
+
+  _findAlignedBodyDxWithShift(primaryOrient, alternateOrient, colShiftYmm, config, step) {
+    const precision = Math.min(step, 0.05);
+    const spacing = config.spacing || 0;
+    const upper = Math.max(primaryOrient.width, alternateOrient.width) * 2 + spacing + step * 8;
+
+    const validateDx = (dx) => {
+      // For alternating row [P, A, P, A...], we need dx to be safe for:
+      // 1. P and A at relative offset (dx, colShiftYmm)
+      if (cachedPolygonsOverlap(
+        primaryOrient.polygon, alternateOrient.polygon,
+        { x: 0, y: 0 },
+        { x: dx, y: colShiftYmm },
+        spacing,
+        primaryOrient.bb, alternateOrient.bb
+      )) return false;
+
+      // 2. A and P at relative offset (dx, -colShiftYmm)
+      if (cachedPolygonsOverlap(
+        alternateOrient.polygon, primaryOrient.polygon,
+        { x: 0, y: 0 },
+        { x: dx, y: -colShiftYmm },
+        spacing,
+        alternateOrient.bb, primaryOrient.bb
+      )) return false;
+
+      // 3. P and P at relative offset (2*dx, 0)
+      if (cachedPolygonsOverlap(
+        primaryOrient.polygon, primaryOrient.polygon,
+        { x: 0, y: 0 },
+        { x: 2 * dx, y: 0 },
+        spacing,
+        primaryOrient.bb, primaryOrient.bb
+      )) return false;
+
+      // 4. A and A at relative offset (2*dx, 0)
+      if (cachedPolygonsOverlap(
+        alternateOrient.polygon, alternateOrient.polygon,
+        { x: 0, y: 0 },
+        { x: 2 * dx, y: 0 },
+        spacing,
+        alternateOrient.bb, alternateOrient.bb
+      )) return false;
+
+      return true;
+    };
+
+    let low = step;
+    let high = upper;
+    if (!validateDx(high)) return null;
+
+    while (high - low > precision) {
+      const mid = (low + high) / 2;
+      if (validateDx(mid)) high = mid;
       else low = mid;
     }
 
@@ -3106,10 +3175,16 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
 
       const colShiftYCandidates = [0];
       // Pruned Y shifts: try 0, 1/4, 1/2, 3/4 of height (geometric landmarks)
-      const landmarks = [0.25, 0.5, 0.75];
+      const landmarks = (sizeVal <= 4.5) ? [0.1, 0.25, 0.5, 0.75, 0.9] : [0.25, 0.5, 0.75];
       for (const ratio of landmarks) {
         const dy = roundMetric(height * ratio, 3);
         colShiftYCandidates.push(dy, -dy);
+      }
+      
+      // If same orient, colShiftY is mostly redundant with rowShiftY
+      if (pOrient.angle === aOrient.angle) {
+        colShiftYCandidates.length = 0;
+        colShiftYCandidates.push(0);
       }
 
       // KEY IMPROVEMENT: When alternating orientations (pOrient ≠ aOrient),
@@ -3124,7 +3199,23 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       // Use the tighter of the two, but only if aligned dx is valid
       const dxMm = (alignedDx != null && alignedDx < uniformDx) ? alignedDx : uniformDx;
 
+      if (!this._dxCache) this._dxCache = new Map();
+
+      let bestDxInRow = Infinity;
       for (const colShiftYmm of colShiftYCandidates) {
+        // Compute the optimal dx for THIS specific colShiftYmm
+        const dxCacheKey = `${pOrient.angle}_${aOrient.angle}_${colShiftYmm}`;
+        let dxMm = this._dxCache.get(dxCacheKey);
+        if (dxMm === undefined) {
+          const currentDxMm = this._findAlignedBodyDxWithShift(pOrient, aOrient, colShiftYmm, config, step);
+          dxMm = (currentDxMm != null && currentDxMm < uniformDx) ? currentDxMm : uniformDx;
+          this._dxCache.set(dxCacheKey, dxMm);
+        }
+
+        // Heuristic: If this dx is much worse than the best we've seen for this row, skip
+        if (dxMm > bestDxInRow + step * 2) continue;
+        if (dxMm < bestDxInRow) bestDxInRow = dxMm;
+
         const rowPlacements = this._buildShiftedUniformPlacements(
           pOrient,
           100, 
@@ -3637,6 +3728,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     }
 
     if (this._dyCache) this._dyCache.clear();
+    if (this._dxCache) this._dxCache.clear();
     return bestCandidate;
   }
 
