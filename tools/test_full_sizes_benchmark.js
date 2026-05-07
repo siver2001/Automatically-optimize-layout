@@ -24,16 +24,19 @@ async function run() {
     preparedSplitFillEnabled: true,
     capacityLayoutMode: 'same-side-double-contour',
     allowRotate180: true,
-    parallelSizes: true // Use parallel processing for speed
+    parallelSizes: true // Restore parallel for speed
   };
 
   const nester = new CapacityTestDoubleInsoleDoubleContourPattern(config);
 
-  // Test all sizes
+  // Test sizes 3.5 to 14
   const testSizes = shapes.map(shape => ({
     ...shape,
     sizeName: shape.sizeName || shape.name || 'Unknown'
-  }));
+  })).filter(s => {
+    const val = parseFloat(s.sizeName);
+    return val >= 3.5 && val <= 14;
+  });
 
   console.log(`Running capacity test for ${testSizes.length} sizes...`);
   console.log(`Config: ${config.sheetWidth}x${config.sheetHeight}, margin ${config.marginX}/${config.marginY}, spacing ${config.spacing}\n`);
