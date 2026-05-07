@@ -51,28 +51,93 @@ const MAX_SPLIT_PAIR_GROUP_OPTIONS_PER_STATE = 3;
 const MAX_SPLIT_PAIR_TEMPLATES = 16;
 const MAX_DOUBLE_CONTOUR_VARIANTS_PER_ANGLE = 6;
 const DEFAULT_DOUBLE_CONTOUR_FINE_ROTATE_OFFSETS = [0];
-const MAX_SPLIT_AUGMENT_CANDIDATES = 1;
-const DEEP_SPLIT_AUGMENT_CANDIDATES = 1;
+const MAX_SPLIT_AUGMENT_CANDIDATES = 6;
+const DEEP_SPLIT_AUGMENT_CANDIDATES = 8;
+
+function getWholePairsPlaced(candidate = {}) {
+  const pairValue = candidate.maxPairsPlaced
+    ?? candidate.actualPairs
+    ?? candidate.pairs
+    ?? Math.floor((candidate.placedCount || 0) / 2);
+  return Math.max(0, Math.floor(Number(pairValue) || 0));
+}
+
+function computeLeftoverMetricsFromBounds(bounds, workWidth, workHeight, usedAreaMm2 = 0) {
+  if (!bounds || !Number.isFinite(workWidth) || !Number.isFinite(workHeight)) {
+    return {
+      leftoverAreaMm2: 0,
+      openSheetAreaMm2: 0,
+      remainingSheetAreaMm2: 0
+    };
+  }
+
+  const sheetArea = Math.max(0, workWidth * workHeight);
+  const envelopeArea = Math.max(0, bounds.width * bounds.height);
+  const leftStripArea = Math.max(0, bounds.minX) * workHeight;
+  const rightStripArea = Math.max(0, workWidth - bounds.maxX) * workHeight;
+  const topStripArea = Math.max(0, bounds.minY) * workWidth;
+  const bottomStripArea = Math.max(0, workHeight - bounds.maxY) * workWidth;
+
+  return {
+    leftoverAreaMm2: roundMetric(Math.max(leftStripArea, rightStripArea, topStripArea, bottomStripArea), 3),
+    openSheetAreaMm2: roundMetric(Math.max(0, sheetArea - envelopeArea), 3),
+    remainingSheetAreaMm2: roundMetric(Math.max(0, sheetArea - usedAreaMm2), 3)
+  };
+}
+
+function computeCandidateUsedArea(candidate = {}) {
+  if (Number.isFinite(candidate.usedAreaMm2)) return candidate.usedAreaMm2;
+  if (candidate.placements?.length) {
+    return candidate.placements.reduce((sum, placement) =>
+      sum + (placement.effectiveArea || placement.orient?.areaMm2 || candidate.pieceArea || 0),
+    0);
+  }
+  if (candidate.placed?.length) {
+    return candidate.placed.reduce((sum, item) => sum + (item.areaMm2 || 0), 0);
+  }
+  return (candidate.placedCount || 0) * (candidate.pieceArea || 0);
+}
+
+function attachLeftoverMetrics(candidate, workWidth, workHeight) {
+  if (!candidate) return candidate;
+  const bounds = candidate.bounds || (candidate.placements?.length ? computeEnvelope(candidate.placements) : null);
+  const usedAreaMm2 = computeCandidateUsedArea(candidate);
+  return {
+    ...candidate,
+    maxPairsPlaced: getWholePairsPlaced(candidate),
+    ...computeLeftoverMetricsFromBounds(bounds, workWidth, workHeight, usedAreaMm2)
+  };
+}
 
 function compareDoubleInsoleCandidates(nextCandidate, bestCandidate) {
   if (!bestCandidate) return -1;
 
-  const nextDc = nextCandidate.dcCount ?? 0;
-  const bestDc = bestCandidate.dcCount ?? 0;
-
-  if (nextDc !== bestDc) {
-    return bestDc - nextDc;
-  }
-
-  const nextPairs = nextCandidate.actualPairs ?? Math.floor(nextCandidate.placedCount / 2);
-  const bestPairs = bestCandidate.actualPairs ?? Math.floor(bestCandidate.placedCount / 2);
+  const nextPairs = getWholePairsPlaced(nextCandidate);
+  const bestPairs = getWholePairsPlaced(bestCandidate);
 
   if (nextPairs !== bestPairs) {
     return bestPairs - nextPairs;
   }
 
+  const nextLeftover = nextCandidate.leftoverAreaMm2 ?? 0;
+  const bestLeftover = bestCandidate.leftoverAreaMm2 ?? 0;
+  if (nextLeftover !== bestLeftover) {
+    return bestLeftover - nextLeftover;
+  }
+
+  const nextOpenSheet = nextCandidate.openSheetAreaMm2 ?? 0;
+  const bestOpenSheet = bestCandidate.openSheetAreaMm2 ?? 0;
+  if (nextOpenSheet !== bestOpenSheet) {
+    return bestOpenSheet - nextOpenSheet;
+  }
+
   if (nextCandidate.placedCount !== bestCandidate.placedCount) {
     return bestCandidate.placedCount - nextCandidate.placedCount;
+  }
+  const nextDc = nextCandidate.dcCount ?? 0;
+  const bestDc = bestCandidate.dcCount ?? 0;
+  if (nextDc !== bestDc) {
+    return bestDc - nextDc;
   }
   if ((nextCandidate.splitPairCount || 0) !== (bestCandidate.splitPairCount || 0)) {
     return (bestCandidate.splitPairCount || 0) - (nextCandidate.splitPairCount || 0);
@@ -286,12 +351,25 @@ function shouldTryFillerRowCombination(topRows, bottomRows, maxRows) {
   return topRows === maxRows || bottomRows === maxRows;
 }
 
-function rankDoubleContourVariant(variant, workHeight) {
+function rankDoubleContourVariant(variant, workWidth, workHeight) {
   const bodyRows = Math.max(0, Math.floor((workHeight - variant.bodyHeightMm) / Math.max(1, variant.bodyDyMm)) + 1);
   const estimatedCount = bodyRows * (variant.bodyCols || 0);
+  const rowWidth = getPlacementsRight(variant.rowPlacements) - getPlacementsLeft(variant.rowPlacements);
+  const envelopeBounds = {
+    minX: 0,
+    minY: 0,
+    maxX: Math.min(workWidth, Math.max(rowWidth, variant.bodyDxMm || 0)),
+    maxY: Math.min(workHeight, variant.bodyHeightMm + Math.max(0, bodyRows - 1) * Math.max(1, variant.bodyDyMm)),
+    width: Math.min(workWidth, Math.max(rowWidth, variant.bodyDxMm || 0)),
+    height: Math.min(workHeight, variant.bodyHeightMm + Math.max(0, bodyRows - 1) * Math.max(1, variant.bodyDyMm))
+  };
+  const leftover = computeLeftoverMetricsFromBounds(envelopeBounds, workWidth, workHeight, estimatedCount * (variant.pieceArea || 0));
   const modePenalty = String(variant.scanOrder || '').includes('sequential') ? 0 : 0.25;
   return {
     estimatedCount,
+    estimatedPairs: Math.floor(estimatedCount / 2),
+    leftoverAreaMm2: leftover.leftoverAreaMm2,
+    openSheetAreaMm2: leftover.openSheetAreaMm2,
     pitch: variant.bodyDyMm || Infinity,
     modePenalty
   };
@@ -1571,12 +1649,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
 
     if (!isSafe(currentX, currentY)) return candidate;
 
-    const distLeft = currentX - minX;
-    const distRight = maxX - currentX;
-    const distTop = currentY - minY;
-    const distBottom = maxY - currentY;
-
-    let directions = [
+    const directions = [
       { axis: 'x', sign: -1, id: 'left' },
       { axis: 'x', sign: 1, id: 'right' },
       { axis: 'y', sign: -1, id: 'top' },
@@ -1592,14 +1665,11 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         'bottom': 'top'
       }[preferredSide];
 
-      // NÂNG CẤP THUẬT TOÁN: Lọc bỏ hướng đối nghịch (opposite) để tránh việc mảnh lẻ
-      // vừa trượt ra biên lại bị "dội" (bounce) trượt ngược về phía body.
-      // Điều này đảm bảo mảnh lẻ bám sát tuyệt đối vào biên (preferredSide).
-      directions = directions.filter(dir => dir.id !== opposite);
-
       directions.sort((a, b) => {
         if (a.id === preferredSide) return -1;
         if (b.id === preferredSide) return 1;
+        if (a.id === opposite) return 1;
+        if (b.id === opposite) return -1;
         return 0;
       });
     }
@@ -2089,11 +2159,17 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
   _rankSplitFillState(state) {
     const pairStats = this._getSplitPlacementPairStats(state.extraPlacements);
     const bounds = computeEnvelope(state.occupiedPlacements);
+    const usedAreaMm2 = state.occupiedPlacements.reduce((sum, placement) =>
+      sum + (placement.effectiveArea || placement.orient?.areaMm2 || 0),
+    0);
+    const leftover = computeLeftoverMetricsFromBounds(bounds, state.workWidth, state.workHeight, usedAreaMm2);
     return {
       count: pairStats.pieceCount,
       pairs: pairStats.splitPairCount,
       dcCount: pairStats.dcCount,
       unpaired: pairStats.splitUnpairedCount,
+      leftoverAreaMm2: leftover.leftoverAreaMm2,
+      openSheetAreaMm2: leftover.openSheetAreaMm2,
       height: bounds.height,
       width: bounds.width,
       waste: bounds.width * bounds.height
@@ -2106,6 +2182,8 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     return rightRank.dcCount - leftRank.dcCount
       || rightRank.pairs - leftRank.pairs
       || rightRank.count - leftRank.count
+      || rightRank.leftoverAreaMm2 - leftRank.leftoverAreaMm2
+      || rightRank.openSheetAreaMm2 - leftRank.openSheetAreaMm2
       || leftRank.unpaired - rightRank.unpaired
       || leftRank.height - rightRank.height
       || leftRank.width - rightRank.width
@@ -2443,7 +2521,9 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
 
     let states = [{
       occupiedPlacements: [...baseCandidate.placements],
-      extraPlacements: []
+      extraPlacements: [],
+      workWidth,
+      workHeight
     }];
     let bestState = states[0];
 
@@ -2469,7 +2549,9 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
             }));
             expandedStates.push({
               occupiedPlacements: [...state.occupiedPlacements, ...nextGroupPlacements],
-              extraPlacements: [...state.extraPlacements, ...nextGroupPlacements]
+              extraPlacements: [...state.extraPlacements, ...nextGroupPlacements],
+              workWidth,
+              workHeight
             });
           }
 
@@ -2548,7 +2630,9 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
           };
           expandedStates.push({
             occupiedPlacements: [...state.occupiedPlacements, nextPlacement],
-            extraPlacements: [...state.extraPlacements, nextPlacement]
+            extraPlacements: [...state.extraPlacements, nextPlacement],
+            workWidth,
+            workHeight
           });
         }
       }
@@ -2590,6 +2674,32 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     if (remainingX > minShift && remainingY > minShift) {
       shiftVariants.push({ dx: remainingX, dy: remainingY });
     }
+    shiftVariants.sort((left, right) => {
+      const leftPlacements = candidate.placements.map((placement) => ({
+        ...placement,
+        x: roundMetric(placement.x + left.dx, 3),
+        y: roundMetric(placement.y + left.dy, 3)
+      }));
+      const rightPlacements = candidate.placements.map((placement) => ({
+        ...placement,
+        x: roundMetric(placement.x + right.dx, 3),
+        y: roundMetric(placement.y + right.dy, 3)
+      }));
+      const leftMetrics = computeLeftoverMetricsFromBounds(
+        computeEnvelope(leftPlacements),
+        workWidth,
+        workHeight,
+        computeCandidateUsedArea(candidate)
+      );
+      const rightMetrics = computeLeftoverMetricsFromBounds(
+        computeEnvelope(rightPlacements),
+        workWidth,
+        workHeight,
+        computeCandidateUsedArea(candidate)
+      );
+      return rightMetrics.leftoverAreaMm2 - leftMetrics.leftoverAreaMm2
+        || rightMetrics.openSheetAreaMm2 - leftMetrics.openSheetAreaMm2;
+    });
 
     const {
       placedCount: _ignoredPlacedCount,
@@ -2600,7 +2710,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       ...candidateMetadata
     } = candidate;
 
-    let bestAugmentedCandidate = candidate;
+    let bestAugmentedCandidate = attachLeftoverMetrics(candidate, workWidth, workHeight);
 
     for (const shift of shiftVariants) {
       const testCandidate = shift.dx === 0 && shift.dy === 0 
@@ -2649,6 +2759,13 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
 
       const finalized = augmentedCandidate ? this._finalizeCandidate(augmentedCandidate, config, workWidth, workHeight) : null;
       if (finalized) {
+        const basePairs = getWholePairsPlaced(bestAugmentedCandidate);
+        const finalizedPairs = getWholePairsPlaced(finalized);
+        const leftoverDrop = (bestAugmentedCandidate.leftoverAreaMm2 || 0) - (finalized.leftoverAreaMm2 || 0);
+        const excessiveLeftoverDrop = leftoverDrop > Math.max(workWidth * workHeight * 0.04, 1);
+        if (finalizedPairs <= basePairs && excessiveLeftoverDrop) {
+          continue;
+        }
         const cmp = compareDoubleInsoleCandidates(finalized, bestAugmentedCandidate);
         if (cmp < 0) {
           bestAugmentedCandidate = finalized;
@@ -2866,12 +2983,17 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     }
 
     variants.sort((a, b) => {
-      const aScore = a.bodyCols * (a.bodyRows || 1);
-      const bScore = b.bodyCols * (b.bodyRows || 1);
-      return bScore - aScore;
+      const aRank = rankDoubleContourVariant(a, workWidth, workHeight);
+      const bRank = rankDoubleContourVariant(b, workWidth, workHeight);
+      return bRank.estimatedPairs - aRank.estimatedPairs
+        || bRank.leftoverAreaMm2 - aRank.leftoverAreaMm2
+        || bRank.openSheetAreaMm2 - aRank.openSheetAreaMm2
+        || bRank.estimatedCount - aRank.estimatedCount
+        || aRank.pitch - bRank.pitch
+        || aRank.modePenalty - bRank.modePenalty;
     });
 
-    return variants.slice(0, 6); // Keep top 6 most promising variants
+    return variants.slice(0, MAX_DOUBLE_CONTOUR_VARIANTS_PER_ANGLE);
   }
 
   _evaluateFootCandidateForAngles(sizeName, foot, polygon, config, workWidth, workHeight, angles) {
@@ -3004,14 +3126,12 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
           workHeight,
           config
         );
-        if (candidatePool.length < 3) {
-          const finalizedBodyOnlyCandidate = bodyOnlyCandidate ? this._finalizeCandidate(bodyOnlyCandidate, config, workWidth, workHeight) : null;
-          if (finalizedBodyOnlyCandidate && compareDoubleInsoleCandidates(finalizedBodyOnlyCandidate, bestCandidate) < 0) {
+        const finalizedBodyOnlyCandidate = bodyOnlyCandidate ? this._finalizeCandidate(bodyOnlyCandidate, config, workWidth, workHeight) : null;
+        if (finalizedBodyOnlyCandidate) {
+          if (compareDoubleInsoleCandidates(finalizedBodyOnlyCandidate, bestCandidate) < 0) {
             bestCandidate = finalizedBodyOnlyCandidate;
           }
-          if (finalizedBodyOnlyCandidate) addRankedCandidate(candidatePool, finalizedBodyOnlyCandidate, config.preparedSplitFillCandidateLimit);
-        } else if (bodyOnlyCandidate) {
-          addRankedCandidate(candidatePool, bodyOnlyCandidate, config.preparedSplitFillCandidateLimit);
+          addRankedCandidate(candidatePool, finalizedBodyOnlyCandidate, config.preparedSplitFillCandidateLimit);
         }
       }
     }
@@ -3225,11 +3345,19 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
                     }
                   };
 
-                  if (!bestCandidate || compareDoubleInsoleCandidates(candidate, bestCandidate) < 0) {
-                    const finalizedVariant = this._finalizeCandidate(candidate, config, workWidth, workHeight);
-                    if (finalizedVariant) bestCandidate = finalizedVariant;
+                  const finalizedVariant = this._finalizeCandidate(candidate, config, workWidth, workHeight);
+                  if (!finalizedVariant) continue;
+                  const bodyOnlyPairs = getWholePairsPlaced(bestCandidate);
+                  const fillerPairs = getWholePairsPlaced(finalizedVariant);
+                  const leftoverDrop = (bestCandidate?.leftoverAreaMm2 || 0) - (finalizedVariant.leftoverAreaMm2 || 0);
+                  const shouldKeepFiller = fillerPairs > bodyOnlyPairs
+                    || leftoverDrop <= Math.max(workWidth * workHeight * 0.04, 1);
+                  if (!shouldKeepFiller) continue;
+
+                  if (!bestCandidate || compareDoubleInsoleCandidates(finalizedVariant, bestCandidate) < 0) {
+                    bestCandidate = finalizedVariant;
                   }
-                  addRankedCandidate(candidatePool, candidate, config.preparedSplitFillCandidateLimit);
+                  addRankedCandidate(candidatePool, finalizedVariant, config.preparedSplitFillCandidateLimit);
                 }
               }
             }
@@ -3274,10 +3402,6 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       preferredAngles
     );
 
-    if (bestCandidate && bestCandidate.efficiency > 75) {
-      return bestCandidate;
-    }
-
     const fallbackSameSideCandidate = CapacityTestSameSidePattern.prototype._evaluateFootCandidate.call(
       this,
       sizeName,
@@ -3296,7 +3420,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         workWidth,
         workHeight
       )
-      : fallbackSameSideCandidate;
+      : attachLeftoverMetrics(fallbackSameSideCandidate, workWidth, workHeight);
     if (
       fallbackCandidate &&
       (
@@ -3372,12 +3496,16 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       }
     }
 
+    const leftoverMetrics = computeLeftoverMetricsFromBounds(bounds, workWidth, workHeight, usedAreaMm2);
+
     return {
       ...candidate,
       usedWidthMm: roundMetric(bounds.width),
       usedHeightMm: roundMetric(bounds.height),
       usedAreaMm2,
       envelopeWasteMm2: roundMetric(Math.max(0, bounds.width * bounds.height - usedAreaMm2)),
+      maxPairsPlaced: Math.floor(pairs),
+      ...leftoverMetrics,
       ...materialized,
       placedCount: totalPieces,
       pairs: pairs,
@@ -3405,9 +3533,16 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       sheetHeight: config.sheetHeight,
       placedCount,
       actualPairs: candidate.actualPairs,
+      maxPairsPlaced: candidate.maxPairsPlaced ?? getWholePairsPlaced(candidate),
+      leftoverAreaMm2: candidate.leftoverAreaMm2 ?? 0,
+      openSheetAreaMm2: candidate.openSheetAreaMm2 ?? 0,
+      remainingSheetAreaMm2: candidate.remainingSheetAreaMm2 ?? 0,
       efficiency,
       patternInfo: {
         algorithmVersion: DOUBLE_CONTOUR_ALGORITHM_VERSION,
+        maxPairsPlaced: candidate.maxPairsPlaced ?? getWholePairsPlaced(candidate),
+        leftoverAreaMm2: candidate.leftoverAreaMm2 ?? 0,
+        openSheetAreaMm2: candidate.openSheetAreaMm2 ?? 0,
         rowMode: candidate.rowMode ?? null,
         bodyCount: candidate.bodyCount ?? 0,
         bodyCols: candidate.bodyCols ?? 0,
