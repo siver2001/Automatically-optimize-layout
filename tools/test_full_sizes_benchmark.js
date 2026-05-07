@@ -50,7 +50,8 @@ async function run() {
     result.summary.forEach(item => {
       const sheet = result.sheetsBySize?.[item.sizeName];
       const patternInfo = sheet?.patternInfo || {};
-      console.log(`| ${item.sizeName.padEnd(5)} | ${item.pairs.toString().padEnd(5)} | ${item.placedCount.toString().padEnd(6)} | ${item.efficiency.toString().padEnd(10)} | ${patternInfo.splitFillCount || 0} |`);
+      const splitN = patternInfo.splitFillCount || 0;
+      console.log(`| ${item.sizeName.padEnd(5)} | ${item.pairs.toString().padEnd(5)} | ${item.placedCount.toString().padEnd(6)} | ${item.efficiency.toString().padEnd(10)} | ${splitN} |`);
     });
     console.log(`\nTotal time: ${elapsed}ms`);
   } else {

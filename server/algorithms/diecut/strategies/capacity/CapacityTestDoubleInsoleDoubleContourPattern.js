@@ -29,30 +29,30 @@ import { DOUBLE_CONTOUR_ALGORITHM_VERSION } from './capacityVersion.js';
 
 const DOUBLE_CONTOUR_CAPACITY_WORKER_URL = new URL('../../../workers/diecutCapacitySameSideWorker.js', import.meta.url);
 
-const MAX_SHIFT_CANDIDATES = 30;
-const MAX_ROW_SHIFT_PAIR_CANDIDATES = 30;
-const SHIFT_SCAN_LIMIT = 50;
+const MAX_SHIFT_CANDIDATES = 40;
+const MAX_ROW_SHIFT_PAIR_CANDIDATES = 40;
+const SHIFT_SCAN_LIMIT = 70;
 const INTERNAL_GAP_SAMPLE_RATIOS = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95];
-const MAX_SPLIT_FILL_SAFETY_MULTIPLIER = 1.25;
-const MIN_SPLIT_HALF_AREA_RATIO = 0.18;
-const MAX_SPLIT_HALF_AREA_RATIO = 0.82;
-const MIN_SPLIT_FREE_RECT_SIZE = 18;
-const MAX_SPLIT_FREE_RECTS = 12;
-const SPLIT_EDGE_NUDGE_UNITS = [-2, -1, 0, 1, 2];
-const SPLIT_RECT_SAMPLE_RATIOS = [0, 0.2, 0.35, 0.5, 0.65, 0.8, 1];
-const MAX_SPLIT_AXIS_SAMPLES = 7;
-const MAX_SPLIT_BOUNDARY_AXIS_SAMPLES = 40;
-const MAX_SPLIT_EDGE_ANCHORS_PER_AXIS = 36;
-const MAX_SPLIT_EDGE_PLACEMENT_CANDIDATES = 260;
-const MAX_SPLIT_PARTNER_NEAR_CANDIDATES = 80;
-const MAX_SPLIT_FILL_BEAM_WIDTH = 4;
-const MAX_SPLIT_FILL_OPTIONS_PER_STATE = 6;
-const MAX_SPLIT_PAIR_GROUP_OPTIONS_PER_STATE = 3;
-const MAX_SPLIT_PAIR_TEMPLATES = 16;
-const MAX_DOUBLE_CONTOUR_VARIANTS_PER_ANGLE = 6;
+const MAX_SPLIT_FILL_SAFETY_MULTIPLIER = 1.5;
+const MIN_SPLIT_HALF_AREA_RATIO = 0.12;
+const MAX_SPLIT_HALF_AREA_RATIO = 0.88;
+const MIN_SPLIT_FREE_RECT_SIZE = 10;
+const MAX_SPLIT_FREE_RECTS = 24;
+const SPLIT_EDGE_NUDGE_UNITS = [-3, -2, -1, 0, 1, 2, 3];
+const SPLIT_RECT_SAMPLE_RATIOS = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1];
+const MAX_SPLIT_AXIS_SAMPLES = 12;
+const MAX_SPLIT_BOUNDARY_AXIS_SAMPLES = 60;
+const MAX_SPLIT_EDGE_ANCHORS_PER_AXIS = 50;
+const MAX_SPLIT_EDGE_PLACEMENT_CANDIDATES = 600;
+const MAX_SPLIT_PARTNER_NEAR_CANDIDATES = 200;
+const MAX_SPLIT_FILL_BEAM_WIDTH = 12;
+const MAX_SPLIT_FILL_OPTIONS_PER_STATE = 15;
+const MAX_SPLIT_PAIR_GROUP_OPTIONS_PER_STATE = 10;
+const MAX_SPLIT_PAIR_TEMPLATES = 30;
+const MAX_DOUBLE_CONTOUR_VARIANTS_PER_ANGLE = 12;
 const DEFAULT_DOUBLE_CONTOUR_FINE_ROTATE_OFFSETS = [0];
-const MAX_SPLIT_AUGMENT_CANDIDATES = 6;
-const DEEP_SPLIT_AUGMENT_CANDIDATES = 8;
+const MAX_SPLIT_AUGMENT_CANDIDATES = 20;
+const DEEP_SPLIT_AUGMENT_CANDIDATES = 25;
 
 function getWholePairsPlaced(candidate = {}) {
   const pairValue = candidate.maxPairsPlaced
@@ -390,8 +390,9 @@ function buildRowShiftPairs(orient, step, shiftXCandidates) {
   
   if (orient && orient.height) {
     const safeStep = Math.max(step, 1);
-    const range = Math.min(orient.height * 0.15, 10);
-    for (let y = safeStep; y <= range; y += safeStep * 2) {
+    // Moderate Y shift range: enough to find waist/lobe interlock positions
+    const range = Math.min(orient.height * 0.3, 25);
+    for (let y = safeStep; y <= range; y += safeStep) {
       shiftYCandidates.push(roundMetric(y));
       shiftYCandidates.push(roundMetric(-y));
     }
@@ -406,14 +407,18 @@ function buildRowShiftPairs(orient, step, shiftXCandidates) {
     }
   }
 
-  return pairs.sort((left, right) =>
-      (left.rowShiftYmm === 0 ? 0 : 1) - (right.rowShiftYmm === 0 ? 0 : 1)
-      || Math.abs(left.rowShiftXmm) - Math.abs(right.rowShiftXmm)
-      || left.rowShiftXmm - right.rowShiftXmm
-      || Math.abs(left.rowShiftYmm) - Math.abs(right.rowShiftYmm)
-      || left.rowShiftYmm - right.rowShiftYmm
-    )
-    .slice(0, MAX_ROW_SHIFT_PAIR_CANDIDATES);
+  // Split into Y=0 (safe baseline) and Y-shifted (interlock) pools
+  const y0Pairs = pairs.filter(p => p.rowShiftYmm === 0);
+  const yShiftPairs = pairs.filter(p => p.rowShiftYmm !== 0);
+
+  y0Pairs.sort((a, b) => Math.abs(a.rowShiftXmm) - Math.abs(b.rowShiftXmm));
+  yShiftPairs.sort((a, b) =>
+    Math.abs(a.rowShiftYmm) - Math.abs(b.rowShiftYmm)
+    || Math.abs(a.rowShiftXmm) - Math.abs(b.rowShiftXmm)
+  );
+
+  // With 500s budget: generously include both pools
+  return [...y0Pairs.slice(0, MAX_ROW_SHIFT_PAIR_CANDIDATES), ...yShiftPairs.slice(0, 30)];
 }
 
 function toClipRing(points = []) {
@@ -2642,12 +2647,15 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     
     if (remainingX > minShift) {
       shiftVariants.push({ dx: remainingX, dy: 0 });
+      shiftVariants.push({ dx: Math.floor(remainingX / 2), dy: 0 });
     }
     if (remainingY > minShift) {
       shiftVariants.push({ dx: 0, dy: remainingY });
+      shiftVariants.push({ dx: 0, dy: Math.floor(remainingY / 2) });
     }
     if (remainingX > minShift && remainingY > minShift) {
       shiftVariants.push({ dx: remainingX, dy: remainingY });
+      shiftVariants.push({ dx: Math.floor(remainingX / 2), dy: Math.floor(remainingY / 2) });
     }
     shiftVariants.sort((left, right) => {
       const leftPlacements = candidate.placements.map((placement) => ({
@@ -2737,7 +2745,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         const basePairs = getWholePairsPlaced(bestAugmentedCandidate);
         const finalizedPairs = getWholePairsPlaced(finalized);
         const leftoverDrop = (bestAugmentedCandidate.leftoverAreaMm2 || 0) - (finalized.leftoverAreaMm2 || 0);
-        const excessiveLeftoverDrop = leftoverDrop > Math.max(workWidth * workHeight * 0.04, 1);
+        const excessiveLeftoverDrop = leftoverDrop > Math.max(workWidth * workHeight * 0.08, 1);
         if (finalizedPairs <= basePairs && excessiveLeftoverDrop) {
           continue;
         }
@@ -2764,7 +2772,9 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
   _buildDoubleContourVariants(orient, dxMm, workWidth, workHeight, config, step, pairedOrient = null) {
     const variants = [];
     const maxCols = this._countCols(orient.width, dxMm, workWidth);
-    const colChoices = maxCols > 1 ? [maxCols, maxCols - 1] : [maxCols];
+    const colChoices = maxCols > 2 && config.preparedSplitFillEnabled
+      ? [maxCols, maxCols - 1, maxCols - 2]
+      : maxCols > 1 ? [maxCols, maxCols - 1] : [maxCols];
 
     const rowShiftRange = orient.width * 0.6;
     const geometricShiftCandidates = extractInternalGapShiftCandidates(orient, step);
@@ -2781,6 +2791,14 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       baseShiftCandidates,
       MAX_SHIFT_CANDIDATES
     );
+    // Add half-dx shift for brick-laying pattern (critical for figure-8 shapes)
+    const halfDx = roundMetric(dxMm / 2, 3);
+    if (!rowShiftCandidates.includes(halfDx) && halfDx > 0) rowShiftCandidates.push(halfDx);
+    if (!rowShiftCandidates.includes(-halfDx) && halfDx > 0) rowShiftCandidates.push(-halfDx);
+    // Also try quarter-dx for finer interlocking
+    const quarterDx = roundMetric(dxMm / 4, 3);
+    if (!rowShiftCandidates.includes(quarterDx) && quarterDx > 0) rowShiftCandidates.push(quarterDx);
+    if (!rowShiftCandidates.includes(-quarterDx) && quarterDx > 0) rowShiftCandidates.push(-quarterDx);
     const rowShiftPairs = buildRowShiftPairs(orient, step, rowShiftCandidates);
 
     for (const bodyCols of colChoices) {
@@ -2853,7 +2871,17 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         colShiftYCandidates.push(roundMetric(-dy, 3));
       }
 
-      const dxMm = this._findUniformDx(pOrient, config, step);
+      // KEY IMPROVEMENT: When alternating orientations (pOrient ≠ aOrient),
+      // use _findAlignedBodyDx which computes the TIGHTER interlocking spacing
+      // where the concave part of one piece fits into the convex part of the adjacent piece.
+      // This typically yields 10-20% more pieces per row compared to uniform dx.
+      const isAlternating = pOrient.angle !== aOrient.angle;
+      const uniformDx = this._findUniformDx(pOrient, config, step);
+      const alignedDx = isAlternating
+        ? this._findAlignedBodyDx(pOrient, aOrient, config, step)
+        : null;
+      // Use the tighter of the two, but only if aligned dx is valid
+      const dxMm = (alignedDx != null && alignedDx < uniformDx) ? alignedDx : uniformDx;
 
       for (const colShiftYmm of colShiftYCandidates) {
         const rowPlacements = this._buildShiftedUniformPlacements(
@@ -3044,15 +3072,16 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
           
           for (let col = 0; col < maxCols; col++) {
             const rowPlacement = variant.rowPlacements[col % variant.rowPlacements.length];
+            const currentOrient = rowPlacement.orient;
             const itemX = roundMetric(startX + rowPlacement.x + shiftX, 3);
             const itemY = roundMetric(startY + rowPlacement.y + row * variant.bodyDyMm + shiftY, 3);
 
-            if (itemX + orient.width > workWidth + 1e-6) continue;
-            if (itemY + orient.height > workHeight + 1e-6) continue;
+            if (itemX + currentOrient.width > workWidth + 1e-6) continue;
+            if (itemY + currentOrient.height > workHeight + 1e-6) continue;
 
             bodyPlacements.push({
               id: `body_${row}_${col}`,
-              orient: rowPlacement.orient,
+              orient: currentOrient,
               x: itemX,
               y: itemY
             });
