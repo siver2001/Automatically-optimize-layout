@@ -32,17 +32,22 @@ serverProcess = fork(serverPath, [], {
 
     // LẮNG NGHE TIN NHẮN TỪ TIẾN TRÌNH CON
     serverProcess.on('message', (message) => {
-      if (message === 'server-ready') {
+      if (typeof message === 'object' && message.type === 'server-ready') {
         clearTimeout(timeout);
-        console.log('[Electron] Server is ready!');
-        resolve(); // Promise thành công!
+        console.log(`[Electron] Server is ready on port ${message.port}!`);
+        resolve(message.port); // Promise thành công với port!
+      } else if (message === 'server-ready') {
+        // Fallback cho version cũ nếu cần
+        clearTimeout(timeout);
+        console.log('[Electron] Server is ready on default port!');
+        resolve(5000);
       }
     });
   });
 }
 
 // 2. Hàm tạo cửa sổ client (Không đổi)
-function createWindow() {
+function createWindow(serverPort = 5000) {
   const mainWindow = new BrowserWindow({
     width: 1920,
     height: 1080,
@@ -57,21 +62,23 @@ function createWindow() {
     }
   });
 
+  const clientPort = process.env.CLIENT_PORT || 3000;
   if (isDev) {
-    mainWindow.loadURL('http://localhost:3000');
+    mainWindow.loadURL(`http://localhost:${clientPort}`);
   } else {
     // ✅ LOAD từ Server Express thay vì file local
-    mainWindow.loadURL('http://localhost:5000');
+    mainWindow.loadURL(`http://localhost:${serverPort}`);
   }
 }
 
 // 3. Quản lý vòng đời App (DÙNG ASYNC/AWAIT)
 app.on('ready', async () => { // Thêm 'async'
+  let port = 5000;
   if (!isDev) {
     try {
       console.log('[Electron] Waiting for server to start...');
-      await startServer(); // ĐỢI cho server sẵn sàng
-      console.log('[Electron] Server started, creating window...');
+      port = await startServer(); // ĐỢI cho server sẵn sàng và lấy port
+      console.log(`[Electron] Server started on port ${port}, creating window...`);
     } catch (err) {
       console.error("[Electron] Không thể khởi động server:", err);
       app.quit(); // Thoát nếu server lỗi
@@ -79,7 +86,7 @@ app.on('ready', async () => { // Thêm 'async'
     }
   }
   // Chỉ gọi createWindow SAU KHI server đã sẵn sàng (hoặc ở chế độ dev)
-  createWindow();
+  createWindow(port);
 });
 
 app.on('window-all-closed', () => {

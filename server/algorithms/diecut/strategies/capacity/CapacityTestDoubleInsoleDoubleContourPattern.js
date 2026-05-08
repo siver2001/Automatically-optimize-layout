@@ -3824,7 +3824,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     };
   }
 
-  async _testCapacityParallel(sizeList, config) {
+  async _testCapacityParallel(sizeList, config, onProgress) {
     const startTime = Date.now();
     const cachedResults = new Array(sizeList.length).fill(null);
     const uncachedTasks = [];
@@ -3834,6 +3834,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       const cacheKey = buildCapacityResultCacheKey('same-side-double-contour', size, config);
       const cachedResult = getCachedCapacityResult(cacheKey);
       if (cachedResult) {
+        if (onProgress) onProgress(size.sizeName, 'done');
         cachedResults[index] = cachedResult;
         continue;
       }
@@ -3869,6 +3870,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
           } else if (status === 'done') {
             console.log(`  - Size ${task.size.sizeName}: Completed`);
           }
+          if (onProgress) onProgress(task.size.sizeName, status);
         })
       : [];
 
@@ -3909,7 +3911,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     };
   }
 
-  async testCapacity(sizeList, overrideConfig = {}) {
+  async testCapacity(sizeList, overrideConfig = {}, onProgress) {
     const explicitDeepSplitFill = overrideConfig.preparedSplitFillDeep ?? this.config.preparedSplitFillDeep;
     const deepSplitFillEnabled = explicitDeepSplitFill == null
       ? sizeList.length === 1
@@ -3951,7 +3953,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     );
 
     if (shouldUseParallelDoubleContourCapacity(normalizedSizeList, config)) {
-      return this._testCapacityParallel(normalizedSizeList, config);
+      return this._testCapacityParallel(normalizedSizeList, config, onProgress);
     }
 
     this._orientCache.clear();
@@ -3966,10 +3968,13 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       const cacheKey = buildCapacityResultCacheKey('same-side-double-contour', size, config);
       const cachedResult = getCachedCapacityResult(cacheKey);
       if (cachedResult) {
+        if (onProgress) onProgress(size.sizeName, 'done');
         summary.push(cachedResult.summaryItem);
         sheetsBySize[size.sizeName] = cachedResult.sheet;
         continue;
       }
+
+      if (onProgress) onProgress(size.sizeName, 'started');
 
       const foot = size.foot || 'L';
       const candidate = this._evaluateFootCandidate(
@@ -3996,6 +4001,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       sheetsBySize[size.sizeName] = sheet;
       const summaryItem = buildDoubleContourSummaryItem(size, sheet);
       summary.push(summaryItem);
+      if (onProgress) onProgress(size.sizeName, 'done');
       setCachedCapacityResult(cacheKey, {
         summaryItem,
         sheet

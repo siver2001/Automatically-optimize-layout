@@ -505,6 +505,13 @@ router.post('/test-capacity', async (req, res) => {
 
     let nester;
 
+    const io = req.app.get('io');
+    const onProgress = (sizeName, status) => {
+      if (io) {
+        io.emit('test-capacity-progress', { sizeName, status });
+      }
+    };
+
     let result;
     if (config.pairingStrategy === 'pair' && config.mirrorPairs !== false) {
       nester = new CapacityTestComplementaryPattern({
@@ -513,7 +520,7 @@ router.post('/test-capacity', async (req, res) => {
         pairingStrategy: 'pair',
         mirrorPairs: true
       });
-      result = await nester.testCapacity(sizeList, config);
+      result = await nester.testCapacity(sizeList, config, onProgress);
 
       if (Array.isArray(result.summary)) {
         for (const item of result.summary) {
@@ -543,7 +550,7 @@ router.post('/test-capacity', async (req, res) => {
         });
       }
       
-      result = await nester.testCapacity(sizeList, config);
+      result = await nester.testCapacity(sizeList, config, onProgress);
     }
 
     if (result && Array.isArray(result.summary)) {

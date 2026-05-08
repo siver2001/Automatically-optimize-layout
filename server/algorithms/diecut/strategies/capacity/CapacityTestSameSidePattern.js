@@ -116,7 +116,7 @@ function runWorkerTask(worker, task) {
   });
 }
 
-async function executeSameSideCapacityTasksInParallel(tasks, concurrency) {
+async function executeSameSideCapacityTasksInParallel(tasks, concurrency, onProgress) {
   if (!tasks.length) return [];
 
   const workerCount = Math.min(tasks.length, Math.max(1, concurrency));
@@ -135,7 +135,10 @@ async function executeSameSideCapacityTasksInParallel(tasks, concurrency) {
         if (taskIndex >= tasks.length) break;
         const task = tasks[taskIndex];
         const resultIndex = task?.index ?? taskIndex;
+
+        if (onProgress) onProgress(resultIndex, 'started');
         results[resultIndex] = await runWorkerTask(worker, task);
+        if (onProgress) onProgress(resultIndex, 'done');
       }
     } finally {
       await worker.terminate();
@@ -996,7 +999,7 @@ export class CapacityTestSameSidePattern extends BaseNesting {
     };
   }
 
-  async _testCapacitySequential(sizeList, config) {
+  async _testCapacitySequential(sizeList, config, onProgress) {
     this._orientCache.clear();
     const startTime = Date.now();
     const totalArea = config.sheetWidth * config.sheetHeight;
@@ -1009,10 +1012,13 @@ export class CapacityTestSameSidePattern extends BaseNesting {
       const cacheKey = buildCapacityResultCacheKey('same-side-banded', size, config);
       const cachedResult = getCachedCapacityResult(cacheKey);
       if (cachedResult) {
+        if (onProgress) onProgress(size.sizeName, 'done');
         summary.push(cachedResult.summaryItem);
         sheetsBySize[size.sizeName] = cachedResult.sheet;
         continue;
       }
+
+      if (onProgress) onProgress(size.sizeName, 'started');
 
       const basePolygon = normalizeToOrigin(size.polygon);
       const footCandidates = [
@@ -1053,6 +1059,7 @@ export class CapacityTestSameSidePattern extends BaseNesting {
 
       const summaryItem = buildSameSideSummaryItem(size, sheet);
       summary.push(summaryItem);
+      if (onProgress) onProgress(size.sizeName, 'done');
       setCachedCapacityResult(cacheKey, {
         summaryItem,
         sheet
@@ -1077,7 +1084,7 @@ export class CapacityTestSameSidePattern extends BaseNesting {
     };
   }
 
-  async _testCapacityParallel(sizeList, config) {
+  async _testCapacityParallel(sizeList, config, onProgress) {
     const startTime = Date.now();
     const cachedResults = new Array(sizeList.length).fill(null);
     const uncachedTasks = [];
@@ -1087,6 +1094,7 @@ export class CapacityTestSameSidePattern extends BaseNesting {
       const cacheKey = buildCapacityResultCacheKey('same-side-banded', size, config);
       const cachedResult = getCachedCapacityResult(cacheKey);
       if (cachedResult) {
+        if (onProgress) onProgress(size.sizeName, 'done');
         cachedResults[index] = cachedResult;
         continue;
       }
@@ -1108,7 +1116,10 @@ export class CapacityTestSameSidePattern extends BaseNesting {
       (task) => estimateSameSideTaskWeight(task.size, task.config)
     );
     const workerResults = orderedTasks.length
-      ? await executeSameSideCapacityTasksInParallel(orderedTasks, workerCount)
+      ? await executeSameSideCapacityTasksInParallel(orderedTasks, workerCount, (taskIndex, status) => {
+          const task = orderedTasks.find(t => t.index === taskIndex);
+          if (onProgress) onProgress(task.size.sizeName, status);
+        })
       : [];
     const sheetsBySize = {};
     const summary = [];
@@ -1150,7 +1161,7 @@ export class CapacityTestSameSidePattern extends BaseNesting {
     };
   }
 
-  async testCapacity(sizeList, overrideConfig = {}) {
+  async testCapacity(sizeList, overrideConfig = {}, onProgress) {
     const config = {
       ...this.config,
       ...overrideConfig,
@@ -1162,10 +1173,10 @@ export class CapacityTestSameSidePattern extends BaseNesting {
     };
 
     if (shouldUseParallelSameSideCapacity(sizeList, config)) {
-      return this._testCapacityParallel(sizeList, config);
+      return this._testCapacityParallel(sizeList, config, onProgress);
     }
 
-    return this._testCapacitySequential(sizeList, config);
+    return this._testCapacitySequential(sizeList, config, onProgress);
   }
 }
 

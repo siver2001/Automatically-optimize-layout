@@ -4,6 +4,7 @@ export const PAIR_CAPACITY_MODE = "pair-complementary";
 export const SINGLE_INSOLE_CAPACITY_MODE = "same-side-banded";
 export const DOUBLE_INSOLE_CAPACITY_MODE = "same-side-double-contour";
 export const PREPARED_SEQUENCE_DXF_LABEL_MODE = "prepared-sequence";
+// Progress tracking utils
 
 export const SAME_SIDE_MODE_OPTIONS = [
   {

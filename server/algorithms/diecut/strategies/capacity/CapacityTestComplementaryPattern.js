@@ -173,7 +173,7 @@ function runWorkerTask(worker, task) {
   });
 }
 
-async function executePairCapacityTasksInParallel(tasks, concurrency) {
+async function executePairCapacityTasksInParallel(tasks, concurrency, onProgress) {
   if (!tasks.length) return [];
 
   const workerCount = Math.min(tasks.length, Math.max(1, concurrency));
@@ -192,7 +192,10 @@ async function executePairCapacityTasksInParallel(tasks, concurrency) {
         if (taskIndex >= tasks.length) break;
         const task = tasks[taskIndex];
         const resultIndex = task?.index ?? taskIndex;
+
+        if (onProgress) onProgress(resultIndex, 'started');
         results[resultIndex] = await runWorkerTask(worker, task);
+        if (onProgress) onProgress(resultIndex, 'done');
       }
     } finally {
       await worker.terminate();
@@ -1964,7 +1967,7 @@ export class CapacityTestComplementaryPattern extends BaseNesting {
     };
   }
 
-  async _testCapacitySequential(sizeList, config) {
+  async _testCapacitySequential(sizeList, config, onProgress) {
     this._orientCache.clear();
     const startTime = Date.now();
     const totalArea = config.sheetWidth * config.sheetHeight;
@@ -1981,10 +1984,13 @@ export class CapacityTestComplementaryPattern extends BaseNesting {
       const cacheKey = buildCapacityResultCacheKey(config.capacityLayoutMode === 'legacy-pair' ? 'legacy-pair' : 'pair-complementary', size, config);
       const cachedResult = getCachedCapacityResult(cacheKey);
       if (cachedResult) {
+        if (onProgress) onProgress(size.sizeName, 'done');
         summary.push(cachedResult.summaryItem);
         sheetsBySize[size.sizeName] = cachedResult.sheet;
         continue;
       }
+
+      if (onProgress) onProgress(size.sizeName, 'started');
 
       const deadline = Date.now() + perSizeBudget;
       const candidate = config.capacityLayoutMode === 'legacy-pair'
@@ -2019,6 +2025,7 @@ export class CapacityTestComplementaryPattern extends BaseNesting {
 
       const summaryItem = buildPairSummaryItem(size, sheet);
       summary.push(summaryItem);
+      if (onProgress) onProgress(size.sizeName, 'done');
       setCachedCapacityResult(cacheKey, {
         summaryItem,
         sheet
@@ -2043,7 +2050,7 @@ export class CapacityTestComplementaryPattern extends BaseNesting {
     };
   }
 
-  async _testCapacityParallel(sizeList, config) {
+  async _testCapacityParallel(sizeList, config, onProgress) {
     const startTime = Date.now();
     const cachedResults = new Array(sizeList.length).fill(null);
     const uncachedTasks = [];
@@ -2057,6 +2064,7 @@ export class CapacityTestComplementaryPattern extends BaseNesting {
       );
       const cachedResult = getCachedCapacityResult(cacheKey);
       if (cachedResult) {
+        if (onProgress) onProgress(size.sizeName, 'done');
         cachedResults[index] = cachedResult;
         continue;
       }
@@ -2075,7 +2083,10 @@ export class CapacityTestComplementaryPattern extends BaseNesting {
     const workerCount = resolveParallelWorkerCount(uncachedTasks.map((task) => task.size), config);
     const orderedTasks = orderTasksByEstimatedWeight(uncachedTasks, (task) => estimatePairTaskWeight(task.size, task.config));
     const workerResults = orderedTasks.length
-      ? await executePairCapacityTasksInParallel(orderedTasks, workerCount)
+      ? await executePairCapacityTasksInParallel(orderedTasks, workerCount, (taskIndex, status) => {
+          const task = orderedTasks.find(t => t.index === taskIndex);
+          if (onProgress) onProgress(task.size.sizeName, status);
+        })
       : [];
     const sheetsBySize = {};
     const summary = [];
@@ -2117,7 +2128,7 @@ export class CapacityTestComplementaryPattern extends BaseNesting {
     };
   }
 
-  async testCapacity(sizeList, overrideConfig = {}) {
+  async testCapacity(sizeList, overrideConfig = {}, onProgress) {
     const config = {
       ...this.config,
       ...overrideConfig,
@@ -2130,10 +2141,10 @@ export class CapacityTestComplementaryPattern extends BaseNesting {
     };
 
     if (shouldUseParallelPairCapacity(sizeList, config)) {
-      return this._testCapacityParallel(sizeList, config);
+      return this._testCapacityParallel(sizeList, config, onProgress);
     }
 
-    return this._testCapacitySequential(sizeList, config);
+    return this._testCapacitySequential(sizeList, config, onProgress);
   }
 }
 

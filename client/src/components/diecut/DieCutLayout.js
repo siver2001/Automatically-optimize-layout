@@ -17,6 +17,7 @@ import ExportSheetPickerModal from './ExportSheetPickerModal.js';
 
 // Services & Utilities
 import { diecutExportService } from '../../services/diecutExportService.js';
+import { io } from 'socket.io-client';
 import { 
   PAIR_CAPACITY_MODE,
   applyRecommendedMode,
@@ -29,6 +30,7 @@ import {
 
 
 const DieCutLayout = () => {
+  const [testProgress, setTestProgress] = useState({ completed: 0, total: 0, currentSize: '', statusMap: {} });
   // --- UTILS ---
   const buildExportSubtitle = (configValue, extraText = '') => {
     if (!configValue) return extraText || '';
@@ -164,6 +166,27 @@ const DieCutLayout = () => {
       selectedSheetIndexes: []
     }));
   }, [nestingResult?.resultId, nestingResult?.totalSheets, testResult]);
+
+  useEffect(() => {
+    const socket = io();
+    socket.on('test-capacity-progress', (data) => {
+      setTestProgress((prev) => {
+        const nextStatusMap = { ...prev.statusMap, [data.sizeName]: data.status };
+        const completed = Object.values(nextStatusMap).filter((s) => s === 'done').length;
+        return {
+          ...prev,
+          completed,
+          currentSize: data.sizeName,
+          statusMap: nextStatusMap
+        };
+      });
+    });
+    return () => {
+      socket.off('test-capacity-progress');
+      socket.disconnect();
+    };
+  }, []);
+
 
   // --- HANDLERS: EXPORT PICKER ---
   const openExportPicker = (format, source, items) => {
@@ -431,6 +454,7 @@ const DieCutLayout = () => {
     setIsTestRunning(true);
     setTestError(null);
     setTestResult(null);
+    setTestProgress({ completed: 0, total: shapes.length, currentSize: '', statusMap: {} });
     try {
       const payload = { sizeList: shapes, ...applyRecommendedMode(config, importAnalysis) };
       const res = await fetch('/api/diecut/test-capacity', {
@@ -631,6 +655,26 @@ const DieCutLayout = () => {
               </>
             ) : isTestMode ? 'Test: Tính số lượng tối đa' : 'Chạy Nesting True Shape'}
           </button>
+
+          {isTestRunning && testProgress.total > 0 && (
+            <div className="mt-3 space-y-2">
+              <div className="flex justify-between items-end">
+                <span className="text-white/50 text-[10px] font-medium uppercase tracking-wider">Tiến độ tính toán</span>
+                <span className="text-amber-400 font-bold text-xs">{Math.round((testProgress.completed / testProgress.total) * 100)}%</span>
+              </div>
+              <div className="w-full bg-white/5 rounded-full h-1.5 overflow-hidden border border-white/10">
+                <div 
+                  className="bg-gradient-to-r from-amber-500 to-orange-500 h-full transition-all duration-500 ease-out shadow-[0_0_8px_rgba(245,158,11,0.5)]"
+                  style={{ width: `${(testProgress.completed / testProgress.total) * 100}%` }}
+                />
+              </div>
+              <div className="flex justify-between text-[10px]">
+                <span className="text-white/30 italic">Đang xử lý: <span className="text-white/60 not-italic">Size {testProgress.currentSize || '...'}</span></span>
+                <span className="text-white/30">{testProgress.completed} / {testProgress.total} sizes</span>
+              </div>
+            </div>
+          )}
+
           <p className="text-white/30 text-[10px] text-center italic">
             {isTestMode ? '✓ Tự động xếp tối đa từng size lên 1 tấm PU' : '✓ Thuật toán đo lường biên dạng thực tế'}
           </p>
