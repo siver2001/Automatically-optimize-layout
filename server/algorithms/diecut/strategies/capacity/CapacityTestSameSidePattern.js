@@ -11,7 +11,8 @@ import {
   getOrientBounds,
   roundMetric,
   validateLocalPlacements,
-  computeEnvelope
+  computeEnvelope,
+  cachedPolygonsOverlap
 } from './patternCapacityUtils.js';
 import {
   buildCapacityResultCacheKey,
@@ -282,35 +283,19 @@ function getPlacementWorldBounds(placement) {
 function hasCrossPlacementOverlap(firstPlacements, secondPlacements, spacing) {
   if (!firstPlacements.length || !secondPlacements.length) return false;
 
-  const firstIndexed = firstPlacements.map((placement) => ({
-    placement,
-    bounds: getPlacementWorldBounds(placement)
-  }));
-  const secondIndexed = secondPlacements.map((placement) => ({
-    placement,
-    bounds: getPlacementWorldBounds(placement)
-  }));
-
-  for (const first of firstIndexed) {
-    for (const second of secondIndexed) {
+  for (const first of firstPlacements) {
+    const bb1 = first.orient.bb || getOrientBounds(first.orient);
+    for (const second of secondPlacements) {
+      const bb2 = second.orient.bb || getOrientBounds(second.orient);
       if (
-        first.bounds.maxX + spacing < second.bounds.minX ||
-        first.bounds.minX - spacing > second.bounds.maxX ||
-        first.bounds.maxY + spacing < second.bounds.minY ||
-        first.bounds.minY - spacing > second.bounds.maxY
-      ) {
-        continue;
-      }
-
-      if (
-        polygonsOverlap(
-          first.placement.orient.polygon,
-          second.placement.orient.polygon,
-          { x: first.placement.x, y: first.placement.y },
-          { x: second.placement.x, y: second.placement.y },
+        cachedPolygonsOverlap(
+          first.orient.polygon,
+          second.orient.polygon,
+          { x: first.x, y: first.y },
+          { x: second.x, y: second.y },
           spacing,
-          first.bounds.bb,
-          second.bounds.bb
+          bb1,
+          bb2
         )
       ) {
         return true;
@@ -465,26 +450,58 @@ export class CapacityTestSameSidePattern extends BaseNesting {
   _findSequentialRowPitch(rowPlacements, config, step) {
     if (!rowPlacements.length) return null;
 
+    const spacing = config.spacing || 0;
     const precision = Math.min(step, 0.05);
     const rowTop = getPlacementsTop(rowPlacements);
     const rowBottom = getPlacementsBottom(rowPlacements);
     const minDeltaY = 0;
-    const upper = buildUpperBound(
+    const upper = Math.max(
       step,
-      rowBottom - rowTop + config.spacing + step * 8
+      rowBottom - rowTop + spacing + step * 8
     );
 
-    return findMinimalContinuousValue(minDeltaY, upper, precision, (deltaY) =>
-      !hasCrossPlacementOverlap(
-        rowPlacements,
-        rowPlacements.map((placement, index) => ({
-          ...placement,
-          id: `body_next_${index}`,
-          y: roundMetric(placement.y + deltaY, 3)
-        })),
-        config.spacing
-      )
-    );
+    // Pre-calculate bounding boxes and indexed data for Row 1
+    const row1Indexed = rowPlacements.map(p => ({
+      p,
+      bb: p.orient.bb || getOrientBounds(p.orient),
+      minX: p.x + (p.orient.bb?.minX ?? 0),
+      maxX: p.x + (p.orient.bb?.maxX ?? 0)
+    }));
+
+    // Sort Row 1 by maxX for faster filtering
+    const sortedRow1 = [...row1Indexed].sort((a, b) => a.maxX - b.maxX);
+
+    return findMinimalContinuousValue(minDeltaY, upper, precision, (deltaY) => {
+      // Check each piece in the next row against relevant pieces in the current row
+      for (const p2 of rowPlacements) {
+        const bb2 = p2.orient.bb || getOrientBounds(p2.orient);
+        const row2MinX = p2.x + bb2.minX;
+        const row2MaxX = p2.x + bb2.maxX;
+        const row2PieceY = p2.y + deltaY;
+        
+        // Only check pieces in Row 1 that could possibly overlap in X
+        const xLimit = row2MinX - spacing;
+        
+        for (let i = sortedRow1.length - 1; i >= 0; i--) {
+          const entry1 = sortedRow1[i];
+          if (entry1.maxX < xLimit) break;
+          if (entry1.minX > row2MaxX + spacing) continue;
+
+          if (cachedPolygonsOverlap(
+            entry1.p.orient.polygon,
+            p2.orient.polygon,
+            { x: entry1.p.x, y: entry1.p.y },
+            { x: p2.x, y: row2PieceY },
+            spacing,
+            entry1.bb,
+            bb2
+          )) {
+            return false;
+          }
+        }
+      }
+      return true;
+    });
   }
 
   _buildShiftedBodyNeighborhood(rowPlacements, rowPitch, rowShiftXmm = 0, rowShiftYmm = 0) {
@@ -517,7 +534,7 @@ export class CapacityTestSameSidePattern extends BaseNesting {
     const rowTop = getPlacementsTop(rowPlacements);
     const rowBottom = getPlacementsBottom(rowPlacements);
     const minDeltaY = 0;
-    const upper = buildUpperBound(
+    const upper = Math.max(
       step,
       rowBottom - rowTop + Math.abs(rowShiftYmm) + config.spacing + step * 10
     );
@@ -532,7 +549,7 @@ export class CapacityTestSameSidePattern extends BaseNesting {
 
   _findAlignedBodyDx(primaryOrient, alternateOrient, config, step) {
     const precision = Math.min(step, 0.05);
-    const upper = buildUpperBound(
+    const upper = Math.max(
       step,
       Math.max(primaryOrient.width, alternateOrient.width) * 2 + config.spacing + step * 8
     );
@@ -547,7 +564,7 @@ export class CapacityTestSameSidePattern extends BaseNesting {
 
   _findAlignedBodyDy(primaryOrient, alternateOrient, rowMode, dxMm, config, step) {
     const precision = Math.min(step, 0.05);
-    const upper = buildUpperBound(
+    const upper = Math.max(
       step,
       Math.max(primaryOrient.height, alternateOrient.height) * 2 + config.spacing + step * 8
     );
@@ -562,7 +579,7 @@ export class CapacityTestSameSidePattern extends BaseNesting {
 
   _findUniformDx(orient, config, step) {
     const precision = Math.min(step, 0.05);
-    const upper = buildUpperBound(
+    const upper = Math.max(
       step,
       orient.width * 2 + config.spacing + step * 8
     );
@@ -576,8 +593,8 @@ export class CapacityTestSameSidePattern extends BaseNesting {
   }
 
   _findUniformDy(orient, dxMm, config, step) {
-    const precision = Math.min(step, 0.05);
-    const upper = buildUpperBound(
+    const precision = Math.max(0.2, step * 0.1);
+    const upper = Math.max(
       step,
       orient.height * 2 + config.spacing + step * 8
     );

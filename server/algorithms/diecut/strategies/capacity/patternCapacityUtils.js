@@ -1,7 +1,7 @@
 import { getBoundingBox, polygonsOverlap as rawPolygonsOverlap } from '../../core/polygonUtils.js';
 
-const MAX_OVERLAP_CACHE_ENTRIES = 100000;
-const MAX_LOCAL_VALIDATION_CACHE_ENTRIES = 20000;
+const MAX_OVERLAP_CACHE_ENTRIES = 500000;
+const MAX_LOCAL_VALIDATION_CACHE_ENTRIES = 100000;
 
 const objectIdCache = new WeakMap();
 const overlapCache = new Map();
@@ -86,22 +86,39 @@ function buildLocalValidationCacheKey(rebasedPlacements, workWidth, workHeight, 
 }
 
 export function cachedPolygonsOverlap(polyA, polyB, offsetA = { x: 0, y: 0 }, offsetB = { x: 0, y: 0 }, spacing = 0, bbA = null, bbB = null) {
+  const pad = Math.max(0, spacing || 0);
+  
+  // Early exit using bounding boxes if provided or computable
+  const boxA = bbA || getOrientBounds({ polygon: polyA });
+  const boxB = bbB || getOrientBounds({ polygon: polyB });
+  
+  if (
+    offsetA.x + boxA.maxX + pad < offsetB.x + boxB.minX ||
+    offsetA.x + boxA.minX - pad > offsetB.x + boxB.maxX ||
+    offsetA.y + boxA.maxY + pad < offsetB.y + boxB.minY ||
+    offsetA.y + boxA.minY - pad > offsetB.y + boxB.maxY
+  ) {
+    return false;
+  }
+
   const cacheKey = buildOverlapCacheKey(polyA, polyB, offsetA, offsetB, spacing);
   if (overlapCache.has(cacheKey)) {
     return overlapCache.get(cacheKey);
   }
 
-  const result = rawPolygonsOverlap(polyA, polyB, offsetA, offsetB, spacing, bbA, bbB);
+  const result = rawPolygonsOverlap(polyA, polyB, offsetA, offsetB, spacing, boxA, boxB);
   return setBoundedCacheEntry(overlapCache, cacheKey, result, MAX_OVERLAP_CACHE_ENTRIES);
 }
 
 export function roundMetric(value, decimals = 2) {
-  return Number.parseFloat(value.toFixed(decimals));
+  const factor = Math.pow(10, decimals);
+  return Math.round(value * factor) / factor;
 }
 
 export function quantizeToStep(value, step) {
   if (step <= 0) return value;
-  return Math.round(value / step) * step;
+  const factor = 1 / step;
+  return Math.round(value * factor) / factor;
 }
 
 export function buildShiftCandidates(rangeMm, step, maxSamples = 25) {

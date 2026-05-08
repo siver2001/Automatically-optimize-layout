@@ -289,67 +289,86 @@ export function convexHull(points) {
   return lower.concat(upper);
 }
 
-function cross(O, A, B) {
-  return (A.x - O.x) * (B.y - O.y) - (A.y - O.y) * (B.x - O.x);
+const segmentDataCache = new WeakMap();
+
+function getSegmentData(poly) {
+  let data = segmentDataCache.get(poly);
+  if (data) return data;
+  
+  const n = poly.length;
+  data = new Float64Array(n * 8); // x1, y1, x2, y2, minX, maxX, minY, maxY
+  for (let i = 0; i < n; i++) {
+    const p1 = poly[i];
+    const p2 = poly[(i + 1) % n];
+    const idx = i * 8;
+    data[idx] = p1.x;
+    data[idx + 1] = p1.y;
+    data[idx + 2] = p2.x;
+    data[idx + 3] = p2.y;
+    data[idx + 4] = p1.x < p2.x ? p1.x : p2.x;
+    data[idx + 5] = p1.x > p2.x ? p1.x : p2.x;
+    data[idx + 6] = p1.y < p2.y ? p1.y : p2.y;
+    data[idx + 7] = p1.y > p2.y ? p1.y : p2.y;
+  }
+  segmentDataCache.set(poly, data);
+  return data;
+}
+
+function segmentsIntersectOptimized(p0x, p0y, p1x, p1y, p2x, p2y, p3x, p3y) {
+  const s1x = p1x - p0x;
+  const s1y = p1y - p0y;
+  const s2x = p3x - p2x;
+  const s2y = p3y - p2y;
+  
+  const denom = -s2x * s1y + s1x * s2y;
+  if (denom === 0) return false;
+  
+  const s = (-s1y * (p0x - p2x) + s1x * (p0y - p2y)) / denom;
+  const t = (s2x * (p0y - p2y) - s2y * (p0x - p2x)) / denom;
+
+  return s >= 0 && s <= 1 && t >= 0 && t <= 1;
 }
 
 /**
  * Kiểm tra xem 2 đa giác lõm (Concave) có giao nhau không BẰNG ĐƯỜNG CẮT (Segment Intersection).
- * Phương pháp SAT cũ trước đây hoạt động sai lệch vì nó coi lót giày là 1 Khối lồi (Convex Hull).
+ * Phiên bản tối ưu hóa cao.
  */
 export function polygonsOverlap(polyA, polyB, offsetA = {x:0, y:0}, offsetB = {x:0, y:0}, spacing = 0, bbA = null, bbB = null) {
-  // Tối ưu: Kiểm tra Bounding Box trước khi kiểm tra từng đoạn thẳng
   if (!bbA) bbA = getBoundingBox(polyA);
   if (!bbB) bbB = getBoundingBox(polyB);
   
-  const bbA_off = {
-    minX: bbA.minX + offsetA.x, maxX: bbA.maxX + offsetA.x,
-    minY: bbA.minY + offsetA.y, maxY: bbA.maxY + offsetA.y
-  };
-  const bbB_off = {
-    minX: bbB.minX + offsetB.x, maxX: bbB.maxX + offsetB.x,
-    minY: bbB.minY + offsetB.y, maxY: bbB.maxY + offsetB.y
-  };
+  const ax = offsetA.x, ay = offsetA.y;
+  const bx = offsetB.x, by = offsetB.y;
 
-  if (bbA_off.maxX + spacing < bbB_off.minX || bbA_off.minX - spacing > bbB_off.maxX ||
-      bbA_off.maxY + spacing < bbB_off.minY || bbA_off.minY - spacing > bbB_off.maxY) {
+  if (bbA.maxX + ax + spacing < bbB.minX + bx || bbA.minX + ax - spacing > bbB.maxX + bx ||
+      bbA.maxY + ay + spacing < bbB.minY + by || bbA.minY + ay - spacing > bbB.maxY + by) {
     return false;
   }
 
-  const sqSpacing = spacing * spacing;
+  const dataA = getSegmentData(polyA);
+  const dataB = getSegmentData(polyB);
   const nA = polyA.length;
   const nB = polyB.length;
+  const sqSpacing = spacing * spacing;
 
   for (let i = 0; i < nA; i++) {
-    const a1x = polyA[i].x + offsetA.x;
-    const a1y = polyA[i].y + offsetA.y;
-    const a2x = polyA[(i + 1) % nA].x + offsetA.x;
-    const a2y = polyA[(i + 1) % nA].y + offsetA.y;
-
-    // Fast Bounding Box cho Đoạn thẳng A (cộng thêm spacing)
-    const minAx = Math.min(a1x, a2x) - spacing;
-    const maxAx = Math.max(a1x, a2x) + spacing;
-    const minAy = Math.min(a1y, a2y) - spacing;
-    const maxAy = Math.max(a1y, a2y) + spacing;
+    const i8 = i * 8;
+    const a1x = dataA[i8] + ax, a1y = dataA[i8 + 1] + ay;
+    const a2x = dataA[i8 + 2] + ax, a2y = dataA[i8 + 3] + ay;
+    const minAx = dataA[i8 + 4] + ax - spacing, maxAx = dataA[i8 + 5] + ax + spacing;
+    const minAy = dataA[i8 + 6] + ay - spacing, maxAy = dataA[i8 + 7] + ay + spacing;
 
     for (let j = 0; j < nB; j++) {
-      const b1x = polyB[j].x + offsetB.x;
-      const b1y = polyB[j].y + offsetB.y;
-      const b2x = polyB[(j + 1) % nB].x + offsetB.x;
-      const b2y = polyB[(j + 1) % nB].y + offsetB.y;
+      const j8 = j * 8;
+      const b1x = dataB[j8] + bx, b1y = dataB[j8 + 1] + by;
+      const b2x = dataB[j8 + 2] + bx, b2y = dataB[j8 + 3] + by;
+      const minBx = dataB[j8 + 4] + bx, maxBx = dataB[j8 + 5] + bx;
+      const minBy = dataB[j8 + 6] + by, maxBy = dataB[j8 + 7] + by;
 
-      // Culling nhanh: Nếu Bounding Box của 2 đoạn thẳng không thể cắt nhau (kể cả có spacing)
-      if (
-        maxAx < Math.min(b1x, b2x) || minAx > Math.max(b1x, b2x) ||
-        maxAy < Math.min(b1y, b2y) || minAy > Math.max(b1y, b2y)
-      ) {
-        continue;
-      }
+      if (maxAx < minBx || minAx > maxBx || maxAy < minBy || minAy > maxBy) continue;
 
-      // 1. Phân cắt thẳng? (Intersection)
-      if (segmentsIntersect(a1x, a1y, a2x, a2y, b1x, b1y, b2x, b2y)) return true;
+      if (segmentsIntersectOptimized(a1x, a1y, a2x, a2y, b1x, b1y, b2x, b2y)) return true;
 
-      // 2. Kiểm tra khoảng cách? (Spacing tolerance)
       if (spacing > 0) {
         if (sqDistPointSegment(a1x, a1y, b1x, b1y, b2x, b2y) <= sqSpacing) return true;
         if (sqDistPointSegment(b1x, b1y, a1x, a1y, a2x, a2y) <= sqSpacing) return true;
@@ -357,9 +376,8 @@ export function polygonsOverlap(polyA, polyB, offsetA = {x:0, y:0}, offsetB = {x
     }
   }
 
-  // Chống lỗi "bọc kín": polyA nằm hoàn toàn trong PolyB hoặc ngược lại, ko cắt qua rìa.
-  if (pointInPolygon({x: polyA[0].x + offsetA.x, y: polyA[0].y + offsetA.y}, polyB, offsetB)) return true;
-  if (pointInPolygon({x: polyB[0].x + offsetB.x, y: polyB[0].y + offsetB.y}, polyA, offsetA)) return true;
+  if (pointInPolygon({x: polyA[0].x + ax, y: polyA[0].y + ay}, polyB, offsetB)) return true;
+  if (pointInPolygon({x: polyB[0].x + bx, y: polyB[0].y + by}, polyA, offsetA)) return true;
 
   return false;
 }

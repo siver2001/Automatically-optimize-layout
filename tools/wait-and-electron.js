@@ -16,7 +16,7 @@ waitOn({
   }
   console.log(`[Wait-And-Electron] ${url} is ready, starting electron...`);
   const electronCmd = 'npx electron .';
-  const child = exec(electronCmd, { cwd: '..' });
+  const child = exec(electronCmd);
   child.stdout.pipe(process.stdout);
   child.stderr.pipe(process.stderr);
   child.on('exit', (code) => process.exit(code));

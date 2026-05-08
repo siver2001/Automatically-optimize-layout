@@ -591,6 +591,32 @@ router.post('/test-capacity', async (req, res) => {
 
     // Removed enforceMonotonicity call to ensure UI matches physical layout exactly
 
+    // Performance optimization: strip heavy polygon coordinate arrays from response.
+    // The frontend uses renderTemplates (SVG paths) for display, so full polygon data
+    // is not needed. This reduces JSON payload from ~15-20MB to ~1-2MB.
+    const compactSheetForCapacity = (sheet) => {
+      if (!sheet?.placed) return sheet;
+      return {
+        ...sheet,
+        placed: sheet.placed.map(item => {
+          const { polygon, cycPolygon, internals, ...lightweight } = item;
+          return {
+            ...lightweight,
+            // Preserve area for efficiency calculations
+            area: item.areaMm2 || item.area || 0
+          };
+        })
+      };
+    };
+
+    if (result.sheetsBySize) {
+      for (const sizeName of Object.keys(result.sheetsBySize)) {
+        if (result.sheetsBySize[sizeName]) {
+          result.sheetsBySize[sizeName] = compactSheetForCapacity(result.sheetsBySize[sizeName]);
+        }
+      }
+    }
+
     const defaultSizeName = sizeList[0]?.sizeName || null;
     const defaultSheet = defaultSizeName ? result.sheetsBySize?.[defaultSizeName] : null;
 
@@ -602,15 +628,17 @@ router.post('/test-capacity', async (req, res) => {
       };
     }
 
-    res.json({
+    const compactResult = {
       ...result,
       success: true,
       effectiveConfig: config,
       timeMs: Date.now() - startTime,
       totalPlaced: defaultSheet?.placedCount || 0,
       efficiency: defaultSheet?.efficiency || 0,
-      sheet: defaultSheet || result.sheet
-    });
+      sheet: defaultSheet || (result.sheet ? compactSheetForCapacity(result.sheet) : result.sheet)
+    };
+
+    res.json(compactResult);
     return;
 
 
