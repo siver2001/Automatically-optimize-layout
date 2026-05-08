@@ -1,6 +1,7 @@
 import fs from 'fs';
 import { parseCadBufferToSizedShapes } from '../server/algorithms/diecut/core/dxfParser.js';
 import { CapacityTestDoubleInsoleDoubleContourPattern } from '../server/algorithms/diecut/strategies/capacity/CapacityTestDoubleInsoleDoubleContourPattern.js';
+import { cachedPolygonsOverlap } from '../server/algorithms/diecut/strategies/capacity/patternCapacityUtils.js';
 
 async function run() {
   const dxfFile = 'ASICS-DC-EOR-13(DAO GO LUXIN)-MS FS-BEESCO-2025-08-25(DINH DANG LUXIN).dxf';
@@ -54,6 +55,7 @@ async function run() {
       const sheet = result.sheetsBySize?.[item.sizeName];
       const patternInfo = sheet?.patternInfo || {};
       const splitN = patternInfo.splitFillCount || 0;
+      
       console.log(`| ${item.sizeName.padEnd(5)} | ${item.pairs.toString().padEnd(5)} | ${item.placedCount.toString().padEnd(6)} | ${item.efficiency.toString().padEnd(10)} | ${splitN} |`);
     });
     console.log(`\nTotal time: ${elapsed}ms`);
