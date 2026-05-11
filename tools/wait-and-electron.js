@@ -1,23 +1,71 @@
-import { exec } from 'child_process';
 import waitOn from 'wait-on';
+import { spawn } from 'child_process';
+import net from 'net';
 
-const port = process.env.CLIENT_PORT || process.env.PORT || 3000;
-const url = `http://localhost:${port}`;
+// Hàm tìm cổng trống
+function findFreePort(startPort) {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.listen(startPort, () => {
+      const { port } = server.address();
+      server.close(() => resolve(port));
+    });
+    server.on('error', () => {
+      resolve(findFreePort(startPort + 1));
+    });
+  });
+}
 
-console.log(`[Wait-And-Electron] Waiting for ${url}...`);
+async function start() {
+  const clientPort = await findFreePort(3000);
+  const serverPort = 5000; // Có thể làm tương tự nếu muốn linh hoạt cả server
 
-waitOn({
-  resources: [url],
-  timeout: 60000, // 60s
-}, (err) => {
-  if (err) {
-    console.error('[Wait-And-Electron] Timeout waiting for client:', err);
+  console.log(`Using port ${clientPort} for Client...`);
+
+  // 1. Khởi động Server (cổng 5000)
+  const server = spawn('npm', ['run', 'server'], {
+    shell: true,
+    stdio: 'inherit',
+    env: { ...process.env, PORT: serverPort }
+  });
+
+  // 2. Khởi động Client với cổng đã tìm được
+  const client = spawn('npm', ['run', 'client'], {
+    shell: true,
+    stdio: 'inherit',
+    env: { ...process.env, PORT: clientPort, BROWSER: 'none' }
+  });
+
+  // 3. Đợi Client sẵn sàng
+  const opts = {
+    resources: [`http://127.0.0.1:${clientPort}`],
+    timeout: 60000,
+  };
+
+  console.log(`Waiting for Client on port ${clientPort}...`);
+
+  try {
+    await waitOn(opts);
+    console.log('Client is ready. Launching Electron...');
+    
+    // 4. Khởi động Electron và truyền cổng vào để Electron biết
+    const electron = spawn('npx', ['electron', '.'], {
+      shell: true,
+      stdio: 'inherit',
+      env: { ...process.env, ELECTRON_START_URL: `http://localhost:${clientPort}` }
+    });
+
+    electron.on('close', (code) => {
+      server.kill();
+      client.kill();
+      process.exit(code);
+    });
+  } catch (err) {
+    console.error('Error starting dev environment:', err);
+    server.kill();
+    client.kill();
     process.exit(1);
   }
-  console.log(`[Wait-And-Electron] ${url} is ready, starting electron...`);
-  const electronCmd = 'npx electron .';
-  const child = exec(electronCmd);
-  child.stdout.pipe(process.stdout);
-  child.stderr.pipe(process.stderr);
-  child.on('exit', (code) => process.exit(code));
-});
+}
+
+start();

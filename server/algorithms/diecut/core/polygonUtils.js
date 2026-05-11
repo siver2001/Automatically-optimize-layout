@@ -329,43 +329,36 @@ function segmentsIntersectOptimized(p0x, p0y, p1x, p1y, p2x, p2y, p3x, p3y) {
   return s >= 0 && s <= 1 && t >= 0 && t <= 1;
 }
 
-/**
- * Kiểm tra xem 2 đa giác lõm (Concave) có giao nhau không BẰNG ĐƯỜNG CẮT (Segment Intersection).
- * Phiên bản tối ưu hóa cao.
- */
-export function polygonsOverlap(polyA, polyB, offsetA = {x:0, y:0}, offsetB = {x:0, y:0}, spacing = 0, bbA = null, bbB = null) {
-  if (!bbA) bbA = getBoundingBox(polyA);
-  if (!bbB) bbB = getBoundingBox(polyB);
-  
+export function polygonsOverlap(polyA, polyB, offsetA = { x: 0, y: 0 }, offsetB = { x: 0, y: 0 }, spacing = 0) {
   const ax = offsetA.x, ay = offsetA.y;
   const bx = offsetB.x, by = offsetB.y;
-
-  if (bbA.maxX + ax + spacing < bbB.minX + bx || bbA.minX + ax - spacing > bbB.maxX + bx ||
-      bbA.maxY + ay + spacing < bbB.minY + by || bbA.minY + ay - spacing > bbB.maxY + by) {
-    return false;
-  }
-
-  const dataA = getSegmentData(polyA);
-  const dataB = getSegmentData(polyB);
+  
+  // 1. Precise SAT-like intersection check with spacing
   const nA = polyA.length;
   const nB = polyB.length;
   const sqSpacing = spacing * spacing;
 
+  // Pre-transform polyA to avoid repeated additions
+  const pA = new Float64Array(nA * 2);
   for (let i = 0; i < nA; i++) {
-    const i8 = i * 8;
-    const a1x = dataA[i8] + ax, a1y = dataA[i8 + 1] + ay;
-    const a2x = dataA[i8 + 2] + ax, a2y = dataA[i8 + 3] + ay;
-    const minAx = dataA[i8 + 4] + ax - spacing, maxAx = dataA[i8 + 5] + ax + spacing;
-    const minAy = dataA[i8 + 6] + ay - spacing, maxAy = dataA[i8 + 7] + ay + spacing;
+    pA[i*2] = polyA[i].x + ax;
+    pA[i*2+1] = polyA[i].y + ay;
+  }
+
+  // Pre-transform polyB
+  const pB = new Float64Array(nB * 2);
+  for (let i = 0; i < nB; i++) {
+    pB[i*2] = polyB[i].x + bx;
+    pB[i*2+1] = polyB[i].y + by;
+  }
+
+  for (let i = 0; i < nA; i++) {
+    const a1x = pA[i*2], a1y = pA[i*2+1];
+    const a2x = pA[((i+1)%nA)*2], a2y = pA[((i+1)%nA)*2+1];
 
     for (let j = 0; j < nB; j++) {
-      const j8 = j * 8;
-      const b1x = dataB[j8] + bx, b1y = dataB[j8 + 1] + by;
-      const b2x = dataB[j8 + 2] + bx, b2y = dataB[j8 + 3] + by;
-      const minBx = dataB[j8 + 4] + bx, maxBx = dataB[j8 + 5] + bx;
-      const minBy = dataB[j8 + 6] + by, maxBy = dataB[j8 + 7] + by;
-
-      if (maxAx < minBx || minAx > maxBx || maxAy < minBy || minAy > maxBy) continue;
+      const b1x = pB[j*2], b1y = pB[j*2+1];
+      const b2x = pB[((j+1)%nB)*2], b2y = pB[((j+1)%nB)*2+1];
 
       if (segmentsIntersectOptimized(a1x, a1y, a2x, a2y, b1x, b1y, b2x, b2y)) return true;
 

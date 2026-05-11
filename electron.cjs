@@ -62,9 +62,9 @@ function createWindow(serverPort = 5000) {
     }
   });
 
-  const clientPort = process.env.CLIENT_PORT || 3000;
+  const startUrl = process.env.ELECTRON_START_URL || `http://localhost:${process.env.CLIENT_PORT || 3000}`;
   if (isDev) {
-    mainWindow.loadURL(`http://localhost:${clientPort}`);
+    mainWindow.loadURL(startUrl);
   } else {
     // ✅ LOAD từ Server Express thay vì file local
     mainWindow.loadURL(`http://localhost:${serverPort}`);

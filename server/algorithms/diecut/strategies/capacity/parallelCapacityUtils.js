@@ -21,22 +21,20 @@ export function getLogicalCpuCount() {
 function resolveCpuWorkerCap(logicalCpuCount) {
   if (logicalCpuCount <= 2) return 1;
   if (logicalCpuCount <= 4) return 2;
-  if (logicalCpuCount <= 6) return 3;
   if (logicalCpuCount <= 8) return 4;
-  if (logicalCpuCount <= 12) return 5;
-  if (logicalCpuCount <= 16) return 6;
-  if (logicalCpuCount <= 24) return 10;
-  return 12;
+  if (logicalCpuCount <= 12) return 8;
+  if (logicalCpuCount <= 16) return 12;
+  if (logicalCpuCount <= 32) return 16;
+  return 20;
 }
 
 function resolveMemoryWorkerCap(totalMemoryGb) {
   if (totalMemoryGb <= 0) return 4;
   if (totalMemoryGb < 6) return 2;
-  if (totalMemoryGb < 10) return 3;
-  if (totalMemoryGb < 14) return 4;
-  if (totalMemoryGb < 15) return 6;
-  if (totalMemoryGb < 18) return 10;
-  return 12;
+  if (totalMemoryGb < 10) return 4;
+  if (totalMemoryGb < 14) return 8;
+  if (totalMemoryGb < 20) return 16;
+  return 20;
 }
 
 export function resolveAdaptiveParallelWorkerCount(sizeList, config = {}) {

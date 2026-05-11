@@ -3,9 +3,7 @@ import {
   flipX,
   normalizeToOrigin,
   translate,
-  area as polygonArea,
-  polygonsOverlap
-} from '../../core/polygonUtils.js';
+  area as polygonArea} from '../../core/polygonUtils.js';
 import { Worker, isMainThread } from 'worker_threads';
 import {
   getOrientBounds,
@@ -318,7 +316,7 @@ export class CapacityTestSameSidePattern extends BaseNesting {
     }
 
     if (config.sameSideFineRotateEnabled === true && (config.gridStep || 1) <= 0.5) {
-      return buildDetailedFineRotateOffsets(DETAILED_FINE_ROTATE_STEP_DEGREES);
+      return buildDetailedFineRotateOffsets(1.0); // Coarser step for fine rotate
     }
 
     return [0];
@@ -333,7 +331,8 @@ export class CapacityTestSameSidePattern extends BaseNesting {
       foot,
       bb,
       width: bb.width,
-      height: bb.height
+      height: bb.height,
+      areaMm2: polygonArea(orient.polygon)
     };
   }
 
@@ -451,56 +450,24 @@ export class CapacityTestSameSidePattern extends BaseNesting {
     if (!rowPlacements.length) return null;
 
     const spacing = config.spacing || 0;
-    const precision = Math.min(step, 0.05);
-    const rowTop = getPlacementsTop(rowPlacements);
+    const precision = 0.05; // Balanced precision for faster search
     const rowBottom = getPlacementsBottom(rowPlacements);
-    const minDeltaY = 0;
-    const upper = Math.max(
-      step,
-      rowBottom - rowTop + spacing + step * 8
-    );
+    const rowTop = getPlacementsTop(rowPlacements);
+    const upper = Math.max(step, (rowBottom - rowTop) * 2 + spacing + step * 8);
 
-    // Pre-calculate bounding boxes and indexed data for Row 1
-    const row1Indexed = rowPlacements.map(p => ({
-      p,
-      bb: p.orient.bb || getOrientBounds(p.orient),
-      minX: p.x + (p.orient.bb?.minX ?? 0),
-      maxX: p.x + (p.orient.bb?.maxX ?? 0)
-    }));
-
-    // Sort Row 1 by maxX for faster filtering
-    const sortedRow1 = [...row1Indexed].sort((a, b) => a.maxX - b.maxX);
-
-    return findMinimalContinuousValue(minDeltaY, upper, precision, (deltaY) => {
-      // Check each piece in the next row against relevant pieces in the current row
-      for (const p2 of rowPlacements) {
-        const bb2 = p2.orient.bb || getOrientBounds(p2.orient);
-        const row2MinX = p2.x + bb2.minX;
-        const row2MaxX = p2.x + bb2.maxX;
-        const row2PieceY = p2.y + deltaY;
-        
-        // Only check pieces in Row 1 that could possibly overlap in X
-        const xLimit = row2MinX - spacing;
-        
-        for (let i = sortedRow1.length - 1; i >= 0; i--) {
-          const entry1 = sortedRow1[i];
-          if (entry1.maxX < xLimit) break;
-          if (entry1.minX > row2MaxX + spacing) continue;
-
-          if (cachedPolygonsOverlap(
-            entry1.p.orient.polygon,
-            p2.orient.polygon,
-            { x: entry1.p.x, y: entry1.p.y },
-            { x: p2.x, y: row2PieceY },
-            spacing,
-            entry1.bb,
-            bb2
-          )) {
-            return false;
-          }
+    return findMinimalContinuousValue(step, upper, precision, (deltaY) => {
+      // Build 6 rows to ensure Row 1 doesn't collide with subsequent rows in dense layouts
+      const neighborhood = [];
+      for (let r = 0; r < 6; r++) {
+        for (const p of rowPlacements) {
+          neighborhood.push({
+            ...p,
+            id: `r${r}_${p.id}`,
+            y: p.y + r * deltaY
+          });
         }
       }
-      return true;
+      return validateLocalPlacements(neighborhood, spacing).valid;
     });
   }
 
@@ -527,94 +494,111 @@ export class CapacityTestSameSidePattern extends BaseNesting {
     return placements;
   }
 
-  _findShiftedRowPitch(rowPlacements, rowShiftXmm, rowShiftYmm, config, step) {
+  _findShiftedRowPitch(rowPlacements, rowShiftX, config, step) {
     if (!rowPlacements.length) return null;
 
+    const spacing = config.spacing || 0;
     const precision = Math.min(step, 0.05);
-    const rowTop = getPlacementsTop(rowPlacements);
     const rowBottom = getPlacementsBottom(rowPlacements);
-    const minDeltaY = 0;
-    const upper = Math.max(
-      step,
-      rowBottom - rowTop + Math.abs(rowShiftYmm) + config.spacing + step * 10
-    );
+    const rowTop = getPlacementsTop(rowPlacements);
+    const upper = Math.max(step, (rowBottom - rowTop) * 2 + spacing + step * 8);
 
-    return findMinimalContinuousValue(minDeltaY, upper, precision, (rowPitch) =>
-      validateLocalPlacements(
-        this._buildShiftedBodyNeighborhood(rowPlacements, rowPitch, rowShiftXmm, rowShiftYmm),
-        config.spacing
-      ).valid
-    );
+    return findMinimalContinuousValue(step, upper, precision, (deltaY) => {
+      // Build 3 rows with shifts to check all possible neighbor collisions
+      const neighborhood = [];
+      for (let r = 0; r < 3; r++) {
+        const currentShift = (r % 2 === 0) ? 0 : rowShiftX;
+        for (const p of rowPlacements) {
+          neighborhood.push({
+            ...p,
+            id: `r${r}_${p.id}`,
+            x: p.x + currentShift,
+            y: p.y + r * deltaY
+          });
+        }
+      }
+      return validateLocalPlacements(neighborhood, spacing).valid;
+    });
   }
 
   _findAlignedBodyDx(primaryOrient, alternateOrient, config, step) {
+    const spacing = config.spacing || 0;
     const precision = Math.min(step, 0.05);
     const upper = Math.max(
       step,
-      Math.max(primaryOrient.width, alternateOrient.width) * 2 + config.spacing + step * 8
+      Math.max(primaryOrient.width, alternateOrient.width) * 2 + spacing + step * 8
     );
 
-    return findMinimalContinuousValue(step, upper, precision, (dxMm) =>
-      validateLocalPlacements(
-        this._buildBodyNeighborhood(primaryOrient, alternateOrient, 'rows', dxMm, Math.max(primaryOrient.height, alternateOrient.height) + config.spacing + step * 2).filter(item => item.y === 0),
-        config.spacing
-      ).valid
-    );
+    return findMinimalContinuousValue(step, upper, precision, (dxMm) => {
+      // Build a 2-row x 5-column neighborhood to check horizontal and diagonal spacing
+      const neighborhood = [];
+      for (let row = 0; row < 2; row++) {
+        for (let col = 0; col < 5; col++) {
+          const orient = this._resolveBodyOrient(primaryOrient, alternateOrient, 'rows', row, col);
+          neighborhood.push({
+            x: col * dxMm,
+            y: row * (primaryOrient.height + spacing), // Temporary Y to check X spacing
+            orient: orient,
+            bb: orient.bb || getOrientBounds(orient)
+          });
+        }
+      }
+      // Check first row horizontal spacing strictly
+      return validateLocalPlacements(neighborhood.filter(n => n.y === 0), spacing).valid;
+    });
   }
 
   _findAlignedBodyDy(primaryOrient, alternateOrient, rowMode, dxMm, config, step) {
+    const spacing = config.spacing || 0;
     const precision = Math.min(step, 0.05);
     const upper = Math.max(
       step,
-      Math.max(primaryOrient.height, alternateOrient.height) * 2 + config.spacing + step * 8
+      Math.max(primaryOrient.height, alternateOrient.height) * 2 + spacing + step * 8
     );
 
-    return findMinimalContinuousValue(step, upper, precision, (dyMm) =>
-      validateLocalPlacements(
-        this._buildBodyNeighborhood(primaryOrient, alternateOrient, rowMode, dxMm, dyMm),
-        config.spacing
-      ).valid
-    );
+    return findMinimalContinuousValue(step, upper, precision, (dyMm) => {
+      // Build a 3-row block to check inter-row and cross-row collisions
+      const neighborhood = this._buildBodyNeighborhood(primaryOrient, alternateOrient, rowMode, dxMm, dyMm);
+      return validateLocalPlacements(neighborhood, spacing).valid;
+    });
   }
 
   _findUniformDx(orient, config, step) {
-    const precision = Math.min(step, 0.05);
+    const spacing = config.spacing || 0;
+    const precision = 0.05;
     const upper = Math.max(
       step,
-      orient.width * 2 + config.spacing + step * 8
+      orient.width * 2 + spacing + step * 8
     );
 
-    return findMinimalContinuousValue(step, upper, precision, (dxMm) =>
-      validateLocalPlacements(
-        this._buildUniformNeighborhood(orient, dxMm, orient.height + config.spacing + step * 2).filter(item => item.y === 0),
-        config.spacing
-      ).valid
-    );
+    return findMinimalContinuousValue(step, upper, precision, (dxMm) => {
+      const neighborhood = [];
+      const bb = orient.bb || getOrientBounds(orient);
+      for (let col = 0; col < 6; col++) {
+        neighborhood.push({
+          x: col * dxMm,
+          y: 0,
+          orient: orient,
+          bb: bb
+        });
+      }
+      return validateLocalPlacements(neighborhood, spacing).valid;
+    });
   }
 
   _findUniformDy(orient, dxMm, config, step) {
-    const precision = Math.max(0.2, step * 0.1);
+    const spacing = config.spacing || 0;
+    const precision = 0.05;
     const upper = Math.max(
       step,
-      orient.height * 2 + config.spacing + step * 8
+      orient.height * 2 + spacing + step * 8
     );
-    const baseRow = this._buildUniformNeighborhood(
-      orient,
-      dxMm,
-      orient.height + config.spacing + step * 2
-    ).filter((item) => item.y === 0);
 
-    return findMinimalContinuousValue(step, upper, precision, (dyMm) =>
-      !hasCrossPlacementOverlap(
-        baseRow,
-        baseRow.map((placement, index) => ({
-          ...placement,
-          id: `uniform_next_${index}`,
-          y: roundMetric(dyMm, 3)
-        })),
-        config.spacing
-      )
-    );
+    return findMinimalContinuousValue(step, upper, precision, (dyMm) => {
+      // Build 3 rows to check Row 0 vs Row 2 direct overlap
+      const neighborhood = this._buildUniformNeighborhood(orient, dxMm, dyMm);
+      return validateLocalPlacements(neighborhood, spacing).valid;
+    });
   }
 
   _countCols(maxWidth, dxMm, workWidth, rowShiftXmm = 0) {
@@ -738,7 +722,6 @@ export class CapacityTestSameSidePattern extends BaseNesting {
 
   _buildCandidate(sizeName, foot, pieceArea, placements, metadata, workWidth, workHeight, config) {
     if (!placements.length) return null;
-
     const bounds = computeEnvelope(placements);
     if (
       bounds.minX < -1e-6 ||

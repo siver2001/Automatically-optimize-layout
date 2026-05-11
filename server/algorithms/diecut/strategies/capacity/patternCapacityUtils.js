@@ -93,10 +93,10 @@ export function cachedPolygonsOverlap(polyA, polyB, offsetA = { x: 0, y: 0 }, of
   const boxB = bbB || getOrientBounds({ polygon: polyB });
   
   if (
-    offsetA.x + boxA.maxX + pad < offsetB.x + boxB.minX ||
-    offsetA.x + boxA.minX - pad > offsetB.x + boxB.maxX ||
-    offsetA.y + boxA.maxY + pad < offsetB.y + boxB.minY ||
-    offsetA.y + boxA.minY - pad > offsetB.y + boxB.maxY
+    offsetA.x + boxA.maxX + pad < offsetB.x + boxB.minX - 1e-9 ||
+    offsetA.x + boxA.minX - pad > offsetB.x + boxB.maxX + 1e-9 ||
+    offsetA.y + boxA.maxY + pad < offsetB.y + boxB.minY - 1e-9 ||
+    offsetA.y + boxA.minY - pad > offsetB.y + boxB.maxY + 1e-9
   ) {
     return false;
   }
