@@ -155,7 +155,7 @@ function buildShiftCandidates(range, step, limit = 9) {
   if (!Number.isFinite(range) || range <= 0) return [0];
   const safeStep = Math.max(step, 0.25);
   const candidates = new Set([0]);
-  const steps = Math.max(1, limit - 1);
+  const steps = Math.max(1, limit);
   const increment = Math.max(safeStep, range / steps);
 
   for (let value = increment; value <= range + 1e-6; value += increment) {
@@ -163,6 +163,14 @@ function buildShiftCandidates(range, step, limit = 9) {
     if (Math.abs(rounded) < safeStep * 0.5) continue;
     candidates.add(rounded);
     candidates.add(-rounded);
+  }
+  
+  // Add some finer steps around the most promising areas
+  const fineLimit = Math.min(candidates.size * 2, 60);
+  const fineIncrement = increment / 3;
+  for (let value = increment; value <= range + 1e-6; value += increment) {
+      candidates.add(roundMetric(value - fineIncrement, 3));
+      candidates.add(roundMetric(value + fineIncrement, 3));
   }
 
   return [...candidates].sort((left, right) => Math.abs(left) - Math.abs(right) || left - right);
@@ -903,7 +911,12 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
   }
 
   _getDoubleContourPreferredAngles(sizeName, config = {}) {
-    return [0, 90, 180, 270];
+    const sizeVal = parseFloat(sizeName);
+    // For large sizes, stick to key orientations to save time
+    if (sizeVal > 10) return [0, 90, 45, 135];
+    
+    // For others, use a strategic set of angles that often unlock better interlocking
+    return [0, 90, 45, 135, 15, 30, 60, 75, 105, 120, 150, 165];
   }
 
   _buildShiftedUniformNeighborhood(orient, dxMm, rowPitchMm, rowShiftXmm = 0, rowShiftYmm = 0) {
@@ -1036,27 +1049,60 @@ return roundMetric(high, 3);
 
 
 
-  _buildShiftedUniformPlacements(orient, cols, rows, dxMm, dyMm, rowShiftXmm = 0, rowShiftYmm = 0, startY = 0, alternateOrient = null) {
+  _buildShiftedUniformPlacements(orient, cols, rows, dxMm, dyMm, rowShiftXmm = 0, rowShiftYmm = 0, startY = 0, alternateOrient = null, config = {}) {
     const placements = [];
+    const spacing = config.spacing || 0;
+    const workWidth = 1100; // Default or from config
+    const workHeight = 2000;
     const baseX = rowShiftXmm < 0 ? -rowShiftXmm : 0;
     const baseY = startY - Math.min(0, rowShiftYmm);
+
+    // Track the "bottom boundary" of the previous row for adaptive dropping
+    let previousRowPlacements = [];
 
     for (let row = 0; row < rows; row++) {
       const isOddRow = row % 2 === 1;
       const shiftX = isOddRow ? rowShiftXmm : 0;
       const shiftY = isOddRow ? rowShiftYmm : 0;
+      const currentRowPlacements = [];
 
       for (let col = 0; col < cols; col++) {
         const isOddCol = col % 2 === 1;
         const currentOrient = (isOddCol && alternateOrient) ? alternateOrient : orient;
+        const x = roundMetric(baseX + col * dxMm + shiftX, 3);
+        
+        // Initial target Y based on uniform pitch
+        let targetY = roundMetric(baseY + row * dyMm + shiftY, 3);
+        
+        // Adaptive Drop: Try to lower the piece as much as possible
+        // We only check against the previous row for speed, or use spatial index
+        if (row > 0) {
+           const step = 1.0; 
+           const searchRange = dyMm * 0.5; // Look up to half-row height up for interlocking
+           let bestY = targetY;
+           
+           // Fast check: start from a much lower Y and move up until safe
+           // Or move down from targetY until hit
+           for (let ny = targetY - searchRange; ny <= targetY + 1e-6; ny += step) {
+              const spatialIndex = this._buildSpatialIndex(previousRowPlacements, workWidth, workHeight, spacing);
+              if (this._canPlaceSplitOrient(previousRowPlacements, currentOrient, x, ny, config, workWidth, workHeight, spatialIndex, true)) {
+                bestY = ny;
+                break; // Found the lowest safe Y in this range
+              }
+           }
+           targetY = bestY;
+        }
 
-        placements.push({
+        const p = {
           id: `double_insole_${row}_${col}`,
           orient: currentOrient,
-          x: roundMetric(baseX + col * dxMm + shiftX, 3),
-          y: roundMetric(baseY + row * dyMm + shiftY, 3)
-        });
+          x,
+          y: roundMetric(targetY, 3)
+        };
+        placements.push(p);
+        currentRowPlacements.push(p);
       }
+      previousRowPlacements = currentRowPlacements;
     }
 
     return placements;
@@ -1134,6 +1180,54 @@ return roundMetric(high, 3);
       )
       };
     }
+
+  _squeezePlacements(placements, config, workWidth, workHeight) {
+    if (!placements.length) return [];
+    const spacing = config.spacing || 0;
+    const step = config.gridStep || 1;
+    
+    // Sort by Y then X to squeeze towards the bottom-left corner
+    const sorted = [...placements].sort((a, b) => a.y - b.y || a.x - b.x);
+    const squeezed = [];
+    
+    for (let i = 0; i < sorted.length; i++) {
+      const item = sorted[i];
+      let currentX = item.x;
+      let currentY = item.y;
+      
+      // Try to nudge left
+      let lastValidX = currentX;
+      for (let nx = currentX - step; nx >= -1e-6; nx -= step) {
+         const spatialIndex = this._buildSpatialIndex(squeezed, workWidth, workHeight, spacing);
+         if (this._canPlaceSplitOrient(squeezed, item.orient, nx, currentY, config, workWidth, workHeight, spatialIndex, true)) {
+           lastValidX = nx;
+         } else {
+           break;
+         }
+      }
+      currentX = lastValidX;
+      
+      // Try to nudge down
+      let lastValidY = currentY;
+      for (let ny = currentY - step; ny >= -1e-6; ny -= step) {
+         const spatialIndex = this._buildSpatialIndex(squeezed, workWidth, workHeight, spacing);
+         if (this._canPlaceSplitOrient(squeezed, item.orient, currentX, ny, config, workWidth, workHeight, spatialIndex, true)) {
+           lastValidY = ny;
+         } else {
+           break;
+         }
+      }
+      currentY = lastValidY;
+      
+      squeezed.push({
+        ...item,
+        x: roundMetric(currentX, 3),
+        y: roundMetric(currentY, 3)
+      });
+    }
+    
+    return squeezed;
+  }
 
   _getSplitFillAngles(config = {}) {
     if (Array.isArray(config.preparedSplitFillAngles) && config.preparedSplitFillAngles.length) {
@@ -3030,17 +3124,20 @@ return roundMetric(high, 3);
     let bestAugmentedCandidate = attachLeftoverMetrics(candidate, workWidth, workHeight);
 
     for (const shift of shiftVariants) {
-      const testCandidate = shift.dx === 0 && shift.dy === 0 
-        ? candidate 
-        : {
-            ...candidate,
-            placements: candidate.placements.map(p => ({
-              ...p,
-              x: roundMetric(p.x + shift.dx, 3),
-              y: roundMetric(p.y + shift.dy, 3)
-            }))
-          };
-
+      const shiftedPlacements = candidate.placements.map(p => ({
+        ...p,
+        x: roundMetric(p.x + shift.dx, 3),
+        y: roundMetric(p.y + shift.dy, 3)
+      }));
+      
+      // Squeeze pieces to the left and bottom to open up more filler space
+      const squeezedPlacements = this._squeezePlacements(shiftedPlacements, config, workWidth, workHeight);
+      
+      const testCandidate = {
+        ...candidate,
+        placements: squeezedPlacements
+      };
+      
       const extraPlacements = this._findSplitFillPlacements(
         sizeName,
         polygon,
@@ -3196,8 +3293,10 @@ return roundMetric(high, 3);
     const variants = [];
     const sizeVal = parseFloat(orient.sizeName || orient.name);
     const maxCols = this._countCols(orient.width, dxMm, workWidth);
-    const colChoices = [maxCols, maxCols - 1, maxCols - 2].filter(c => c > 0);
-    if (colChoices.length === 0) colChoices.push(maxCols);
+    // For large sizes, we only check maxCols and maxCols-1 to save time
+    const colChoices = sizeVal > 10 ? [maxCols, maxCols - 1] : [maxCols, maxCols - 1, maxCols - 2];
+    const filteredColChoices = colChoices.filter(c => c > 0);
+    if (filteredColChoices.length === 0) filteredColChoices.push(maxCols);
     
 
     const rowShiftRange = orient.width * 1.0; // Full width search for maximum interlocking potential
@@ -3290,7 +3389,9 @@ return roundMetric(high, 3);
           orient.height + config.spacing + step * 2,
           0,
           0,
-          0
+          0,
+          null,
+          config
         );
         const uniformBodyHeightMm = roundMetric(
           getPlacementsBottom(uniformRowPlacements) - getPlacementsTop(uniformRowPlacements),
@@ -3348,7 +3449,8 @@ return roundMetric(high, 3);
           0,
           colShiftYmm,
           0,
-          aOrient
+          aOrient,
+          config
         );
 
         const actualPlacements = [];
@@ -3487,7 +3589,7 @@ return roundMetric(high, 3);
 
       const sizeVal = parseFloat(sizeName);
       const isSmallSize = sizeVal <= 5.0;
-      const variantLimit = isSmallSize ? 15 : 6;
+      const variantLimit = isSmallSize ? 12 : 5; // Balanced limit for speed/yield
 
       const variants = this._buildDoubleContourVariants(orient, dxMm, workWidth, workHeight, config, step, pairedOrient)
         .slice(0, variantLimit);
