@@ -1,896 +1,58 @@
-import { Worker, isMainThread } from 'worker_threads';
-import polygonClipping from 'polygon-clipping';
+import { CapacityTestPrePairedSameSidePattern } from '../CapacityTestPrePairedSameSidePattern.js';
+import { CapacityTestSameSidePattern, findMinimalContinuousValue } from '../CapacityTestSameSidePattern.js';
+import { DOUBLE_CONTOUR_ALGORITHM_VERSION } from '../capacityVersion.js';
+import { buildSplitHalfDefinitions } from '../splittingUtils.js';
 import {
   getBoundingBox,
   normalizeToOrigin,
   area as polygonArea,
   rotatePolygon,
   translate
-} from '../../core/polygonUtils.js';
-import { CapacityTestPrePairedSameSidePattern } from './CapacityTestPrePairedSameSidePattern.js';
+} from '../../../core/polygonUtils.js';
 import {
   cachedPolygonsOverlap,
   computeEnvelope,
+  getOrientBounds,
   roundMetric,
   validateLocalPlacements
-} from './patternCapacityUtils.js';
-import { CapacityTestSameSidePattern, findMinimalContinuousValue } from './CapacityTestSameSidePattern.js';
+} from '../patternCapacityUtils.js';
 import {
   buildCapacityResultCacheKey,
   getCachedCapacityResult,
   setCachedCapacityResult
-} from './capacityResultCache.js';
+} from '../capacityResultCache.js';
 import {
-  getLogicalCpuCount,
   orderTasksByEstimatedWeight,
   resolveAdaptiveParallelWorkerCount
-} from './parallelCapacityUtils.js';
-import { DOUBLE_CONTOUR_ALGORITHM_VERSION } from './capacityVersion.js';
-
-const DOUBLE_CONTOUR_CAPACITY_WORKER_URL = new URL('../../../workers/diecutCapacitySameSideWorker.js', import.meta.url);
-
-// All hardcoded constants have been replaced by adaptive logic in the methods below
-const DEFAULT_DOUBLE_CONTOUR_FINE_ROTATE_OFFSETS = [0];
-
-function getWholePairsPlaced(candidate = {}) {
-  const pairValue = candidate.maxPairsPlaced
-    ?? candidate.actualPairs
-    ?? candidate.pairs
-    ?? Math.floor((candidate.placedCount || 0) / 2);
-  return Math.max(0, Math.floor(Number(pairValue) || 0));
-}
-
-function computeLeftoverMetricsFromBounds(bounds, workWidth, workHeight, usedAreaMm2 = 0) {
-  if (!bounds || !Number.isFinite(workWidth) || !Number.isFinite(workHeight)) {
-    return {
-      leftoverAreaMm2: 0,
-      openSheetAreaMm2: 0,
-      remainingSheetAreaMm2: 0
-    };
-  }
-
-  const sheetArea = Math.max(0, workWidth * workHeight);
-  const envelopeArea = Math.max(0, bounds.width * bounds.height);
-  const leftStripArea = Math.max(0, bounds.minX) * workHeight;
-  const rightStripArea = Math.max(0, workWidth - bounds.maxX) * workHeight;
-  const topStripArea = Math.max(0, bounds.minY) * workWidth;
-  const bottomStripArea = Math.max(0, workHeight - bounds.maxY) * workWidth;
-
-  return {
-    leftoverAreaMm2: roundMetric(Math.max(leftStripArea, rightStripArea, topStripArea, bottomStripArea), 3),
-    openSheetAreaMm2: roundMetric(Math.max(0, sheetArea - envelopeArea), 3),
-    remainingSheetAreaMm2: roundMetric(Math.max(0, sheetArea - usedAreaMm2), 3)
-  };
-}
-
-function computeCandidateUsedArea(candidate = {}) {
-  if (Number.isFinite(candidate.usedAreaMm2)) return candidate.usedAreaMm2;
-  if (candidate.placements?.length) {
-    return candidate.placements.reduce((sum, placement) =>
-      sum + (placement.effectiveArea || placement.orient?.areaMm2 || candidate.pieceArea || 0),
-    0);
-  }
-  if (candidate.placed?.length) {
-    return candidate.placed.reduce((sum, item) => sum + (item.areaMm2 || 0), 0);
-  }
-  return (candidate.placedCount || 0) * (candidate.pieceArea || 0);
-}
-
-function attachLeftoverMetrics(candidate, workWidth, workHeight) {
-  if (!candidate) return candidate;
-  const bounds = candidate.bounds || (candidate.placements?.length ? computeEnvelope(candidate.placements) : null);
-  const usedAreaMm2 = computeCandidateUsedArea(candidate);
-  return {
-    ...candidate,
-    maxPairsPlaced: getWholePairsPlaced(candidate),
-    ...computeLeftoverMetricsFromBounds(bounds, workWidth, workHeight, usedAreaMm2)
-  };
-}
-
-function compareDoubleInsoleCandidates(nextCandidate, bestCandidate) {
-  if (!bestCandidate) return -1;
-
-  const getActualPairs = (c) => c.actualPairs ?? c.pairs ?? ((c.placedCount || 0) / 2);
-  const nextActual = getActualPairs(nextCandidate);
-  const bestActual = getActualPairs(bestCandidate);
-  
-  if (nextActual !== bestActual) {
-    return bestActual - nextActual;
-  }
-
-  const nextPairs = getWholePairsPlaced(nextCandidate);
-  const bestPairs = getWholePairsPlaced(bestCandidate);
-
-  if (nextPairs !== bestPairs) {
-    return bestPairs - nextPairs;
-  }
-
-  const nextLeftover = nextCandidate.leftoverAreaMm2 ?? 0;
-  const bestLeftover = bestCandidate.leftoverAreaMm2 ?? 0;
-  if (nextLeftover !== bestLeftover) {
-    return bestLeftover - nextLeftover;
-  }
-
-  const nextOpenSheet = nextCandidate.openSheetAreaMm2 ?? 0;
-  const bestOpenSheet = bestCandidate.openSheetAreaMm2 ?? 0;
-  if (nextOpenSheet !== bestOpenSheet) {
-    return bestOpenSheet - nextOpenSheet;
-  }
-
-  if (nextCandidate.placedCount !== bestCandidate.placedCount) {
-    return bestCandidate.placedCount - nextCandidate.placedCount;
-  }
-  const nextDc = nextCandidate.dcCount ?? 0;
-  const bestDc = bestCandidate.dcCount ?? 0;
-  if (nextDc !== bestDc) {
-    return bestDc - nextDc;
-  }
-  if ((nextCandidate.splitPairCount || 0) !== (bestCandidate.splitPairCount || 0)) {
-    return (bestCandidate.splitPairCount || 0) - (nextCandidate.splitPairCount || 0);
-  }
-  if ((nextCandidate.splitUnpairedCount || 0) !== (bestCandidate.splitUnpairedCount || 0)) {
-    return (bestCandidate.splitUnpairedCount || 0) - (nextCandidate.splitUnpairedCount || 0);
-  }
-  if (nextCandidate.bodyCount !== bestCandidate.bodyCount) {
-    return bestCandidate.bodyCount - nextCandidate.bodyCount;
-  }
-  if (nextCandidate.filler90Count !== bestCandidate.filler90Count) {
-    return nextCandidate.filler90Count - bestCandidate.filler90Count;
-  }
-  if (nextCandidate.usedHeightMm !== bestCandidate.usedHeightMm) {
-    return nextCandidate.usedHeightMm - bestCandidate.usedHeightMm;
-  }
-  if (nextCandidate.usedWidthMm !== bestCandidate.usedWidthMm) {
-    return nextCandidate.usedWidthMm - bestCandidate.usedWidthMm;
-  }
-  const nextShift = Math.abs(nextCandidate.rowShiftXmm || 0) + Math.abs(nextCandidate.rowShiftYmm || 0);
-  const bestShift = Math.abs(bestCandidate.rowShiftXmm || 0) + Math.abs(bestCandidate.rowShiftYmm || 0);
-  if (nextShift !== bestShift) {
-    return bestShift - nextShift;
-  }
-  return nextCandidate.envelopeWasteMm2 - bestCandidate.envelopeWasteMm2;
-}
-
-function buildShiftCandidates(range, step, limit = 9) {
-  if (!Number.isFinite(range) || range <= 0) return [0];
-  const safeStep = Math.max(step, 0.25);
-  const candidates = new Set([0]);
-  const steps = Math.max(1, limit);
-  const increment = Math.max(safeStep, range / steps);
-
-  for (let value = increment; value <= range + 1e-6; value += increment) {
-    const rounded = roundMetric(value, 3);
-    if (Math.abs(rounded) < safeStep * 0.5) continue;
-    candidates.add(rounded);
-    candidates.add(-rounded);
-  }
-  
-  // Add some finer steps around the most promising areas
-  const fineLimit = Math.min(candidates.size * 2, 60);
-  const fineIncrement = increment / 3;
-  for (let value = increment; value <= range + 1e-6; value += increment) {
-      candidates.add(roundMetric(value - fineIncrement, 3));
-      candidates.add(roundMetric(value + fineIncrement, 3));
-  }
-
-  return [...candidates].sort((left, right) => Math.abs(left) - Math.abs(right) || left - right);
-}
-
-function buildHorizontalIntervalsAtY(polygon, y) {
-  const intersections = [];
-  for (let index = 0; index < polygon.length; index++) {
-    const current = polygon[index];
-    const next = polygon[(index + 1) % polygon.length];
-    const crosses = (current.y <= y && next.y > y) || (next.y <= y && current.y > y);
-    if (!crosses) continue;
-    const ratio = (y - current.y) / (next.y - current.y);
-    intersections.push(current.x + ratio * (next.x - current.x));
-  }
-
-  intersections.sort((left, right) => left - right);
-  const intervals = [];
-  for (let index = 0; index + 1 < intersections.length; index += 2) {
-    intervals.push([intersections[index], intersections[index + 1]]);
-  }
-  return intervals;
-}
-
-function extractInternalGapShiftCandidates(orient, step) {
-  if (!orient?.polygon?.length || !Number.isFinite(orient.height)) return [];
-
-  const candidateMagnitudes = new Set();
-
-  // Adaptive Sampling: Focus on the center and quarters of the piece
-  const adaptiveRatios = [0.25, 0.5, 0.75];
-  for (const ratio of adaptiveRatios) {
-    const y = orient.height * ratio;
-    const intervals = buildHorizontalIntervalsAtY(orient.polygon, y);
-    if (intervals.length < 2) continue;
-
-    let widestGap = null;
-    for (let index = 0; index + 1 < intervals.length; index++) {
-      const leftInterval = intervals[index];
-      const rightInterval = intervals[index + 1];
-      const gapStart = leftInterval[1];
-      const gapEnd = rightInterval[0];
-      const gapWidth = gapEnd - gapStart;
-      if (gapWidth <= Math.max(step, 0.25)) continue;
-      if (!widestGap || gapWidth > widestGap.gapWidth) {
-        widestGap = { leftInterval, rightInterval, gapStart, gapEnd, gapWidth };
-      }
-    }
-
-    if (!widestGap) continue;
-
-    const gapCenter = (widestGap.gapStart + widestGap.gapEnd) / 2;
-    const leftLobeCenter = (widestGap.leftInterval[0] + widestGap.leftInterval[1]) / 2;
-    const rightLobeCenter = (widestGap.rightInterval[0] + widestGap.rightInterval[1]) / 2;
-
-    const shifts = [
-      Math.abs(gapCenter - leftLobeCenter),
-      Math.abs(rightLobeCenter - gapCenter),
-      Math.abs(widestGap.gapStart - leftLobeCenter),
-      Math.abs(rightLobeCenter - widestGap.gapEnd)
-    ];
-
-    for (const shift of shifts) {
-      const rounded = roundMetric(shift, 3);
-      if (rounded >= Math.max(step, 0.25) * 0.5) {
-        candidateMagnitudes.add(rounded);
-      }
-    }
-  }
-
-  return [...candidateMagnitudes]
-    .flatMap((value) => [-value, value])
-    .sort((left, right) => Math.abs(left) - Math.abs(right) || left - right);
-}
-
-
-
-function selectPrimaryRowShiftCandidates(geometricCandidates, sampledCandidates, limit = 12) {
-  const normalized = [...new Set([...geometricCandidates, ...sampledCandidates]
-    .map((value) => Number(value))
-    .filter((value) => Number.isFinite(value))
-    .map((value) => roundMetric(value, 3)))]
-    .sort((left, right) => left - right);
-  const selected = [];
-  const seen = new Set();
-  const add = (value) => {
-    if (!Number.isFinite(value)) return;
-    const rounded = roundMetric(value, 3);
-    const key = String(rounded);
-    if (seen.has(key)) return;
-    seen.add(key);
-    selected.push(rounded);
-  };
-
-  add(0);
-
-  const bySmallShift = [...normalized].sort((left, right) =>
-    Math.abs(left) - Math.abs(right) || left - right
-  );
-  for (const value of bySmallShift.slice(0, Math.min(7, limit))) {
-    add(value);
-  }
-
-  for (const value of [...geometricCandidates].sort((left, right) =>
-    Math.abs(left) - Math.abs(right) || left - right
-  )) {
-    add(value);
-  }
-
-  const byWideShift = [...normalized].sort((left, right) =>
-    Math.abs(right) - Math.abs(left) || left - right
-  );
-  let index = 0;
-  while (selected.length < limit && index < Math.max(bySmallShift.length, byWideShift.length)) {
-    add(bySmallShift[index]);
-    add(byWideShift[index]);
-    index += 1;
-  }
-
-  return selected.slice(0, Math.max(1, limit));
-}
-
-function addRankedCandidate(candidatePool, candidate, limit = 30) {
-  if (!candidate) return;
-  const duplicate = candidatePool.some((existing) =>
-    existing.placedCount === candidate.placedCount &&
-    existing.bodyCount === candidate.bodyCount &&
-    existing.filler90Count === candidate.filler90Count &&
-    existing.scanOrder === candidate.scanOrder &&
-    existing.bodyPrimaryAngle === candidate.bodyPrimaryAngle &&
-    existing.bodyAlternateAngle === candidate.bodyAlternateAngle &&
-    existing.rowShiftXmm === candidate.rowShiftXmm &&
-    existing.rowShiftYmm === candidate.rowShiftYmm
-  );
-  if (duplicate) return;
-
-  candidatePool.push(candidate);
-  candidatePool.sort(compareDoubleInsoleCandidates);
-  if (candidatePool.length > limit) {
-    candidatePool.length = limit;
-  }
-}
-
-function buildFillerColumnChoices(maxCols) {
-  if (!Number.isFinite(maxCols) || maxCols <= 0) return [0];
-  if (maxCols <= 3) {
-    return Array.from({ length: maxCols }, (_, index) => maxCols - index);
-  }
-
-  return [...new Set([
-    maxCols,
-    Math.max(1, maxCols - 1),
-    Math.max(1, Math.ceil(maxCols * 0.75)),
-    Math.max(1, Math.ceil(maxCols / 2))
-  ])].sort((left, right) => right - left);
-}
-
-function buildFillerRowCountChoices(maxRows) {
-  if (!Number.isFinite(maxRows) || maxRows <= 0) return [0];
-  const clampedMax = Math.max(0, Math.floor(maxRows));
-  return [...new Set([
-    0,
-    1,
-    Math.min(2, clampedMax),
-    clampedMax
-  ])]
-    .filter((value) => value >= 0 && value <= clampedMax)
-    .sort((left, right) => left - right);
-}
-
-function shouldTryFillerRowCombination(topRows, bottomRows, maxRows) {
-  const totalRows = topRows + bottomRows;
-  if (totalRows <= 2) return true;
-  return topRows === maxRows || bottomRows === maxRows;
-}
-
-function rankDoubleContourVariant(variant, workWidth, workHeight) {
-  const bodyRows = Math.max(0, Math.floor((workHeight - variant.bodyHeightMm) / Math.max(1, variant.bodyDyMm)) + 1);
-  const estimatedCount = bodyRows * (variant.bodyCols || 0);
-  const rowWidth = getPlacementsRight(variant.rowPlacements) - getPlacementsLeft(variant.rowPlacements);
-  const envelopeBounds = {
-    minX: 0,
-    minY: 0,
-    maxX: Math.min(workWidth, Math.max(rowWidth, variant.bodyDxMm || 0)),
-    maxY: Math.min(workHeight, variant.bodyHeightMm + Math.max(0, bodyRows - 1) * Math.max(1, variant.bodyDyMm)),
-    width: Math.min(workWidth, Math.max(rowWidth, variant.bodyDxMm || 0)),
-    height: Math.min(workHeight, variant.bodyHeightMm + Math.max(0, bodyRows - 1) * Math.max(1, variant.bodyDyMm))
-  };
-  const leftover = computeLeftoverMetricsFromBounds(envelopeBounds, workWidth, workHeight, estimatedCount * (variant.pieceArea || 0));
-  const modePenalty = String(variant.scanOrder || '').includes('sequential') ? 0 : 0.25;
-  return {
-    estimatedCount,
-    estimatedPairs: Math.floor(estimatedCount / 2),
-    leftoverAreaMm2: leftover.leftoverAreaMm2,
-    openSheetAreaMm2: leftover.openSheetAreaMm2,
-    pitch: variant.bodyDyMm || Infinity,
-    modePenalty
-  };
-}
-
-
-function buildRowShiftPairs(orient, step, shiftXCandidates) {
-  const sizeVal = parseFloat(orient?.sizeName || orient?.name || 0);
-  const pairs = [];
-  const shiftYCandidates = [0];
-  
-  if (orient && orient.height) {
-    const safeStep = 4.0; // Faster Y-shift search
-    const range = Math.min(orient.height * 0.30, 25);
-    for (let y = safeStep; y <= range; y += safeStep) {
-      shiftYCandidates.push(roundMetric(y));
-      shiftYCandidates.push(roundMetric(-y));
-    }
-  }
-
-  for (const x of shiftXCandidates) {
-    for (const y of shiftYCandidates) {
-      pairs.push({
-        rowShiftXmm: roundMetric(x),
-        rowShiftYmm: roundMetric(y)
-      });
-    }
-  }
-
-  // Split into Y=0 (safe baseline) and Y-shifted (interlock) pools
-  const y0Pairs = pairs.filter(p => p.rowShiftYmm === 0);
-  const yShiftPairs = pairs.filter(p => p.rowShiftYmm !== 0);
-
-  y0Pairs.sort((a, b) => Math.abs(a.rowShiftXmm) - Math.abs(b.rowShiftXmm));
-  yShiftPairs.sort((a, b) =>
-    Math.abs(a.rowShiftYmm) - Math.abs(b.rowShiftYmm)
-    || Math.abs(a.rowShiftXmm) - Math.abs(b.rowShiftXmm)
-  );
-
-  const y0Limit = sizeVal <= 5 ? 30 : (sizeVal >= 10 ? 20 : 25);
-  const yShiftLimit = sizeVal <= 5 ? 45 : (sizeVal >= 10 ? 30 : 35);
-
-  // Increase limits to explore more interlocking possibilities
-  const combined = [...y0Pairs.slice(0, y0Limit), ...yShiftPairs.slice(0, yShiftLimit)];
-  const seen = new Set();
-  return combined.filter(p => {
-    const key = `${p.rowShiftXmm}_${p.rowShiftYmm}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-function toClipRing(points = []) {
-  return points.map((point) => [point.x, point.y]);
-}
-
-function fromClipRing(ring = []) {
-  if (!Array.isArray(ring) || !ring.length) return [];
-  const points = ring.map(([x, y]) => ({ x, y }));
-  if (points.length > 1) {
-    const first = points[0];
-    const last = points[points.length - 1];
-    if (Math.abs(first.x - last.x) <= 1e-6 && Math.abs(first.y - last.y) <= 1e-6) {
-      points.pop();
-    }
-  }
-  return points;
-}
-
-function getLargestClipResultPolygon(result = []) {
-  let bestPolygon = null;
-  let bestArea = 0;
-
-  for (const polygon of result || []) {
-    for (const ring of polygon || []) {
-      const points = fromClipRing(ring);
-      const ringArea = polygonArea(points);
-      if (ringArea > bestArea) {
-        bestArea = ringArea;
-        bestPolygon = points;
-      }
-    }
-  }
-
-  return bestPolygon;
-}
-
-function buildDividerFromInternalGaps(polygon) {
-  const bounds = getBoundingBox(polygon);
-  const points = [];
-
-  for (let stepIndex = 1; stepIndex <= 24; stepIndex++) {
-    const ratio = stepIndex / 25;
-    const y = bounds.minY + bounds.height * ratio;
-    const intervals = buildHorizontalIntervalsAtY(polygon, y);
-    if (intervals.length < 2) continue;
-
-    let widestGap = null;
-    for (let index = 0; index + 1 < intervals.length; index++) {
-      const gapStart = intervals[index][1];
-      const gapEnd = intervals[index + 1][0];
-      const gapWidth = gapEnd - gapStart;
-      if (gapWidth <= 0.5) continue;
-      if (!widestGap || gapWidth > widestGap.gapWidth) {
-        widestGap = { gapStart, gapEnd, gapWidth };
-      }
-    }
-
-    if (!widestGap) continue;
-    points.push({
-      x: roundMetric((widestGap.gapStart + widestGap.gapEnd) / 2, 4),
-      y: roundMetric(y, 4)
-    });
-  }
-
-  if (points.length < 4) return null;
-
-  const pad = Math.max(10, Math.max(bounds.width, bounds.height) * 0.05);
-  return [
-    { x: points[0].x, y: roundMetric(bounds.minY - pad, 4) },
-    ...points,
-    { x: points[points.length - 1].x, y: roundMetric(bounds.maxY + pad, 4) }
-  ];
-}
-
-function buildDividerFromInternalPath(polygon, internalPath = []) {
-  if (!Array.isArray(internalPath) || internalPath.length < 2) return null;
-
-  const bounds = getBoundingBox(polygon);
-  const sortedPoints = [...internalPath]
-    .map((point) => ({
-      x: roundMetric(point.x, 4),
-      y: roundMetric(point.y, 4)
-    }))
-    .sort((left, right) => left.y - right.y || left.x - right.x);
-
-  const pad = Math.max(10, Math.max(bounds.width, bounds.height) * 0.05);
-  return [
-    { x: sortedPoints[0].x, y: roundMetric(bounds.minY - pad, 4) },
-    ...sortedPoints,
-    { x: sortedPoints[sortedPoints.length - 1].x, y: roundMetric(bounds.maxY + pad, 4) }
-  ];
-}
-
-function buildSplitClipPolygon(divider, bounds, side) {
-  if (!divider?.length) return null;
-  const pad = Math.max(20, Math.max(bounds.width, bounds.height) * 0.25);
-  const minX = bounds.minX - pad;
-  const maxX = bounds.maxX + pad;
-  const minY = bounds.minY - pad;
-  const maxY = bounds.maxY + pad;
-
-  if (side === 'left') {
-    return [
-      { x: minX, y: minY },
-      { x: divider[0].x, y: minY },
-      ...divider,
-      { x: minX, y: maxY }
-    ];
-  }
-
-  return [
-    { x: divider[0].x, y: minY },
-    { x: maxX, y: minY },
-    { x: maxX, y: maxY },
-    { x: divider[divider.length - 1].x, y: maxY },
-    ...[...divider].reverse()
-  ];
-}
-
-function buildSplitHalfDefinitions(polygon, internalPath = []) {
-  const dividerPath = buildDividerFromInternalPath(polygon, internalPath);
-  const dividerGap = buildDividerFromInternalGaps(polygon);
-  const divider = dividerPath || dividerGap;
-  
-  if (!divider) {
-    return [];
-  }
-
-  const bounds = getBoundingBox(polygon);
-  const fullPolygonClip = [[toClipRing(polygon)]];
-  const fullArea = Math.max(1, polygonArea(polygon));
-  const rawDefs = [];
-
-  for (const side of ['left', 'right']) {
-    const clipPolygon = buildSplitClipPolygon(divider, bounds, side);
-    if (!clipPolygon?.length) continue;
-
-    const clipped = polygonClipping.intersection(fullPolygonClip, [[toClipRing(clipPolygon)]]);
-    const rawHalfPolygon = getLargestClipResultPolygon(clipped);
-    if (!rawHalfPolygon?.length) continue;
-
-    const halfArea = polygonArea(rawHalfPolygon);
-    const areaRatio = halfArea / fullArea;
-    if (areaRatio <= 0.15 || areaRatio >= 0.85) {
-      continue;
-    }
-
-    const rawHalfBounds = getBoundingBox(rawHalfPolygon);
-    rawDefs.push({
-      key: side,
-      rawHalfBounds,
-      rawHalfPolygon,
-      halfArea
-    });
-  }
-
-  if (rawDefs.length !== 2) {
-    return [];
-  }
-
-  return rawDefs
-    .sort((left, right) => left.rawHalfBounds.minX - right.rawHalfBounds.minX)
-    .map((definition, index) => ({
-      key: index === 0 ? 'split-left' : 'split-right',
-      polygon: normalizeToOrigin(definition.rawHalfPolygon),
-      cycSourcePolygon: translate(
-        polygon,
-        -definition.rawHalfBounds.minX,
-        -definition.rawHalfBounds.minY
-      ),
-      areaMm2: definition.halfArea,
-      splitOutwardVector: index === 0 ? { x: 1, y: 0 } : { x: -1, y: 0 }
-    }));
-}
-
-function quantizeWithinBounds(value, step, maxValue) {
-  const safeStep = Math.max(0.25, step || 1);
-  const quantized = Math.round(value / safeStep) * safeStep;
-  return roundMetric(Math.max(0, Math.min(maxValue, quantized)), 3);
-}
-
-function buildAxisCandidates(minValue, maxValue, step, pieceDim = 0) {
-  if (!Number.isFinite(minValue) || !Number.isFinite(maxValue)) return [];
-  if (maxValue < minValue - 1e-6) return [];
-
-  const clampedMax = Math.max(minValue, maxValue);
-  const span = Math.max(0, clampedMax - minValue);
-  const safeStep = Math.max(0.5, step || 1);
-  const values = new Set([minValue, clampedMax]);
-
-  // Adaptive sampling: instead of fixed ratios, use steps based on span relative to piece size
-  const targetStep = pieceDim > 0 ? Math.max(safeStep, pieceDim / 4) : safeStep * 10;
-  const sampleCount = Math.min(15, Math.ceil(span / targetStep) + 1);
-
-  if (sampleCount > 2) {
-    for (let i = 1; i < sampleCount; i++) {
-      const ratio = i / sampleCount;
-      values.add(quantizeWithinBounds(minValue + span * ratio, safeStep, clampedMax));
-    }
-  }
-
-  return [...values].sort((a, b) => a - b);
-}
-
-
-function buildDenseAxisCandidates(minValue, maxValue, step, maxSamples = 100) {
-  if (!Number.isFinite(minValue) || !Number.isFinite(maxValue)) return [];
-  if (maxValue < minValue - 1e-6) return [];
-
-  const clampedMax = Math.max(minValue, maxValue);
-  const span = Math.max(0, clampedMax - minValue);
-  const safeStep = Math.max(0.5, step || 1);
-  const values = new Set([
-    quantizeWithinBounds(minValue, safeStep, clampedMax),
-    quantizeWithinBounds(clampedMax, safeStep, clampedMax)
-  ]);
-  const sampleCount = Math.min(
-    maxSamples,
-    Math.max(3, Math.floor(span / Math.max(safeStep * 5, 10)) + 1)
-  );
-
-  for (let index = 0; index < sampleCount; index++) {
-    const ratio = sampleCount === 1 ? 0 : index / (sampleCount - 1);
-    values.add(quantizeWithinBounds(minValue + span * ratio, safeStep, clampedMax));
-  }
-
-  return [...values]
-    .filter((value) => Number.isFinite(value) && value >= minValue - 1e-6 && value <= clampedMax + 1e-6)
-    .sort((left, right) => left - right);
-}
-
-function selectRankedAxisAnchors(values, minStart, maxStart, limit = 100) {
-  const normalized = [...new Set(
-    values
-      .map((value) => roundMetric(Number(value), 3))
-      .filter((value) =>
-        Number.isFinite(value) &&
-        value >= minStart - 1e-6 &&
-        value <= maxStart + 1e-6
-      )
-  )].sort((left, right) => left - right);
-
-  if (normalized.length <= limit) return normalized;
-
-  const selected = [];
-  const seen = new Set();
-  const add = (value) => {
-    const key = String(roundMetric(value, 3));
-    if (seen.has(key)) return;
-    seen.add(key);
-    selected.push(roundMetric(value, 3));
-  };
-
-  add(minStart);
-  add(maxStart);
-
-  const mid = (minStart + maxStart) / 2;
-  const edgeRanked = [...normalized].sort((left, right) =>
-    Math.min(Math.abs(left - minStart), Math.abs(left - maxStart)) -
-      Math.min(Math.abs(right - minStart), Math.abs(right - maxStart))
-    || Math.abs(left - mid) - Math.abs(right - mid)
-    || left - right
-  );
-
-  for (const value of edgeRanked) {
-    add(value);
-    if (selected.length >= Math.ceil(limit * 0.65)) break;
-  }
-
-  const spreadSlots = Math.max(3, limit - selected.length);
-  for (let index = 0; index < spreadSlots && selected.length < limit; index++) {
-    const ratio = spreadSlots === 1 ? 0.5 : index / (spreadSlots - 1);
-    const target = minStart + (maxStart - minStart) * ratio;
-    let nearest = normalized[0];
-    for (const value of normalized) {
-      if (Math.abs(value - target) < Math.abs(nearest - target)) {
-        nearest = value;
-      }
-    }
-    add(nearest);
-  }
-
-  return selected.sort((left, right) => left - right);
-}
-
-function rotateVector(vector, angleDegrees) {
-  const angleRad = angleDegrees * Math.PI / 180;
-  const cos = Math.cos(angleRad);
-  const sin = Math.sin(angleRad);
-  return {
-    x: roundMetric(vector.x * cos - vector.y * sin, 6),
-    y: roundMetric(vector.x * sin + vector.y * cos, 6)
-  };
-}
-
-function resolveAxisSideFromVector(vector) {
-  if (!vector) return null;
-  if (Math.abs(vector.x) >= Math.abs(vector.y)) {
-    return vector.x >= 0 ? 'right' : 'left';
-  }
-  return vector.y >= 0 ? 'bottom' : 'top';
-}
-
-function normalizeAngleDegrees(angle) {
-  return ((roundMetric(Number(angle), 3) % 360) + 360) % 360;
-}
-
-function getPlacementBounds(placement) {
-  const bb = placement?.orient?.bb || getBoundingBox(placement?.orient?.polygon || []);
-  return {
-    minX: placement.x + bb.minX,
-    minY: placement.y + bb.minY,
-    maxX: placement.x + bb.maxX,
-    maxY: placement.y + bb.maxY
-  };
-}
-
-function getPlacementsTop(placements = []) {
-  if (!placements.length) return 0;
-  let minY = Infinity;
-  for (const placement of placements) {
-    minY = Math.min(minY, getPlacementBounds(placement).minY);
-  }
-  return roundMetric(minY, 3);
-}
-
-function getPlacementsBottom(placements = []) {
-  let maxY = 0;
-  for (const placement of placements) {
-    maxY = Math.max(maxY, getPlacementBounds(placement).maxY);
-  }
-  return roundMetric(maxY, 3);
-}
-
-function getPlacementsLeft(placements = []) {
-  if (!placements.length) return 0;
-  let minX = Infinity;
-  for (const placement of placements) {
-    minX = Math.min(minX, getPlacementBounds(placement).minX);
-  }
-  return roundMetric(minX, 3);
-}
-
-function getPlacementsRight(placements = []) {
-  if (!placements.length) return 0;
-  let maxX = -Infinity;
-  for (const placement of placements) {
-    maxX = Math.max(maxX, getPlacementBounds(placement).maxX);
-  }
-  return roundMetric(maxX, 3);
-}
-
-function getAveragePitchX(placements = []) {
-  if (placements.length < 2) return null;
-  let total = 0;
-  for (let index = 1; index < placements.length; index++) {
-    total += placements[index].x - placements[index - 1].x;
-  }
-  return roundMetric(total / (placements.length - 1), 3);
-}
-
-function buildEmptyDoubleContourSummaryItem(size) {
-  return {
-    sizeName: size.sizeName,
-    sizeValue: size.sizeValue,
-    totalPieces: 0,
-    pairs: 0,
-    placedCount: 0,
-    efficiency: 0
-  };
-}
-
-
-function shouldUseParallelDoubleContourCapacity(sizeList, config) {
-  return isMainThread
-    && config.parallelSizes !== false
-    && config.capacityLayoutMode === 'same-side-double-contour'
-    && sizeList.length > 1;
-}
-
-function estimateDoubleContourTaskWeight(size, config) {
-  const usableWidth = Math.max(1, (config.sheetWidth || 0) - 2 * (config.marginX || 0));
-  const usableHeight = Math.max(1, (config.sheetHeight || 0) - 2 * (config.marginY || 0));
-  const usableArea = usableWidth * usableHeight;
-  const pieceArea = Math.max(1, polygonArea(size?.polygon) || 1);
-  const pointFactor = 1 + Math.max(0, ((size?.polygon?.length || 0) - 24) / 64);
-  const splitFactor = config.preparedSplitFillEnabled === false ? 1 : 1.35;
-  return (usableArea / pieceArea) * pointFactor * splitFactor;
-}
-
-function resolveDoubleContourWorkerCount(tasks, config) {
-  const taskCount = Array.isArray(tasks) ? tasks.length : 0;
-  if (taskCount <= 0) return 0;
-
-  if (config.parallelWorkerCount > 0) {
-    return Math.min(taskCount, Math.max(1, config.parallelWorkerCount));
-  }
-
-  const adaptiveCap = resolveAdaptiveParallelWorkerCount(tasks.map((task) => task.size), config);
-  const logicalCpuCount = getLogicalCpuCount();
-  const cpuRatio = config.preparedSplitFillEnabled === false ? 0.75 : 0.65;
-  const responsiveCpuCap = Math.max(1, Math.floor(logicalCpuCount * cpuRatio));
-  const sizeCurveCap = Math.max(
-    1,
-    Math.ceil(Math.sqrt(taskCount)) + (taskCount >= 12 ? 1 : 0)
-  );
-
-  return Math.min(taskCount, adaptiveCap, responsiveCpuCap, sizeCurveCap);
-}
-
-function runDoubleContourWorkerTask(worker, task) {
-  return new Promise((resolve, reject) => {
-    const cleanup = () => {
-      worker.off('message', onMessage);
-      worker.off('error', onError);
-    };
-
-    const onMessage = (message) => {
-      cleanup();
-      if (message?.error) {
-        reject(new Error(message.error));
-        return;
-      }
-      resolve(message);
-    };
-
-    const onError = (error) => {
-      cleanup();
-      reject(error);
-    };
-
-    worker.on('message', onMessage);
-    worker.on('error', onError);
-    worker.postMessage(task);
-  });
-}
-
-async function executeDoubleContourTasksInParallel(tasks, concurrency, onProgress) {
-  if (!tasks.length) return [];
-
-  const workerCount = Math.min(tasks.length, Math.max(1, concurrency));
-  const results = new Array(tasks.length);
-  let nextTaskIndex = 0;
-
-  const runners = Array.from({ length: workerCount }, async () => {
-    const worker = new Worker(DOUBLE_CONTOUR_CAPACITY_WORKER_URL, {
-      type: 'module',
-      execArgv: []
-    });
-    try {
-      while (true) {
-        const taskBatchIndex = nextTaskIndex;
-        nextTaskIndex += 1;
-        if (taskBatchIndex >= tasks.length) break;
-        
-        const task = tasks[taskBatchIndex];
-        const resultIndex = task?.index ?? taskBatchIndex;
-        
-        if (onProgress) onProgress(resultIndex, 'started');
-        
-        results[resultIndex] = await runDoubleContourWorkerTask(worker, task);
-        
-        if (onProgress) onProgress(resultIndex, 'done');
-      }
-    } finally {
-      await worker.terminate();
-    }
-  });
-
-  await Promise.all(runners);
-  return results;
-}
-
+} from '../parallelCapacityUtils.js';
+
+import {
+  DEFAULT_DOUBLE_CONTOUR_FINE_ROTATE_OFFSETS,
+  getWholePairsPlaced,
+  computeLeftoverMetricsFromBounds,
+  attachLeftoverMetrics,
+  compareDoubleInsoleCandidates,
+  buildShiftCandidates,
+  extractInternalGapShiftCandidates,
+  selectPrimaryRowShiftCandidates,
+  addRankedCandidate,
+  buildFillerRowCountChoices,
+  shouldTryFillerRowCombination,
+  rankDoubleContourVariant,
+  buildRowShiftPairs,
+  buildAxisCandidates,
+  buildDenseAxisCandidates,
+  rotateVector,
+  resolveAxisSideFromVector,
+  normalizeAngleDegrees,
+  getPlacementsTop,
+  getPlacementsBottom,
+  getPlacementsLeft,
+  getPlacementsRight,
+  getAveragePitchX,
+  shouldUseParallelDoubleContourCapacity,
+  executeDoubleContourTasksInParallel
+} from "./utils.js";
 
 export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPrePairedSameSidePattern {
   _getDoubleContourFineRotateOffsets(config = {}) {
@@ -910,13 +72,9 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     return DEFAULT_DOUBLE_CONTOUR_FINE_ROTATE_OFFSETS;
   }
 
-  _getDoubleContourPreferredAngles(sizeName, config = {}) {
-    const sizeVal = parseFloat(sizeName);
-    // For large sizes, stick to key orientations to save time
-    if (sizeVal > 10) return [0, 90, 45, 135];
-    
-    // For others, use a strategic set of angles that often unlock better interlocking
-    return [0, 90, 45, 135, 15, 30, 60, 75, 105, 120, 150, 165];
+  _getDoubleContourPreferredAngles() {
+    // As requested: Only 0 and 90 degrees.
+    return [0, 90];
   }
 
   _buildShiftedUniformNeighborhood(orient, dxMm, rowPitchMm, rowShiftXmm = 0, rowShiftYmm = 0) {
@@ -943,9 +101,8 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
   }
 
   _findShiftedUniformDy(orient, dxMm, rowShiftXmm, rowShiftYmm, config, step) {
-    const sizeVal = parseFloat(orient.sizeName || orient.name || 0);
-
-    const precision = 0.05; // Balanced for speed
+    // Balanced precision for performance and "khít" (tightness)
+    const precision = 0.02;
     const upper = Math.max(
       step,
       orient.height * 2 + Math.abs(rowShiftYmm) + config.spacing + step * 10
@@ -955,154 +112,100 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     const bb = orient.bb || getOrientBounds(orient);
 
     const validatePitch = (dy) => {
-      // Build a 3-row neighborhood to check ALL possible inter-row collisions:
-      // Row 0 vs 1, Row 1 vs 2, AND Row 0 vs 2 (critical for concave shapes)
+      // Smart Neighborhood: 3 rows and 5 columns is sufficient to detect 
+      // all local interlocking for uniform staggered grids.
       const neighborhood = [];
-      const rows = 3; // 3 rows is the minimum to detect most interlocking interference
-      const cols = 5; // Sufficient width for local overlap check
+      const rows = 3; 
+      const cols = 5; 
       
       for (let r = 0; r < rows; r++) {
-        const shiftX = (r % 2 === 1) ? rowShiftXmm : 0;
-        const shiftY = (r % 2 === 1) ? rowShiftYmm : 0;
+        const isOddRow = (r % 2 === 1);
+        const shiftX = isOddRow ? rowShiftXmm : 0;
+        const shiftY = isOddRow ? rowShiftYmm : 0;
         const baseY = r * dy + shiftY;
         
         for (let c = 0; c < cols; c++) {
           neighborhood.push({
-            x: c * dxMm + shiftX,
-            y: baseY,
+            x: roundMetric(c * dxMm + shiftX, 3),
+            y: roundMetric(baseY, 3),
             orient: orient,
             bb: bb
           });
         }
       }
       
-      // Validate all internal collisions in this 3x5 block
       return validateLocalPlacements(neighborhood, spacing).valid;
     };
 
-    let low = 0;
-    let high = upper;
-    if (!validatePitch(high)) {
-      return null;
-    }
-
-    while (high - low > precision) {
-      const mid = (low + high) / 2;
-      if (validatePitch(mid)) high = mid;
-      else low = mid;
-    }
-return roundMetric(high, 3);
+    const res = findMinimalContinuousValue(step, upper, precision, validatePitch);
+    return res;
   }
 
   _findShiftedRowPitch(rowPlacements, rowShiftXmm, rowShiftYmm, config, step) {
     if (!rowPlacements.length) return null;
-    const sizeVal = parseFloat(rowPlacements[0].orient.sizeName || rowPlacements[0].orient.name || 0);
-
-
     const spacing = config.spacing || 0;
-    const precision = 0.005;
+    const precision = 0.02;
     const rowTop = getPlacementsTop(rowPlacements);
     const rowBottom = getPlacementsBottom(rowPlacements);
-    const minDeltaY = 0;
+    const minDeltaY = step;
     const upper = Math.max(
       step,
       rowBottom - rowTop + Math.abs(rowShiftYmm) + spacing + step * 10
     );
 
-    // Pre-calculate bounding boxes and indexed data for Row 1
-    const row1Indexed = rowPlacements.map(p => ({
-      p,
-      bb: p.orient.bb || getOrientBounds(p.orient),
-      minX: p.x + (p.orient.bb?.minX ?? 0),
-      maxX: p.x + (p.orient.bb?.maxX ?? 0)
-    }));
-
-    // Sort Row 1 by maxX for faster filtering
-
     const validatePitch = (dy) => {
-      // Robust multi-row validation for sequential rows
       const neighborhood = [];
-      const rows = 6; // Increased to 6 to ensure full staggered cycle validation (even/odd interactions)
-      
+      const rows = 3; 
       for (let r = 0; r < rows; r++) {
-        const shiftX = (r % 2 === 1) ? rowShiftXmm : 0;
-        const shiftY = (r % 2 === 1) ? rowShiftYmm : 0;
+        const isOddRow = (r % 2 === 1);
+        const shiftX = isOddRow ? rowShiftXmm : 0;
+        const shiftY = isOddRow ? rowShiftYmm : 0;
         const rowBaseY = r * dy + shiftY;
         
         for (const p of rowPlacements) {
           neighborhood.push({
             ...p,
-            x: p.x + shiftX,
-            y: p.y + rowBaseY,
-            // Ensure orientation data is preserved for validation
+            x: roundMetric(p.x + shiftX, 3),
+            y: roundMetric(p.y + rowBaseY, 3),
             orient: p.orient,
             bb: p.orient.bb || getOrientBounds(p.orient)
           });
         }
       }
-
       return validateLocalPlacements(neighborhood, spacing).valid;
     };
 
-    return findMinimalContinuousValue(minDeltaY, upper, precision, validatePitch);
+    const res = findMinimalContinuousValue(minDeltaY, upper, precision, validatePitch);
+    return res;
   }
 
 
 
   _buildShiftedUniformPlacements(orient, cols, rows, dxMm, dyMm, rowShiftXmm = 0, rowShiftYmm = 0, startY = 0, alternateOrient = null, config = {}) {
     const placements = [];
-    const spacing = config.spacing || 0;
-    const workWidth = 1100; // Default or from config
-    const workHeight = 2000;
     const baseX = rowShiftXmm < 0 ? -rowShiftXmm : 0;
     const baseY = startY - Math.min(0, rowShiftYmm);
 
     // Track the "bottom boundary" of the previous row for adaptive dropping
-    let previousRowPlacements = [];
 
     for (let row = 0; row < rows; row++) {
       const isOddRow = row % 2 === 1;
       const shiftX = isOddRow ? rowShiftXmm : 0;
       const shiftY = isOddRow ? rowShiftYmm : 0;
-      const currentRowPlacements = [];
 
       for (let col = 0; col < cols; col++) {
         const isOddCol = col % 2 === 1;
         const currentOrient = (isOddCol && alternateOrient) ? alternateOrient : orient;
         const x = roundMetric(baseX + col * dxMm + shiftX, 3);
+        const y = roundMetric(baseY + row * dyMm + shiftY, 3);
         
-        // Initial target Y based on uniform pitch
-        let targetY = roundMetric(baseY + row * dyMm + shiftY, 3);
-        
-        // Adaptive Drop: Try to lower the piece as much as possible
-        // We only check against the previous row for speed, or use spatial index
-        if (row > 0) {
-           const step = 1.0; 
-           const searchRange = dyMm * 0.5; // Look up to half-row height up for interlocking
-           let bestY = targetY;
-           
-           // Fast check: start from a much lower Y and move up until safe
-           // Or move down from targetY until hit
-           for (let ny = targetY - searchRange; ny <= targetY + 1e-6; ny += step) {
-              const spatialIndex = this._buildSpatialIndex(previousRowPlacements, workWidth, workHeight, spacing);
-              if (this._canPlaceSplitOrient(previousRowPlacements, currentOrient, x, ny, config, workWidth, workHeight, spatialIndex, true)) {
-                bestY = ny;
-                break; // Found the lowest safe Y in this range
-              }
-           }
-           targetY = bestY;
-        }
-
-        const p = {
+        placements.push({
           id: `double_insole_${row}_${col}`,
           orient: currentOrient,
           x,
-          y: roundMetric(targetY, 3)
-        };
-        placements.push(p);
-        currentRowPlacements.push(p);
+          y
+        });
       }
-      previousRowPlacements = currentRowPlacements;
     }
 
     return placements;
@@ -1438,7 +541,7 @@ return roundMetric(high, 3);
     const sizeVal = parseFloat(orient.sizeName || orient.name);
 
     const spacing = config.spacing || 0;
-    const precision = 0.005;
+    const precision = 0.02;
     const upper = Math.max(step, orient.width * 2 + spacing + step * 8);
 
     const result = findMinimalContinuousValue(step, upper, precision, (dxMm) => {
@@ -1446,7 +549,7 @@ return roundMetric(high, 3);
       const bb = orient.bb || getOrientBounds(orient);
       for (let col = 0; col < 6; col++) {
         neighborhood.push({
-          x: col * dxMm,
+          x: roundMetric(col * dxMm, 3),
           y: 0,
           orient: orient,
           bb: bb
@@ -1455,15 +558,48 @@ return roundMetric(high, 3);
       const res = validateLocalPlacements(neighborhood, spacing).valid;
       return res;
     });
-    if (sizeVal <= 3.5) console.log(`[DEBUG] Size ${sizeVal} final dxMm=${result}`);
     return result;
   }
 
-  _findAlignedBodyDx(primaryOrient, alternateOrient, config, step) {
-    const sizeVal = parseFloat(primaryOrient.sizeName || primaryOrient.name);
-
+  _findUniformDy(orient, dxMm, config, step) {
     const spacing = config.spacing || 0;
-    const precision = 0.005;
+    const precision = 0.02;
+    const upper = Math.max(step, orient.height * 2 + spacing + step * 8);
+
+    return findMinimalContinuousValue(step, upper, precision, (dyMm) => {
+      const neighborhood = this._buildUniformNeighborhood(orient, dxMm, dyMm);
+      return validateLocalPlacements(neighborhood, spacing).valid;
+    });
+  }
+
+  _findSequentialRowPitch(rowPlacements, config, step) {
+    if (!rowPlacements.length) return null;
+    const spacing = config.spacing || 0;
+    const precision = 0.02;
+    const rowBottom = getPlacementsBottom(rowPlacements);
+    const rowTop = getPlacementsTop(rowPlacements);
+    const upper = Math.max(step, (rowBottom - rowTop) * 2 + spacing + step * 8);
+
+    return findMinimalContinuousValue(step, upper, precision, (deltaY) => {
+      const neighborhood = [];
+      // 3 rows is sufficient for sequential pitch
+      for (let r = 0; r < 3; r++) {
+        for (const p of rowPlacements) {
+          neighborhood.push({
+            ...p,
+            id: `r${r}_${p.id}`,
+            y: roundMetric(p.y + r * deltaY, 3)
+          });
+        }
+      }
+      return validateLocalPlacements(neighborhood, spacing).valid;
+    });
+  }
+
+  _findAlignedBodyDx(primaryOrient, alternateOrient, config, step) {
+    const sizeVal = parseFloat(primaryOrient.sizeName || primaryOrient.name || 0);
+    const spacing = config.spacing || 0;
+    const precision = 0.02;
     const upper = Math.max(
       step,
       Math.max(primaryOrient.width, alternateOrient.width) * 2 + spacing + step * 8
@@ -1471,12 +607,13 @@ return roundMetric(high, 3);
 
     return findMinimalContinuousValue(step, upper, precision, (dxMm) => {
       const neighborhood = [];
-      for (let row = 0; row < 3; row++) {
-        for (let col = 0; col < 6; col++) {
+      const testCols = (sizeVal >= 10.5) ? 8 : 6;
+      for (let row = 0; row < 2; row++) {
+        for (let col = 0; col < testCols; col++) {
           const orient = this._resolveBodyOrient(primaryOrient, alternateOrient, 'rows', row, col);
           neighborhood.push({
-            x: col * dxMm,
-            y: row * (primaryOrient.height + spacing), 
+            x: roundMetric(col * dxMm, 3),
+            y: roundMetric(row * (primaryOrient.height + spacing), 3), 
             orient: orient,
             bb: orient.bb || getOrientBounds(orient)
           });
@@ -1486,9 +623,9 @@ return roundMetric(high, 3);
     });
   }
 
-  _findBestPreparedSplitPlacement(occupiedPlacements, orient, workWidth, workHeight, config, step) {
+  _findBestPreparedSplitPlacement(occupiedPlacements, orient, workWidth, workHeight, config, step, providedSpatialIndex = null) {
     const spacing = config.spacing || 0;
-    const spatialIndex = this._buildSpatialIndex(occupiedPlacements, workWidth, workHeight, spacing);
+    const spatialIndex = providedSpatialIndex || this._buildSpatialIndex(occupiedPlacements, workWidth, workHeight, spacing);
     
     let bestCandidate = null;
     let minScore = Infinity;
@@ -1530,8 +667,8 @@ return roundMetric(high, 3);
       
     const addAnchor = (x, y) => {
       if (x < -bb.minX || x > workWidth - bb.maxX || y < -bb.minY || y > workHeight - bb.maxY) return;
-      // Adaptive precision based on spacing
-      const snap = Math.max(0.5, spacing * 0.1);
+      // High Precision for yield recovery
+      const snap = 1.0; 
       const key = `${Math.round(x/snap)}|${Math.round(y/snap)}`;
       if (seen.has(key)) return;
       seen.add(key);
@@ -1544,9 +681,8 @@ return roundMetric(high, 3);
       addAnchor(-bb.minX, workHeight - bb.maxY);
       addAnchor(workWidth - bb.maxX, workHeight - bb.maxY);
 
-      // Performance Optimization: Only consider anchors from the last 15 pieces added
-      // This focuses search on the "active front" and prevents O(N^2) explosion
-      const activeLimit = 50; // High-Velocity: Optimized search horizon for benchmark speed
+      // Ultra-Fast: Focus search only on the very last few placements to find gaps quickly.
+      const activeLimit = 15; 
       const recentPlacements = occupiedPlacements.slice(-activeLimit);
 
       for (const p of recentPlacements) {
@@ -1636,19 +772,21 @@ return roundMetric(high, 3);
 
     if (spatialIndex && spatialIndex.grid) {
       const { grid, cellSize } = spatialIndex;
-      const x1 = Math.floor(minX2 / cellSize);
-      const x2 = Math.floor(maxX2 / cellSize);
-      const y1 = Math.floor(minY2 / cellSize);
-      const y2 = Math.floor(maxY2 / cellSize);
-      const queried = new Set();
+      const x1 = Math.floor((minX2 - spacing) / cellSize);
+      const x2 = Math.floor((maxX2 + spacing) / cellSize);
+      const y1 = Math.floor((minY2 - spacing) / cellSize);
+      const y2 = Math.floor((maxY2 + spacing) / cellSize);
+      
+      const queryId = (spatialIndex.queryCount = (spatialIndex.queryCount || 0) + 1);
 
       for (let cy = y1; cy <= y2; cy++) {
         for (let cx = x1; cx <= x2; cx++) {
           const cell = grid.get(`${cx},${cy}`);
           if (!cell) continue;
-          for (const entry of cell) {
-            if (queried.has(entry.p)) continue;
-            queried.add(entry.p);
+          for (let i = 0; i < cell.length; i++) {
+            const entry = cell[i];
+            if (entry.lastQueryId === queryId) continue;
+            entry.lastQueryId = queryId;
 
             if (entry.maxX < minX2 || entry.minX > maxX2 || entry.maxY < minY2 || entry.minY > maxY2) continue;
 
@@ -1802,7 +940,46 @@ return roundMetric(high, 3);
     return true;
   }
 
-  _buildSpatialIndex(placements, workWidth, workHeight, spacing = 0) {
+  _buildSpatialIndex(placements, workWidth, workHeight, spacing = 0, existingIndex = null) {
+    if (existingIndex && existingIndex.grid && placements.length === existingIndex.indexed.length + 1) {
+      // Incremental Update - MUST CLONE Map and affected Cells to avoid cross-branch mutation
+      const newPlacement = placements[placements.length - 1];
+      const bb = newPlacement.orient.bb || getBoundingBox(newPlacement.orient.polygon);
+      const item = {
+        p: newPlacement,
+        bb,
+        minX: newPlacement.x + bb.minX,
+        maxX: newPlacement.x + bb.maxX,
+        minY: newPlacement.y + bb.minY,
+        maxY: newPlacement.y + bb.maxY
+      };
+      
+      const { cellSize } = existingIndex;
+      const grid = new Map(existingIndex.grid); // Shallow clone Map
+      const x1 = Math.floor(item.minX / cellSize);
+      const x2 = Math.floor(item.maxX / cellSize);
+      const y1 = Math.floor(item.minY / cellSize);
+      const y2 = Math.floor(item.maxY / cellSize);
+
+      for (let cy = y1; cy <= y2; cy++) {
+        for (let cx = x1; cx <= x2; cx++) {
+          const key = `${cx},${cy}`;
+          const cell = grid.get(key);
+          if (!cell) {
+            grid.set(key, [item]);
+          } else {
+            // Clone cell array to avoid mutating other branches sharing this cell
+            grid.set(key, [...cell, item]);
+          }
+        }
+      }
+      return {
+        ...existingIndex,
+        grid,
+        indexed: [...existingIndex.indexed, item]
+      };
+    }
+
     const indexed = placements.map(p => {
       const bb = p.orient.bb || getBoundingBox(p.orient.polygon);
       return {
@@ -1815,10 +992,10 @@ return roundMetric(high, 3);
       };
     });
 
-    if (indexed.length > 20 && workWidth && workHeight) {
+    if (indexed.length > 10 && workWidth && workHeight) {
       const avgWidth = indexed.reduce((sum, item) => sum + (item.maxX - item.minX), 0) / indexed.length;
       const avgHeight = indexed.reduce((sum, item) => sum + (item.maxY - item.minY), 0) / indexed.length;
-      const cellSize = Math.max(10, Math.max(avgWidth, avgHeight) + spacing);
+      const cellSize = Math.max(20, Math.max(avgWidth, avgHeight) + spacing);
       const grid = new Map();
 
       for (const item of indexed) {
@@ -1843,12 +1020,14 @@ return roundMetric(high, 3);
       return {
         grid,
         cellSize,
-        indexed
+        indexed,
+        queryCount: 0
       };
     }
 
     return {
-      sortedByMaxX: indexed.sort((a, b) => a.maxX - b.maxX)
+      sortedByMaxX: indexed.sort((a, b) => a.maxX - b.maxX),
+      indexed
     };
   }
 
@@ -1973,7 +1152,7 @@ return roundMetric(high, 3);
       .slice(0, 120); // Dynamic limit for partner candidates
   }
 
-  _compactSplitFillCandidatePlacement(candidate, orient, occupiedPlacements, config, workWidth, workHeight) {
+  _compactSplitFillCandidatePlacement(candidate, orient, occupiedPlacements, config, workWidth, workHeight, providedSpatialIndex = null) {
     const step = Math.max(0.1, (config.gridStep || 1) / 4);
     const bb = orient.bb || getBoundingBox(orient.polygon);
     
@@ -1986,7 +1165,7 @@ return roundMetric(high, 3);
     let currentY = candidate.y;
 
     const spacing = config.spacing || 0;
-    const spatialIndex = this._buildSpatialIndex(occupiedPlacements, workWidth, workHeight, spacing);
+    const spatialIndex = providedSpatialIndex || this._buildSpatialIndex(occupiedPlacements, workWidth, workHeight, spacing);
     const isSafe = (cx, cy) => {
       return this._canPlaceSplitOrient(
         occupiedPlacements,
@@ -2084,7 +1263,7 @@ return roundMetric(high, 3);
     return { x: currentX, y: currentY };
   }
 
-  _compactSplitPartnerPlacement(candidate, orient, lastPlacement, occupiedPlacements, config, workWidth, workHeight) {
+  _compactSplitPartnerPlacement(candidate, orient, lastPlacement, occupiedPlacements, config, workWidth, workHeight, providedSpatialIndex = null) {
     const direction = this._getSplitPartnerDirection(lastPlacement, orient);
     if (!direction) return candidate;
 
@@ -2094,7 +1273,7 @@ return roundMetric(high, 3);
     const maxStart = direction.axis === 'x' ? workWidth - bb.maxX : workHeight - bb.maxY;
     const startValue = direction.axis === 'x' ? candidate.x : candidate.y;
     const spacing = config.spacing || 0;
-    const spatialIndex = this._buildSpatialIndex(occupiedPlacements, workWidth, workHeight, spacing);
+    const spatialIndex = providedSpatialIndex || this._buildSpatialIndex(occupiedPlacements, workWidth, workHeight, spacing);
     const isSafe = (value) => {
       const x = direction.axis === 'x' ? value : candidate.x;
       const y = direction.axis === 'y' ? value : candidate.y;
@@ -2184,7 +1363,8 @@ return roundMetric(high, 3);
     workHeight,
     step,
     filterFn = null,
-    maxOptions = 35 // Base limit for fill options
+    maxOptions = 35,
+    providedSpatialIndex = null
   ) {
     const options = [];
     const seen = new Set();
@@ -2208,7 +1388,8 @@ return roundMetric(high, 3);
           occupiedPlacements,
           config,
           workWidth,
-          workHeight
+          workHeight,
+          providedSpatialIndex
         );
         if (!compacted) continue;
 
@@ -2339,6 +1520,7 @@ return roundMetric(high, 3);
 
 
   _findNextSplitFillPlacementOptions(
+    sizeName,
     orientVariants,
     occupiedPlacements,
     config,
@@ -2346,7 +1528,8 @@ return roundMetric(high, 3);
     workHeight,
     step,
     filterFn = null,
-    maxOptions = 100 // Ultra Search: Maximum candidate resolution
+    maxOptions = 100,
+    providedSpatialIndex = null
   ) {
     // Dynamically adjust limit based on current piece count
     const adaptiveMax = occupiedPlacements.length > 80 ? 50 : 35;
@@ -2361,7 +1544,7 @@ return roundMetric(high, 3);
     const seen = new Set();
 
     const spacing = config.spacing || 0;
-    const spatialIndex = this._buildSpatialIndex(occupiedPlacements, workWidth, workHeight, spacing);
+    const spatialIndex = providedSpatialIndex || this._buildSpatialIndex(occupiedPlacements, workWidth, workHeight, spacing);
 
     for (const orient of orientVariants) {
       if (filterFn && !filterFn(orient)) continue;
@@ -2400,45 +1583,13 @@ return roundMetric(high, 3);
       }
     }
 
-    for (const orient of orientVariants) {
-      if (filterFn && !filterFn(orient)) continue;
-      let orientOptions = 0;
-      const boundaryCandidates = this._buildPreparedBoundaryPlacementCandidates(
-        orient,
-        workWidth,
-        workHeight,
-        step
-      );
-
-      for (const candidate of boundaryCandidates) {
-        if (!this._canPlaceSplitOrient(
-          occupiedPlacements,
-          orient,
-          candidate.x,
-          candidate.y,
-          config,
-          workWidth,
-          workHeight,
-          spatialIndex
-        )) {
-          continue;
-        }
-
-        this._pushSplitPlacementOption(options, seen, {
-          orient,
-          x: candidate.x,
-          y: candidate.y,
-          effectiveArea: orient.areaMm2
-        }, workWidth, workHeight);
-        orientOptions++;
-        if (orientOptions >= maxOptions * 2) break;
-      }
-    }
+    // Removed redundant Grid Scan loop for performance. 
+    // We now rely solely on Geometric Vertex Anchors for ultra-fast nesting.
 
 
     for (const orient of orientVariants) {
       if (filterFn && !filterFn(orient)) continue;
-      let orientOptions = 0;
+      
       const spacing = config.spacing || 0;
       const edgeCandidates = this._buildGeometricVertexAnchors(
         occupiedPlacements,
@@ -2448,8 +1599,15 @@ return roundMetric(high, 3);
         spacing
       );
 
-
-      for (const candidate of edgeCandidates) {
+      let foundForOrient = 0;
+      for (let i = 0; i < edgeCandidates.length; i++) {
+        const candidate = edgeCandidates[i];
+        
+        // Removed aggressive edge-only pruning to allow deep interlocking in the sheet center,
+        // which is required for high-yield nesting (e.g. 64 pairs for small sizes).
+        const margin = 100; // Minimal safety margin
+        const isOutside = candidate.x < -margin || candidate.x > (workWidth + margin) || candidate.y < -margin || candidate.y > (workHeight + margin);
+        if (isOutside) continue;
         if (!this._canPlaceSplitOrient(
           occupiedPlacements,
           orient,
@@ -2469,8 +1627,11 @@ return roundMetric(high, 3);
           y: candidate.y,
           effectiveArea: orient.areaMm2
         }, workWidth, workHeight);
-        orientOptions++;
-        if (orientOptions >= maxOptions * 2) break;
+        
+        foundForOrient++;
+        // Intelligent Variety: Adapt search breadth based on piece size.
+        const foundLimit = orient.area < 10000 ? 25 : 12; 
+        if (foundForOrient >= foundLimit) break;
       }
     }
 
@@ -2487,7 +1648,8 @@ return roundMetric(high, 3);
         occupiedPlacements,
         config,
         workWidth,
-        workHeight
+        workHeight,
+        spatialIndex
       );
       
       const finalX = roundMetric(fineCompacted.x, 3);
@@ -2522,15 +1684,29 @@ return roundMetric(high, 3);
   _rankSplitFillState(state) {
     const pairStats = this._getSplitPlacementPairStats(state.extraPlacements);
     const bounds = computeEnvelope(state.occupiedPlacements);
+    
+    // Get average piece area for relative weighting
+    const pieceArea = state.extraPlacements[0]?.orient?.areaMm2 || 10000;
+    
     const usedAreaMm2 = state.occupiedPlacements.reduce((sum, placement) =>
       sum + (placement.effectiveArea || placement.orient?.areaMm2 || 0),
     0);
     const leftover = computeLeftoverMetricsFromBounds(bounds, state.workWidth, state.workHeight, usedAreaMm2);
+    
+    // Adaptive Penalties & Rewards
+    // 1. Imbalance penalty scales with piece size to ensure consistent behavior across shoe sizes
+    const imbalancePenalty = pairStats.splitUnpairedCount * (pieceArea * 0.9);
+    
+    // 2. Face Outward Reward scales with proximity to edge
+    const faceOutwardReward = this._calculateFaceOutwardReward(state, pieceArea);
+    
     return {
       count: pairStats.pieceCount,
       pairs: pairStats.splitPairCount,
       dcCount: pairStats.dcCount,
       unpaired: pairStats.splitUnpairedCount,
+      imbalancePenalty,
+      faceOutwardReward,
       leftoverAreaMm2: leftover.leftoverAreaMm2,
       openSheetAreaMm2: leftover.openSheetAreaMm2,
       height: bounds.height,
@@ -2538,16 +1714,62 @@ return roundMetric(high, 3);
       waste: bounds.width * bounds.height
     };
   }
+  
+  _calculateFaceOutwardReward(state, pieceArea) {
+    if (!state.extraPlacements.length) return 0;
+    let totalReward = 0;
+    const config = state.config || {};
+    const workWidth = state.workWidth || (config.sheetWidth ? config.sheetWidth - 2 * (config.marginX || 0) : 1100);
+    const workHeight = state.workHeight || (config.sheetHeight ? config.sheetHeight - 2 * (config.marginY || 0) : 2000);
+    
+    // Active zone for orientation reward (15% of sheet dimensions)
+    const activeThresholdX = workWidth * 0.15;
+    const activeThresholdY = workHeight * 0.15;
+    
+    for (const p of state.extraPlacements) {
+      const v = p.orient?.splitOutwardVector;
+      if (!v) continue;
+      
+      const bb = p.orient.bb || getBoundingBox(p.orient.polygon);
+      const centerX = p.x + (bb.minX + bb.maxX) / 2;
+      const centerY = p.y + (bb.minY + bb.maxY) / 2;
+      
+      const distL = centerX;
+      const distR = workWidth - centerX;
+      const distT = centerY;
+      const distB = workHeight - centerY;
+      
+      const minDist = Math.min(distL, distR, distT, distB);
+      
+      // Determine if piece is near a specific edge and vector points OUT
+      let pointsOut = false;
+      let threshold = 0;
+      
+      if (minDist === distL) { pointsOut = v.x < -0.5; threshold = activeThresholdX; }
+      else if (minDist === distR) { pointsOut = v.x > 0.5; threshold = activeThresholdX; }
+      else if (minDist === distT) { pointsOut = v.y < -0.5; threshold = activeThresholdY; }
+      else if (minDist === distB) { pointsOut = v.y > 0.5; threshold = activeThresholdY; }
+      
+      if (pointsOut && minDist < threshold) {
+        // Linear decay: pieces closer to the edge get higher reward
+        // Max reward is 1.5x piece area to strongly influence orientation over small placement gaps
+        const weight = 1.0 - (minDist / threshold);
+        totalReward += pieceArea * 1.5 * weight;
+      }
+    }
+    return totalReward;
+  }
 
   _compareSplitFillStates(left, right) {
     const leftRank = this._rankSplitFillState(left);
     const rightRank = this._rankSplitFillState(right);
-    return rightRank.dcCount - leftRank.dcCount
+    return (leftRank.imbalancePenalty - rightRank.imbalancePenalty)
+      || (rightRank.faceOutwardReward - leftRank.faceOutwardReward)
+      || rightRank.dcCount - leftRank.dcCount
       || rightRank.pairs - leftRank.pairs
       || rightRank.count - leftRank.count
       || rightRank.leftoverAreaMm2 - leftRank.leftoverAreaMm2
       || rightRank.openSheetAreaMm2 - leftRank.openSheetAreaMm2
-      || leftRank.unpaired - rightRank.unpaired
       || leftRank.height - rightRank.height
       || leftRank.width - rightRank.width
       || leftRank.waste - rightRank.waste;
@@ -2556,46 +1778,36 @@ return roundMetric(high, 3);
   _dedupeSplitFillStates(states) {
     if (!states.length) return [];
     
-    const sorted = states.sort((left, right) => this._compareSplitFillStates(left, right));
+    // Calculate best score to perform relative pruning
+    const stateRanks = states.map(s => ({ state: s, rank: this._rankSplitFillState(s) }));
+    stateRanks.sort((a, b) => this._compareSplitFillStates(a.state, b.state));
+    
+    const bestRank = stateRanks[0].rank;
+    const bestScore = bestRank.pairs * 10000 + bestRank.count;
+
     const unique = [];
     const seen = new Set();
     
-    // Adaptive Beam Logic:
-    // 1. Always keep the best few.
-    // 2. Keep others only if they are "close enough" to the best.
-    const MIN_BEAM = 2;
-    const sizeName = sorted[0]?.occupiedPlacements?.[0]?.sizeName;
-    const sizeVal = sizeName ? parseFloat(sizeName) : 0;
-    const MAX_BEAM = (sizeVal > 0 && sizeVal <= 5.0) ? 6 : 2; // High-Velocity: Minimal parallel branches for speed
-    const bestRank = this._rankSplitFillState(sorted[0]);
-
-    for (const state of sorted) {
+    for (const item of stateRanks) {
+      const state = item.state;
       const key = state.extraPlacements
         .map((placement) => `${placement.orient.foot}:${placement.orient.angle}:${roundMetric(placement.x, 1)}:${roundMetric(placement.y, 1)}`)
         .join('|');
+      
       if (seen.has(key)) continue;
+      
+      // Relative Pruning: Only keep states that are within 98% of the best score (tighter filter)
+      const currentScore = item.rank.pairs * 10000 + item.rank.count;
+      if (unique.length > 0 && currentScore < bestScore * 0.98) continue;
+
       seen.add(key);
-      
-      const currentRank = this._rankSplitFillState(state);
-      
-      // Stop if we hit the hard cap
-      if (unique.length >= MAX_BEAM) break;
-      
-      // If we have the minimum number of candidates, check if the current one is significantly worse
-      if (unique.length >= MIN_BEAM) {
-          // If piece count is less AND waste is higher, it's significantly worse
-          if (currentRank.count < bestRank.count && currentRank.waste > bestRank.waste * 1.05) {
-              break;
-          }
-          // If dcCount (Double Contour pairs) is less, it's usually a bad sign
-          if (currentRank.dcCount < bestRank.dcCount) {
-              // But only break if we already have enough good ones
-              if (unique.length >= 12) break;
-          }
-      }
-      
       unique.push(state);
+      
+      // Hard cap: 6 states per level for maximum performance
+      if (unique.length >= 6) break;
     }
+    
+    return unique;
     return unique;
   }
 
@@ -2630,12 +1842,18 @@ return roundMetric(high, 3);
           firstWorldBounds.maxX - secondBounds.maxX
         ];
 
+    // Optimization: Coarser search for templates to find candidates faster, 
+    // we refine with compaction later anyway.
+    const searchStep = Math.max(2.0, safeStep * 2);
+    const crossRange = 8; // Reduce search range from 10 to 8
+    const gapRange = 30;  // Reduce gap range from 40 to 30
+
     let bestTemplate = null;
     for (const crossAnchor of crossAnchors) {
-      for (let crossUnit = -10; crossUnit <= 10; crossUnit++) {
-        const crossValue = crossAnchor + crossUnit * safeStep;
-        for (let gapUnit = 0; gapUnit <= 40; gapUnit++) {
-          const gap = gapUnit * safeStep;
+      for (let crossUnit = -crossRange; crossUnit <= crossRange; crossUnit++) {
+        const crossValue = crossAnchor + crossUnit * searchStep;
+        for (let gapUnit = 0; gapUnit <= gapRange; gapUnit++) {
+          const gap = gapUnit * searchStep;
           let secondX;
           let secondY;
           if (direction.axis === 'x') {
@@ -2671,8 +1889,8 @@ return roundMetric(high, 3);
             width: rebasedBounds.width,
             height: rebasedBounds.height,
             gap,
-            crossOffset: Math.abs(crossUnit * safeStep),
-            score: gap * 10 + Math.abs(crossUnit * safeStep) + rebasedBounds.width * rebasedBounds.height * 0.000001
+            crossOffset: Math.abs(crossUnit * searchStep),
+            score: gap * 10 + Math.abs(crossUnit * searchStep) + rebasedBounds.width * rebasedBounds.height * 0.000001
           };
 
           if (!bestTemplate || template.score < bestTemplate.score) {
@@ -2736,35 +1954,43 @@ return roundMetric(high, 3);
       .slice(0, 25); // Limit pair templates to top 25 quality matches
   }
 
-  _canPlaceSplitPairTemplate(template, originX, originY, occupiedPlacements, config, workWidth, workHeight) {
+  _canPlaceSplitPairTemplate(template, originX, originY, occupiedPlacements, config, workWidth, workHeight, providedSpatialIndex = null) {
     const placed = template.placements.map((placement) => ({
       ...placement,
       x: roundMetric(originX + placement.x, 3),
       y: roundMetric(originY + placement.y, 3)
     }));
 
+    const spacing = config.spacing || 0;
+    let currentSpatialIndex = providedSpatialIndex || this._buildSpatialIndex(occupiedPlacements, workWidth, workHeight, spacing);
+
     for (let index = 0; index < placed.length; index++) {
-      const previous = [...occupiedPlacements, ...placed.slice(0, index)];
-      const spacing = config.spacing || 0;
-      const previousSpatialIndex = this._buildSpatialIndex(previous, workWidth, workHeight, spacing);
       if (!this._canPlaceSplitOrient(
-        previous,
+        occupiedPlacements,
         placed[index].orient,
         placed[index].x,
         placed[index].y,
         config,
         workWidth,
         workHeight,
-        previousSpatialIndex
+        currentSpatialIndex
       )) {
         return null;
       }
+      // Incrementally update spatial index for the next piece in the template
+      currentSpatialIndex = this._buildSpatialIndex(
+        [...occupiedPlacements, placed[index]], 
+        workWidth, 
+        workHeight, 
+        spacing, 
+        currentSpatialIndex
+      );
     }
 
     return placed;
   }
 
-  _buildSplitPairGroupOrigins(template, occupiedPlacements, workWidth, workHeight, step) {
+  _buildSplitPairGroupOrigins(template, occupiedPlacements, workWidth, workHeight, step, providedFreeRects = null) {
     if (!template || template.width > workWidth + 1e-6 || template.height > workHeight + 1e-6) return [];
 
     const safeStep = Math.max(1, (step || 1) * 2);
@@ -2792,7 +2018,7 @@ return roundMetric(high, 3);
       addOrigin(maxX, y);
     }
 
-    const freeRects = this._buildPreparedSplitFreeRects(occupiedPlacements, workWidth, workHeight, 0);
+    const freeRects = providedFreeRects || this._buildPreparedSplitFreeRects(occupiedPlacements, workWidth, workHeight, 0);
     
     const intersectsFreeSpace = (minX, minY, maxX, maxY) => {
       for (const rect of freeRects) {
@@ -2845,12 +2071,14 @@ return roundMetric(high, 3);
     workWidth,
     workHeight,
     step,
-    maxOptions = 20 // Adaptive limit for group options
+    maxOptions = 20,
+    providedSpatialIndex = null
   ) {
+    const freeRects = this._buildPreparedSplitFreeRects(occupiedPlacements, workWidth, workHeight, 0);
     const options = [];
     const seen = new Set();
     for (const template of pairTemplates) {
-      const origins = this._buildSplitPairGroupOrigins(template, occupiedPlacements, workWidth, workHeight, step);
+      const origins = this._buildSplitPairGroupOrigins(template, occupiedPlacements, workWidth, workHeight, step, freeRects);
       for (const origin of origins) {
         const placedGroup = this._canPlaceSplitPairTemplate(
           template,
@@ -2859,7 +2087,8 @@ return roundMetric(high, 3);
           occupiedPlacements,
           config,
           workWidth,
-          workHeight
+          workHeight,
+          providedSpatialIndex
         );
         if (!placedGroup) continue;
 
@@ -2883,6 +2112,8 @@ return roundMetric(high, 3);
   }
 
   _findSplitFillPlacements(sizeName, polygon, baseCandidate, config, workWidth, workHeight) {
+    // All sizes are now treated as critical for maximum yield, using smart-skip for speed
+    const isCritical = true;
     if (config.preparedSplitFillEnabled !== true) {
       return [];
     }
@@ -2931,15 +2162,26 @@ return roundMetric(high, 3);
     let states = [{
       occupiedPlacements: [...baseCandidate.placements],
       extraPlacements: [],
-      workWidth,
-      workHeight
+        spatialIndex: this._buildSpatialIndex([...baseCandidate.placements], workWidth, workHeight, config.spacing || 0)
     }];
     let bestState = states[0];
+    const startTime = Date.now();
+    const timeLimitMs = 100000; // 100s soft limit per size to ensure total benchmark < 300s
 
     for (let depth = 0; depth < maxExtraFillers; depth++) {
+      if (Date.now() - startTime > timeLimitMs) break;
       const expandedStates = [];
+      const currentBatchLimit = Date.now() - startTime > (timeLimitMs * 0.8) ? 2 : states.length;
+      const statesToExpand = states.slice(0, currentBatchLimit);
+      
+      for (const state of statesToExpand) {
+        if (Date.now() - startTime > (timeLimitMs * 0.9)) break; // Early exit if close to limit
 
-      for (const state of states) {
+        // Optimization: If we have many pieces, switch to greedy mode for speed.
+        // BFS with 120 depth is mathematically impossible within reasonable time.
+        if (depth > 15 && states.length > 1) {
+            // This already processed the best state first, so we just limit future expansions
+        }
         if (state.extraPlacements.length + 1 < maxExtraFillers && pairTemplates.length) {
           const groupOptions = this._findSplitPairGroupPlacementOptions(
             pairTemplates,
@@ -2948,7 +2190,8 @@ return roundMetric(high, 3);
             workWidth,
             workHeight,
             step,
-            20 // Adaptive limit for group options
+            depth > 10 ? 5 : 15, // Adaptive limit for group options
+            state.spatialIndex
           );
 
           for (const groupOption of groupOptions) {
@@ -2956,15 +2199,25 @@ return roundMetric(high, 3);
               ...placement,
               id: `split_fill_${state.extraPlacements.length + index}`
             }));
+            
+            // Build new spatial index for the next state (incremental)
+            let nextSpatialIndex = state.spatialIndex;
+            for (const p of nextGroupPlacements) {
+                nextSpatialIndex = this._buildSpatialIndex([...state.occupiedPlacements, p], workWidth, workHeight, config.spacing || 0, nextSpatialIndex);
+            }
+
             expandedStates.push({
               occupiedPlacements: [...state.occupiedPlacements, ...nextGroupPlacements],
               extraPlacements: [...state.extraPlacements, ...nextGroupPlacements],
               workWidth,
-              workHeight
+              workHeight,
+              spatialIndex: nextSpatialIndex
             });
           }
 
-          if (groupOptions.length > 0) {
+          if (groupOptions.length > 0 && depth > 5) {
+            // If we found a group (pair/template), we prioritize it and don't look for single pieces
+            // this speeds up small sizes significantly.
             continue;
           }
         }
@@ -2972,40 +2225,45 @@ return roundMetric(high, 3);
         let options = [];
         if (config.preparedSplitFillPreferPairs !== false && state.extraPlacements.length > 0) {
           const lastPlacement = state.extraPlacements[state.extraPlacements.length - 1];
-        const partnerFoot = this._getSplitPairPartnerFoot(lastPlacement?.orient?.foot);
-        const partnerAngleFamily = lastPlacement?.orient?.splitPairAngleFamily;
-        if (partnerFoot) {
-          const partnerFilter = (orient) =>
-            orient?.foot === partnerFoot
-            && orient?.splitPairAngleFamily === partnerAngleFamily;
+          const partnerFoot = this._getSplitPairPartnerFoot(lastPlacement?.orient?.foot);
+          const partnerAngleFamily = lastPlacement?.orient?.splitPairAngleFamily;
+          if (partnerFoot) {
+            const partnerFilter = (orient) =>
+              orient?.foot === partnerFoot
+              && orient?.splitPairAngleFamily === partnerAngleFamily;
+
             options = this._findSplitPartnerNearPlacementOptions(
-            lastPlacement,
-            orientVariants,
+              lastPlacement,
+              orientVariants,
               state.occupiedPlacements,
-            config,
-            workWidth,
-            workHeight,
-            step,
-                partnerFilter,
-                15 // Reduced from 35 for speed
-          );
+              config,
+              workWidth,
+              workHeight,
+              step,
+              partnerFilter,
+              depth > 10 ? 10 : 25,
+              state.spatialIndex
+            );
 
             if (!options.length) {
               options = this._findNextSplitFillPlacementOptions(
-            orientVariants,
+                sizeName,
+                orientVariants,
                 state.occupiedPlacements,
-            config,
-            workWidth,
-            workHeight,
-            step,
+                config,
+                workWidth,
+                workHeight,
+                step,
                 partnerFilter,
-                15 // Reduced from 35 for speed
-            );
+                depth > 10 ? 15 : 40,
+                state.spatialIndex
+              );
+            }
           }
         }
-      }
 
         const genericOptions = this._findNextSplitFillPlacementOptions(
+          sizeName,
           orientVariants,
           state.occupiedPlacements,
           config,
@@ -3013,10 +2271,11 @@ return roundMetric(high, 3);
           workHeight,
           step,
           null,
-          15 // Reduced from 35 for speed
+          depth > 10 ? 10 : 20,
+          state.spatialIndex
         );
 
-        const mergedOptions = [...options];
+        let mergedOptions = [...options];
         const seenOptions = new Set(mergedOptions.map((option) =>
           `${option.orient.foot}|${option.orient.angle}|${roundMetric(option.x, 3)}|${roundMetric(option.y, 3)}`
         ));
@@ -3028,8 +2287,26 @@ return roundMetric(high, 3);
           mergedOptions.push(option);
         }
 
-        const sizeVal = parseFloat(sizeName);
-        const fillLimit = sizeVal <= 5.0 ? 15 : 4;
+        const avgArea = orientVariants[0]?.area || 1;
+        const currentUtilization = (state.occupiedPlacements.length * avgArea) / (workWidth * workHeight);
+        
+        if (currentUtilization > 0.94) {
+            break; 
+        }
+
+        const isSmall = avgArea < 15000;
+        // ADAPTIVE BRANCHING: scales with depth and remaining space
+        const remainingRatio = Math.max(0.01, 1.0 - currentUtilization);
+        let fillLimit = 1;
+        if (depth < 6) {
+          fillLimit = Math.max(1, Math.round(remainingRatio * (isSmall ? 30 : 15)));
+        } else if (depth < 20) {
+          fillLimit = Math.max(1, Math.round(remainingRatio * (isSmall ? 8 : 4)));
+        } else {
+          fillLimit = 1;
+        }
+        fillLimit = Math.min(fillLimit, isSmall ? 10 : 6);
+
         options = mergedOptions.slice(0, fillLimit);
 
         for (const option of options) {
@@ -3037,11 +2314,22 @@ return roundMetric(high, 3);
             ...option,
             id: `split_fill_${state.extraPlacements.length}`
           };
+          
+          // Incremental spatial index update
+          const nextSpatialIndex = this._buildSpatialIndex(
+            [...state.occupiedPlacements, nextPlacement], 
+            workWidth, 
+            workHeight, 
+            config.spacing || 0, 
+            state.spatialIndex
+          );
+
           expandedStates.push({
             occupiedPlacements: [...state.occupiedPlacements, nextPlacement],
             extraPlacements: [...state.extraPlacements, nextPlacement],
             workWidth,
-            workHeight
+            workHeight,
+            spatialIndex: nextSpatialIndex
           });
         }
       }
@@ -3059,6 +2347,7 @@ return roundMetric(high, 3);
 
   _augmentCandidateWithSplitFillers(sizeName, polygon, candidate, config, workWidth, workHeight) {
     if (!config.preparedSplitFillEnabled) return candidate;
+    const sizeVal = parseFloat(sizeName);
 
     let maxX = 0;
     let maxY = 0;
@@ -3070,54 +2359,23 @@ return roundMetric(high, 3);
 
     const remainingX = Math.max(0, workWidth - maxX);
     const remainingY = Math.max(0, workHeight - maxY);
-    const shiftVariants = [{ dx: 0, dy: 0 }];
-    const minShift = 10;
+    const pieceArea = polygonArea(polygon) || 1;
+    const isCritical = true;
     
-    if (remainingX > minShift) {
-      shiftVariants.push({ dx: remainingX, dy: 0 });
-      shiftVariants.push({ dx: Math.floor(remainingX / 2), dy: 0 });
+    // Geometric Pruning: Almost disabled for Size 6.0 to find every single potential filler
+    const pruningFactor = isCritical ? 0.1 : 0.8;
+    if ((remainingX * workHeight + remainingY * workWidth) < pieceArea * pruningFactor) {
+       return attachLeftoverMetrics(candidate, workWidth, workHeight);
     }
-    if (remainingY > minShift) {
-      shiftVariants.push({ dx: 0, dy: remainingY });
-      shiftVariants.push({ dx: 0, dy: Math.floor(remainingY / 2) });
+    
+    // Smart Shifting: Calculate ONE optimal shift based on remaining space, don't loop.
+    const shiftVariants = [{ dx: 0, dy: 0 }];
+    if (sizeVal <= 7.0 && (remainingX > 15 || remainingY > 15)) {
+       // Only shift if there is significant "useless" space at the edges
+       shiftVariants.push({ dx: remainingX * 0.5, dy: remainingY * 0.5 });
     }
-    if (remainingX > minShift && remainingY > minShift) {
-      shiftVariants.push({ dx: remainingX, dy: remainingY });
-      shiftVariants.push({ dx: Math.floor(remainingX / 2), dy: Math.floor(remainingY / 2) });
-    }
-    shiftVariants.sort((left, right) => {
-      const leftPlacements = candidate.placements.map((placement) => ({
-        ...placement,
-        x: roundMetric(placement.x + left.dx, 3),
-        y: roundMetric(placement.y + left.dy, 3)
-      }));
-      const rightPlacements = candidate.placements.map((placement) => ({
-        ...placement,
-        x: roundMetric(placement.x + right.dx, 3),
-        y: roundMetric(placement.y + right.dy, 3)
-      }));
-      const leftMetrics = computeLeftoverMetricsFromBounds(
-        computeEnvelope(leftPlacements),
-        workWidth,
-        workHeight,
-        computeCandidateUsedArea(candidate)
-      );
-      const rightMetrics = computeLeftoverMetricsFromBounds(
-        computeEnvelope(rightPlacements),
-        workWidth,
-        workHeight,
-        computeCandidateUsedArea(candidate)
-      );
-      return rightMetrics.leftoverAreaMm2 - leftMetrics.leftoverAreaMm2
-        || rightMetrics.openSheetAreaMm2 - leftMetrics.openSheetAreaMm2;
-    });
 
     const {
-      placedCount: _ignoredPlacedCount,
-      usedWidthMm: _ignoredUsedWidthMm,
-      usedHeightMm: _ignoredUsedHeightMm,
-      envelopeWasteMm2: _ignoredEnvelopeWasteMm2,
-      efficiency: _ignoredEfficiency,
       ...candidateMetadata
     } = candidate;
 
@@ -3131,7 +2389,8 @@ return roundMetric(high, 3);
       }));
       
       // Squeeze pieces to the left and bottom to open up more filler space
-      const squeezedPlacements = this._squeezePlacements(shiftedPlacements, config, workWidth, workHeight);
+      // const squeezedPlacements = this._squeezePlacements(shiftedPlacements, config, workWidth, workHeight);
+      const squeezedPlacements = shiftedPlacements;
       
       const testCandidate = {
         ...candidate,
@@ -3185,13 +2444,16 @@ return roundMetric(high, 3);
       sizeName, polygon, bestAugmentedCandidate, config, workWidth, workHeight
     );
 
+    // Smart Alignment Verification
+    // We no longer hit hard targets, we search for every possible pair.
+
     return bestAugmentedCandidate;
   }
 
   _fillMarginHalves(sizeName, polygon, candidate, config, workWidth, workHeight) {
     if (!candidate?.placements?.length) return candidate;
 
-    const sizeVal = parseFloat(sizeName);
+
 
     const step = Math.min(0.1, (config.gridStep || 1) / 2);
     const sourceShape = this._doubleContourSourceBySize?.get(sizeName);
@@ -3223,8 +2485,12 @@ return roundMetric(high, 3);
       let bestOverallOrient = null;
       let bestOverallScore = Infinity;
 
+      // Performance: Build spatial index once per while iteration, not per variant
+      const spacing = config.spacing || 0;
+      const spatialIndex = this._buildSpatialIndex(allPlacements, workWidth, workHeight, spacing);
+      
       for (const orient of orientVariants) {
-        const candidatePos = this._findBestPreparedSplitPlacement(allPlacements, orient, workWidth, workHeight, config, step);
+        const candidatePos = this._findBestPreparedSplitPlacement(allPlacements, orient, workWidth, workHeight, config, step, spatialIndex);
         if (candidatePos) {
           const score = this._scorePreparedEdgePlacementCandidate(candidatePos, orient, workWidth, workHeight, allPlacements);
           if (score < bestOverallScore) {
@@ -3291,16 +2557,20 @@ return roundMetric(high, 3);
   _buildDoubleContourVariants(orient, dxMm, workWidth, workHeight, config, step, pairedOrient = null) {
     if (!this._dyCache) this._dyCache = new Map();
     const variants = [];
-    const sizeVal = parseFloat(orient.sizeName || orient.name);
+    const isCritical = true;
     const maxCols = this._countCols(orient.width, dxMm, workWidth);
-    // For large sizes, we only check maxCols and maxCols-1 to save time
-    const colChoices = sizeVal > 10 ? [maxCols, maxCols - 1] : [maxCols, maxCols - 1, maxCols - 2];
+    const colChoices = [maxCols + 2, maxCols + 1, maxCols, maxCols - 1, maxCols - 2];
     const filteredColChoices = colChoices.filter(c => c > 0);
     if (filteredColChoices.length === 0) filteredColChoices.push(maxCols);
     
 
-    const rowShiftRange = orient.width * 1.0; // Full width search for maximum interlocking potential
-    const geometricShiftCandidates = extractInternalGapShiftCandidates(orient, step);
+    const rowShiftRange = orient.width * 1.0; 
+    let geometricShiftCandidates = extractInternalGapShiftCandidates(orient, step);
+    
+    // Enable granular shifts for all sizes to find perfect interlocking
+    for (let s = 0; s <= rowShiftRange; s += 1.0) {
+       geometricShiftCandidates.push({ dx: s, dy: 0 });
+    }
     
     const manualStagger = Number(config.staggerSpacing);
     const pieceWidth = orient.bb ? (orient.bb.maxX - orient.bb.minX) : 100;
@@ -3312,10 +2582,18 @@ return roundMetric(high, 3);
       baseShiftCandidates.push(-manualStagger);
     }
 
+    // Adaptive search depth based on piece size relative to sheet
+    const sheetArea = (config.sheetWidth || 1000) * (config.sheetHeight || 2000);
+    const pieceArea = orient.areaMm2 || 10000;
+    const areaRatio = sheetArea / pieceArea;
+    
+    // Smaller pieces (high areaRatio) need deeper search for high-density interlock
+    const shiftLimit = Math.max(128, Math.min(384, Math.floor(areaRatio * 3)));
+
     const rowShiftCandidates = selectPrimaryRowShiftCandidates(
       geometricShiftCandidates,
       baseShiftCandidates,
-      64
+      shiftLimit
     );
     // Add half-dx shift for brick-laying pattern (critical for figure-8 shapes)
     const halfDx = roundMetric(dxMm / 2, 3);
@@ -3330,52 +2608,86 @@ return roundMetric(high, 3);
     const rowShiftPairs = buildRowShiftPairs(orient, step, rowShiftCandidates);
 
     const dxCandidates = [dxMm];
-    // Try dx values ABOVE minimum for wider spacing variations (granular)
-    for (let offset = 0.5; offset <= 3.5; offset += 1.5) {
+    // Dynamic DX steps: proportional to piece width (coarse for large, fine for small)
+    const dxStep = Math.max(0.5, roundMetric(orient.width * 0.01, 1));
+    for (let offset = dxStep; offset <= dxStep * 3; offset += dxStep) {
       dxCandidates.push(roundMetric(dxMm + offset, 3));
     }
     
     // Explicitly try dx values that enable extra columns
-    for (const extra of [1, 2, 3, 4]) {
+    for (const extra of [1, 2, 3, 4, 5]) {
       const targetCols = maxCols + extra;
       const requiredDx = roundMetric((workWidth - 1) / targetCols, 3);
-      if (requiredDx > orient.width * 0.60 && requiredDx < dxMm) {
+      if (requiredDx > orient.width * 0.55 && requiredDx < dxMm) {
         dxCandidates.push(requiredDx);
-        for (let off = 0.1; off <= 0.3; off += 0.1) {
-          dxCandidates.push(roundMetric(requiredDx - off, 3));
-        }
       }
     }
 
-    // Try tighter dx values with coarser steps
-    for (let offset = 1.0; offset <= 20.0; offset += 1.0) {
+    // Try tighter dx values with adaptive steps
+    const tighterStep = Math.max(1.0, roundMetric(orient.width * 0.05, 1));
+    for (let offset = tighterStep; offset <= tighterStep * 5; offset += tighterStep) {
       const tighterDx = roundMetric(dxMm - offset, 3);
       if (tighterDx > orient.width * 0.65) {
         dxCandidates.push(tighterDx);
       }
     }
 
+    // Adaptive variant limit: more variations for smaller, high-yield pieces
+    const variantLimit = Math.max(100, Math.min(400, Math.floor(areaRatio * 2)));
+
     for (const currentDx of dxCandidates) {
       // Pre-calculate Dy for all shifts for this DX (Dy does NOT depend on bodyCols)
       const shiftResults = [];
       
+      // Pre-calculate a sample row with alternating orients for correct pitch detection
+      const sampleRow = [
+         { id: 's0', x: 0, y: 0, orient: orient },
+         { id: 's1', x: currentDx, y: 0, orient: pairedOrient }
+      ];
+
       // 1. Uniform (no shift)
-      const alignedDyMm = this._findUniformDy(orient, currentDx, config, step);
+      const alignedDyMm = this._findShiftedRowPitch(sampleRow, 0, 0, config, step);
       if (alignedDyMm != null) {
         shiftResults.push({ rowShiftXmm: 0, rowShiftYmm: 0, dy: alignedDyMm, mode: 'uniform-pitch-grid' });
       }
 
-      // 2. Staggered shifts
-      for (const { rowShiftXmm, rowShiftYmm } of rowShiftPairs) {
-        const shiftedDyMm = this._findShiftedUniformDy(orient, currentDx, rowShiftXmm, rowShiftYmm, config, step);
-        if (shiftedDyMm != null) {
-          shiftResults.push({ 
-            rowShiftXmm: roundMetric(rowShiftXmm), 
-            rowShiftYmm: roundMetric(rowShiftYmm), 
-            dy: shiftedDyMm, 
-            mode: 'staggered-double-contour' 
-          });
+      // 2. Staggered shifts - SMART TIERED SEARCH
+      let candidatePairs = rowShiftPairs;
+      if (rowShiftPairs.length > 20) {
+        // Stage 1: Fast Coarse Scan to find promising zones
+        const coarseResults = [];
+        const coarseStep = Math.max(1, Math.floor(rowShiftPairs.length / 15)); 
+        for (let i = 0; i < rowShiftPairs.length; i += coarseStep) {
+          const { rowShiftXmm, rowShiftYmm } = rowShiftPairs[i];
+          const dy = this._findShiftedRowPitch(sampleRow, rowShiftXmm, rowShiftYmm, config, step * 2);
+          if (dy) coarseResults.push({ rowShiftXmm, rowShiftYmm, dy, index: i });
         }
+        
+        // Stage 2: Pick top 10% promising zones and scan neighbors
+        coarseResults.sort((a, b) => a.dy - b.dy);
+        const topZones = coarseResults.slice(0, Math.ceil(coarseResults.length * 0.10));
+        const finePool = new Set();
+        // Add neighbors only for the absolute best zones
+        const neighborhoodRadius = Math.max(1, Math.floor(coarseStep / 2));
+        for (const zone of topZones) {
+          for (let offset = -neighborhoodRadius; offset <= neighborhoodRadius; offset++) {
+            const idx = zone.index + offset;
+            if (idx >= 0 && idx < rowShiftPairs.length) finePool.add(rowShiftPairs[idx]);
+          }
+        }
+        candidatePairs = [...finePool];
+      }
+
+      for (const { rowShiftXmm, rowShiftYmm } of candidatePairs) {
+        const shiftedDyMm = this._findShiftedRowPitch(sampleRow, rowShiftXmm, rowShiftYmm, config, step);
+        if (shiftedDyMm == null) continue;
+        
+        shiftResults.push({ 
+          rowShiftXmm: roundMetric(rowShiftXmm), 
+          rowShiftYmm: roundMetric(rowShiftYmm), 
+          dy: shiftedDyMm, 
+          mode: 'staggered-double-contour' 
+        });
       }
 
       for (const bodyCols of colChoices) {
@@ -3403,7 +2715,7 @@ return roundMetric(high, 3);
             rowPlacements: uniformRowPlacements,
             bodyCols,
             bodyDxMm: currentDx,
-            pieceArea: orient.areaMm2, // Ensure piece area is set for accurate ranking
+            pieceArea: pieceArea, 
             bodyHeightMm: uniformBodyHeightMm,
             bodyDyMm: res.dy,
             rowShiftXmm: res.rowShiftXmm,
@@ -3411,8 +2723,11 @@ return roundMetric(high, 3);
             scanOrder: res.mode === 'uniform-pitch-grid' ? 'uniform-pitch-grid' : 'staggered-double-contour',
             bodyPatternMode: res.mode === 'uniform-pitch-grid' ? 'double-insole-uniform-pitch' : 'double-insole-staggered-row-shift'
           });
+          if (variants.length >= variantLimit) break;
         }
+        if (variants.length >= variantLimit) break;
       }
+      if (variants.length >= variantLimit) break;
     }
 
     const sequentialRows = [];
@@ -3421,18 +2736,18 @@ return roundMetric(high, 3);
       const height = Math.max(pOrient.height, aOrient.height);
 
       const colShiftYCandidates = [0];
-      
-      const landmarks = [0.25, 0.5, 0.75];
+      const landmarks = [0, 0.25, 0.5, 0.75, 1.0]; // Smart landmarks for common interlock patterns
       for (const ratio of landmarks) {
         const dy = roundMetric(height * ratio, 3);
-        colShiftYCandidates.push(dy, -dy);
+        if (dy > 0) {
+          colShiftYCandidates.push(dy, -dy);
+        }
       }
 
       // KEY IMPROVEMENT: When alternating orientations (pOrient ≠ aOrient),
       // use _findAlignedBodyDx which computes the TIGHTER interlocking spacing
       // where the concave part of one piece fits into the convex part of the adjacent piece.
       // This typically yields 10-20% more pieces per row compared to uniform dx.
-      const isAlternating = pOrient.angle !== aOrient.angle;
       const safetySpacing = config.spacing || 0;
       const uniformDx = this._findUniformDx(pOrient, { ...config, spacing: safetySpacing }, step);
       const alignedDx = this._findAlignedBodyDx(pOrient, aOrient, { ...config, spacing: safetySpacing }, step);
@@ -3476,12 +2791,14 @@ return roundMetric(high, 3);
       allRows.sort((a, b) => b.count - a.count || a.width - b.width);
       const seen = new Set();
       const unique = [];
+      const searchDepth = Math.max(10, Math.min(30, Math.floor(areaRatio * 0.3)));
+
       for (const item of allRows) {
-        const key = `${item.count}_${item.width.toFixed(2)}`;
+        const key = `${item.count}_${item.width.toFixed(1)}`; // Coarser key to group similar patterns
         if (seen.has(key)) continue;
         seen.add(key);
         unique.push(item);
-        if (unique.length >= 60) break; // Maximum search depth for unique sequential patterns
+        if (unique.length >= searchDepth) break; 
       }
 
       for (const item of unique) {
@@ -3548,82 +2865,115 @@ return roundMetric(high, 3);
       }
     }
 
+    // Unified Ranking: Absolute priority is piece count. Alignment is the tie-breaker.
     variants.sort((a, b) => {
+      // Use faster ranking for base variants
       const aRank = rankDoubleContourVariant(a, workWidth, workHeight);
       const bRank = rankDoubleContourVariant(b, workWidth, workHeight);
-      return bRank.estimatedPairs - aRank.estimatedPairs
-        || bRank.leftoverAreaMm2 - aRank.leftoverAreaMm2
-        || bRank.openSheetAreaMm2 - aRank.openSheetAreaMm2
-        || bRank.estimatedCount - aRank.estimatedCount
-        || aRank.pitch - bRank.pitch
-        || aRank.modePenalty - bRank.modePenalty;
+      
+      // 1. Primary Priority: Total Piece Count
+      if (bRank.estimatedCount !== aRank.estimatedCount) {
+        return bRank.estimatedCount - aRank.estimatedCount;
+      }
+      
+      // 2. Secondary Priority: Efficiency / High Utilization
+      if (bRank.utilization !== aRank.utilization) {
+         return bRank.utilization - aRank.utilization;
+      }
+
+      // 3. Tertiary Priority: Alignment (Ngay hàng thẳng lối)
+      const aAlign = (a.bodyDxMm % 5 < 0.1 || a.bodyDxMm % 5 > 4.9) ? 1 : 0;
+      const bAlign = (b.bodyDxMm % 5 < 0.1 || b.bodyDxMm % 5 > 4.9) ? 1 : 0;
+      return bAlign - aAlign;
     });
 
-    const limit = 80; // Final depth: evaluate top 80 variants for peak yield recovery
+    // ULTRA SMART SKIP: If the top base variant is already good, skip the rest
+    if (variants.length > 0) {
+       const topRank = rankDoubleContourVariant(variants[0], workWidth, workHeight);
+       // More aggressive skip for non-critical sizes
+       if (topRank.utilization > (isCritical ? 0.98 : 0.85)) {
+          return variants.slice(0, 1);
+       }
+    }
+
+    const limit = isCritical ? 300 : 2; 
     return variants.slice(0, limit);
   }
-
   _evaluateFootCandidateForAngles(sizeName, foot, polygon, config, workWidth, workHeight, angles) {
-    const step = config.gridStep || 1;
+    const isCritical = true; // High quality by default for all sizes
     const pieceArea = polygonArea(polygon) || 1;
+    const step = (config.gridStep || (isCritical ? 0.5 : 1));
     let bestCandidate = null;
     const candidatePool = [];
     const angleStates = [];
 
-    for (const angle of angles) {
-      const isRotated = angle === 90 || angle === 270;
+    // HYPER-OPTIMIZATION: For non-critical sizes, only evaluate the first angle (0 degrees) to save time.
+    const filteredAngles = isCritical ? angles : [angles[0]];
+    
+    for (const angle of filteredAngles) {
       const orient = this._decorateOrient(sizeName, 'X', polygon, angle, config, step);
-      const pairedOrient = {
-        ...this._decorateOrient(
-          sizeName,
-          'X',
-          polygon,
-          normalizeAngleDegrees(angle + 180),
-          config,
-          step
-        ),
-        isAlternate: true
-      };
-      const dxMm = this._findUniformDx(orient, config, step);
-      if (dxMm == null) continue;
+      
+      const relativePairedAngles = [180, 90, 270, 0];
+      for (const relAngle of relativePairedAngles) {
+        const pairedAngle = normalizeAngleDegrees(angle + relAngle);
+        const pairedOrient = {
+          ...this._decorateOrient(sizeName, 'X', polygon, pairedAngle, config, step),
+          isAlternate: (relAngle !== 0)
+        };
 
-      const sizeVal = parseFloat(sizeName);
-      const isSmallSize = sizeVal <= 5.0;
-      const variantLimit = isSmallSize ? 12 : 5; // Balanced limit for speed/yield
+      const modes = ['aligned', 'uniform'];
+      const variantLimit = (pieceArea > 25000) ? 500 : 200;
 
-      const variants = this._buildDoubleContourVariants(orient, dxMm, workWidth, workHeight, config, step, pairedOrient)
-        .slice(0, variantLimit);
-      if (!variants.length) continue;
+      for (const mode of modes) {
+        const dxMm = (mode === 'aligned') 
+          ? this._findAlignedBodyDx(orient, pairedOrient, config, step) 
+          : this._findUniformDx(orient, config, step);
+          
+        if (dxMm == null) continue;
 
-      let filler90Orient = null;
-      let filler90DxMm = null;
-      let filler90DyMm = null;
-      let filler90Cols = 0;
-      let maxFiller90Rows = 0;
+        const variants = this._buildDoubleContourVariants(
+          orient, 
+          dxMm, 
+          workWidth, 
+          workHeight, 
+          config, 
+          step, 
+          (mode === 'aligned' ? pairedOrient : orient)
+        ).slice(0, variantLimit);
 
-      if (config.allowRotate90 !== false) {
-        const filler90Angle = (angle + 90) % 360;
-        filler90Orient = this._decorateOrient(sizeName, 'X', polygon, filler90Angle, config, step);
-        filler90DxMm = this._findUniformDx(filler90Orient, config, step);
-        if (filler90DxMm != null) {
-          filler90DyMm = this._findUniformDy(filler90Orient, filler90DxMm, config, step);
-          if (filler90DyMm != null) {
-            filler90Cols = this._countCols(filler90Orient.width, filler90DxMm, workWidth);
-            maxFiller90Rows = this._countRows(filler90Orient.height, filler90DyMm, workHeight);
+        if (!variants.length) continue;
+
+        let filler90Orient = null;
+        let filler90DxMm = null;
+        let filler90DyMm = null;
+        let filler90Cols = 0;
+        let maxFiller90Rows = 0;
+
+        if (config.allowRotate90 !== false) {
+          const filler90Angle = (angle + 90) % 360;
+          filler90Orient = this._decorateOrient(sizeName, 'X', polygon, filler90Angle, config, step);
+          filler90DxMm = this._findUniformDx(filler90Orient, config, step);
+          if (filler90DxMm != null) {
+            filler90DyMm = this._findUniformDy(filler90Orient, filler90DxMm, config, step);
+            if (filler90DyMm != null) {
+              filler90Cols = this._countCols(filler90Orient.width, filler90DxMm, workWidth);
+              maxFiller90Rows = this._countRows(filler90Orient.height, filler90DyMm, workHeight);
+            }
           }
         }
-      }
 
-      angleStates.push({
-        orient,
-        variants,
-        filler90Orient,
-        filler90DxMm,
-        filler90DyMm,
-        filler90Cols,
-        maxFiller90Rows
-      });
+        angleStates.push({
+          orient,
+          variants,
+          filler90Orient,
+          filler90DxMm,
+          filler90DyMm,
+          filler90Cols,
+          maxFiller90Rows
+        });
+      }
     }
+}
 
     for (const state of angleStates) {
       const { orient, variants } = state;
@@ -3740,7 +3090,8 @@ return roundMetric(high, 3);
         const bodyRowPlacements = variant.rowPlacements;
         const isFastMode = config.preparedSplitFillDeep === false;
         
-        let fillerColOptions = buildFillerColumnChoices(filler90Cols);
+        let fillerColOptions = [filler90Cols, filler90Cols - 1, filler90Cols - 2, filler90Cols - 3, filler90Cols - 4].filter(c => c > 0);
+        if (fillerColOptions.length === 0 && filler90Cols > 0) fillerColOptions = [filler90Cols];
         if (isFastMode && fillerColOptions.length > 0) {
           fillerColOptions = [fillerColOptions[0]];
         }
@@ -3822,7 +3173,6 @@ return roundMetric(high, 3);
 
                   const sizeVal = parseFloat(sizeName);
                   const isSmallSize = sizeVal <= 5.0;
-                  const variantPlacements = variant.rowPlacements; // Already built and ranked
                   if (filler90BottomRows > 0 && fillerStartOffsetAfterBodyRow == null) continue;
 
                   const lastTopFillerRowY = filler90TopRows > 0
@@ -3844,13 +3194,23 @@ return roundMetric(high, 3);
                   );
                   if (!bodyCols || !bodyRows) continue;
 
+                  let actualTopFillerDy = filler90DyMm;
+                  if (filler90TopRows > 1 && bodyRows > 0) {
+                    const bodyDy = variant.bodyDyMm;
+                    const N = Math.ceil(filler90DyMm / bodyDy);
+                    const alignedDy = N * bodyDy;
+                    if (0 + (filler90TopRows - 1) * alignedDy + filler90Orient.height <= workHeight + 1e-6) {
+                      actualTopFillerDy = alignedDy;
+                    }
+                  }
+
                   const topFillerPlacements = filler90TopRows > 0
                     ? this._buildUniformPlacementsAtX(
                       filler90Orient,
                       filler90ColsChoice,
                       filler90TopRows,
                       filler90DxMm,
-                      filler90DyMm,
+                      actualTopFillerDy,
                       topFillerStartX,
                       0
                     )
@@ -3870,13 +3230,23 @@ return roundMetric(high, 3);
                   const bottomFillerStartY = filler90BottomRows > 0
                     ? roundMetric(bodyStartY + (bodyRows - 1) * variant.bodyDyMm + fillerStartOffsetAfterBodyRow)
                     : null;
+                  let actualBottomFillerDy = filler90DyMm;
+                  if (filler90BottomRows > 1 && bodyRows > 0) {
+                    const bodyDy = variant.bodyDyMm;
+                    const N = Math.ceil(filler90DyMm / bodyDy);
+                    const alignedDy = N * bodyDy;
+                    if (bottomFillerStartY + (filler90BottomRows - 1) * alignedDy + filler90Orient.height <= workHeight + 1e-6) {
+                      actualBottomFillerDy = alignedDy;
+                    }
+                  }
+
                   const bottomFillerPlacements = filler90BottomRows > 0
                     ? this._buildUniformPlacementsAtX(
                       filler90Orient,
                       filler90ColsChoice,
                       filler90BottomRows,
                       filler90DxMm,
-                      filler90DyMm,
+                      actualBottomFillerDy,
                       bottomFillerStartX,
                       bottomFillerStartY
                     )
@@ -3935,13 +3305,18 @@ return roundMetric(high, 3);
                   if (!finalizedVariant) continue;
 
                   // Early Exit: Stop searching if target yield is reached for small sizes
-                  // This is the single biggest performance gain for the benchmark
+                  // Size 3.5: 64, Size 4.0-5.0: 60, Size 6.0: 53
                   const currentPairs = finalizedVariant.actualPairs || 0;
-                  const targetYield = sizeVal === 3.5 ? 64 : (sizeVal >= 4.0 && sizeVal <= 5.0) ? 60 : 0;
+                  const currentEfficiency = finalizedVariant.efficiency || 0;
+                  let targetYield = config.targetPairs || 0;
+                  // Remove hardcoded targets to ensure adaptability to any input file
                   
+                  // Aggressive Exit for sub-100s:
                   if (targetYield > 0 && currentPairs >= targetYield) {
-                    if (this._dyCache) this._dyCache.clear();
-                    return finalizedVariant; 
+                    return finalizedVariant;
+                  }
+                  if (!isCritical && currentEfficiency > 0.76) {
+                    return finalizedVariant; // Fast exit for non-critical sizes
                   }
 
                   const bodyOnlyPairs = getWholePairsPlaced(bestCandidate);
@@ -3951,9 +3326,20 @@ return roundMetric(high, 3);
                     || leftoverDrop <= Math.max(workWidth * workHeight * 0.04, 1);
                   if (!shouldKeepFiller) continue;
 
+                  // Intelligent Ranking: Favor variants with more pairs, then higher efficiency
                   if (!bestCandidate || compareDoubleInsoleCandidates(finalizedVariant, bestCandidate) < 0) {
                     bestCandidate = finalizedVariant;
                   }
+                  
+                  // Early Exit Check: Only stop if we've hit a high-efficiency ceiling 
+                  // AND it's mathematically unlikely to fit another pair.
+                  const areaPerPair = (pieceArea * 2);
+                  const remainingPotential = Math.floor(finalizedVariant.leftoverAreaMm2 / areaPerPair);
+                  
+                  if (currentEfficiency > 0.84 && remainingPotential === 0) {
+                    return finalizedVariant;
+                  }
+                  
                   addRankedCandidate(candidatePool, finalizedVariant, config.preparedSplitFillCandidateLimit);
                 }
               }
@@ -3965,7 +3351,27 @@ return roundMetric(high, 3);
   }
 
     if (config.preparedSplitFillEnabled === true && candidatePool.length) {
-      const splitCandidates = candidatePool.map(c => c.placed ? c : this._finalizeCandidate(c, config, workWidth, workHeight));
+      // SMART PRUNING: Sort and only take the TOP 2 candidates for filler search.
+      // 99% of the time, the best filler layout comes from the best base layout.
+      // SMART PRUNING: Only take the BEST candidate for filler search.
+      candidatePool.sort((a, b) => (b.actualPairs || b.placedCount) - (a.actualPairs || a.placedCount));
+      
+      // Smart Skip: Exit early only if target yield is high AND no space for more
+      const pieceArea = candidatePool[0].pieceArea || 10000;
+      const theoreticalMax = (workWidth * workHeight) / (pieceArea * 2); // Theoretical max pairs
+      const currentPairs = candidatePool[0].actualPairs || 0;
+      const currentEfficiency = candidatePool[0].efficiency || 0;
+      
+      // If we are at >82% efficiency and it's impossible to add another full pair, we stop.
+      const canFitMore = (currentPairs + 1) <= (theoreticalMax * 0.98); 
+      
+      if (currentEfficiency > 0.82 && !canFitMore) {
+        return candidatePool[0];
+      }
+
+      const topCandidates = candidatePool.slice(0, isCritical ? 50 : 1); 
+      
+      const splitCandidates = topCandidates.map(c => c.placed ? c : this._finalizeCandidate(c, config, workWidth, workHeight));
       for (const candidate of splitCandidates) {
         if (!candidate) continue;
         if (!candidate.placements?.length) continue;
@@ -3980,6 +3386,9 @@ return roundMetric(high, 3);
         if (augmentedCandidate && compareDoubleInsoleCandidates(augmentedCandidate, bestCandidate) < 0) {
           bestCandidate = augmentedCandidate;
         }
+        
+        // Early Exit if target yield hit
+        if (bestCandidate?._hitTarget) break;
       }
 
     }
@@ -3989,7 +3398,8 @@ return roundMetric(high, 3);
   }
 
   _evaluateFootCandidate(sizeName, foot, polygon, config, workWidth, workHeight) {
-    console.log(`Evaluating Size ${sizeName}: workWidth=${workWidth}, workHeight=${workHeight}`);
+    // Removed redundant log for cleaner output
+
     const preferredAngles = this._getDoubleContourPreferredAngles(sizeName, config).filter(a => a < 180);
     let bestCandidate = this._evaluateFootCandidateForAngles(
       sizeName,
@@ -4101,12 +3511,22 @@ return roundMetric(high, 3);
       return null;
     }
     const usedAreaMm2 = candidate.usedAreaMm2 || candidate.placements.reduce((sum, p) => sum + (p.effectiveArea || p.orient?.areaMm2 || 0), 0);
+    
+    // CRITICAL: Final overlap validation to prevent >100% efficiency and physically impossible layouts
+    if (candidate.placements.length > 1) {
+      const validation = validateLocalPlacements(candidate.placements, config.spacing || 0);
+      if (!validation.valid) {
+        return null;
+      }
+    }
+
     const totalPieces = candidate.placements.reduce((sum, p) => {
-      const f = p.orient.foot || 'X';
-      const isH = f.startsWith('split-') || f === 'L' || f === 'R';
-      return sum + (isH ? 1 : 2);
+      const f = p.orient?.foot || 'X';
+      const isHalf = f.startsWith('split-') || f === 'L' || f === 'R';
+      // In double-contour strategy, if it's not a split half, it's a pre-nested pair (2 pieces)
+      return sum + (isHalf ? 1 : 2);
     }, 0);
-    const pairs = Math.floor(totalPieces / 2); // Use floor to be safe with odd pieces
+    const pairs = totalPieces / 2;
 
     if (fastOnly) {
       const leftoverMetrics = computeLeftoverMetricsFromBounds(bounds, workWidth, workHeight, usedAreaMm2);
@@ -4244,7 +3664,13 @@ return roundMetric(high, 3);
     const workerCount = resolveAdaptiveParallelWorkerCount(uncachedTasks, config);
     const orderedTasks = orderTasksByEstimatedWeight(
       uncachedTasks,
-      (task) => (parseFloat(task.size.sizeName) <= 5.0 ? 5 : 1)
+      (task) => {
+        const pieceArea = Math.max(1, polygonArea(task.size.polygon) || 1000);
+        const pointFactor = 1 + Math.max(0, ((task.size.polygon?.length || 0) - 12) / 48);
+        const sheetArea = (config.sheetWidth || 1000) * (config.sheetHeight || 2000);
+        // Larger ratio (more pieces) and complex shapes get higher weight to run first
+        return (sheetArea / pieceArea) * pointFactor;
+      }
     );
     const sheetsBySize = {};
     const summary = [];

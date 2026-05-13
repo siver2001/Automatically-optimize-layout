@@ -27,7 +27,7 @@ import {
 import { runNestingMode } from '../algorithms/diecut/strategies/normal/runNestingMode.js';
 import { CapacityTestComplementaryPattern } from '../algorithms/diecut/strategies/capacity/CapacityTestComplementaryPattern.js';
 import { CapacityTestSameSidePattern } from '../algorithms/diecut/strategies/capacity/CapacityTestSameSidePattern.js';
-import { CapacityTestDoubleInsoleDoubleContourPattern } from '../algorithms/diecut/strategies/capacity/CapacityTestDoubleInsoleDoubleContourPattern.js';
+import { CapacityTestDoubleInsoleDoubleContourPattern } from '../algorithms/diecut/strategies/capacity/double-contour/CapacityTestDoubleInsoleDoubleContourPattern.js';
 import { generateDieCutPdf } from '../utils/diecutPdfGenerator.js';
 
 function enforceMonotonicity(summary, sheetsBySize) {

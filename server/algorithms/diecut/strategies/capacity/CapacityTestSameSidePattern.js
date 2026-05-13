@@ -159,6 +159,9 @@ function compareAlignedCandidates(nextCandidate, bestCandidate) {
   if (nextCandidate.filler90Count !== bestCandidate.filler90Count) {
     return nextCandidate.filler90Count - bestCandidate.filler90Count;
   }
+  if ((nextCandidate.filler90StartY || 0) !== (bestCandidate.filler90StartY || 0)) {
+    return (bestCandidate.filler90StartY || 0) - (nextCandidate.filler90StartY || 0);
+  }
   if (nextCandidate.usedHeightMm !== bestCandidate.usedHeightMm) {
     return nextCandidate.usedHeightMm - bestCandidate.usedHeightMm;
   }
@@ -180,13 +183,15 @@ export function findMinimalContinuousValue(minValue, maxValue, precision, isSafe
   let high = maxValue;
   while (high - low > precision) {
     const mid = (low + high) / 2;
-    if (isSafe(mid)) {
+    const safe = isSafe(mid);
+    if (safe) {
       high = mid;
     } else {
       low = mid;
     }
   }
 
+  // Use standard precision for the return value
   return roundMetric(high, 3);
 }
 
@@ -346,8 +351,8 @@ export class CapacityTestSameSidePattern extends BaseNesting {
 
   _buildBodyNeighborhood(primaryOrient, alternateOrient, rowMode, dxMm, dyMm) {
     const placements = [];
-    const sampleRows = 4;
-    const sampleCols = 6;
+    const sampleRows = 3;
+    const sampleCols = 5;
 
     for (let row = 0; row < sampleRows; row++) {
       for (let col = 0; col < sampleCols; col++) {
@@ -355,8 +360,8 @@ export class CapacityTestSameSidePattern extends BaseNesting {
         placements.push({
           id: `body_${row}_${col}`,
           orient,
-          x: col * dxMm,
-          y: row * dyMm
+          x: roundMetric(col * dxMm, 3),
+          y: roundMetric(row * dyMm, 3)
         });
       }
     }
@@ -366,16 +371,16 @@ export class CapacityTestSameSidePattern extends BaseNesting {
 
   _buildUniformNeighborhood(orient, dxMm, dyMm) {
     const placements = [];
-    const sampleRows = 4;
-    const sampleCols = 6;
+    const sampleRows = 3;
+    const sampleCols = 5;
 
     for (let row = 0; row < sampleRows; row++) {
       for (let col = 0; col < sampleCols; col++) {
         placements.push({
           id: `uniform_${row}_${col}`,
           orient,
-          x: col * dxMm,
-          y: row * dyMm
+          x: roundMetric(col * dxMm, 3),
+          y: roundMetric(row * dyMm, 3)
         });
       }
     }
@@ -450,20 +455,20 @@ export class CapacityTestSameSidePattern extends BaseNesting {
     if (!rowPlacements.length) return null;
 
     const spacing = config.spacing || 0;
-    const precision = 0.05; // Balanced precision for faster search
+    const precision = 0.005; 
     const rowBottom = getPlacementsBottom(rowPlacements);
     const rowTop = getPlacementsTop(rowPlacements);
     const upper = Math.max(step, (rowBottom - rowTop) * 2 + spacing + step * 8);
 
     return findMinimalContinuousValue(step, upper, precision, (deltaY) => {
-      // Build 6 rows to ensure Row 1 doesn't collide with subsequent rows in dense layouts
+      // 3 rows is sufficient to detect local pitch interference
       const neighborhood = [];
-      for (let r = 0; r < 6; r++) {
+      for (let r = 0; r < 3; r++) {
         for (const p of rowPlacements) {
           neighborhood.push({
             ...p,
             id: `r${r}_${p.id}`,
-            y: p.y + r * deltaY
+            y: roundMetric(p.y + r * deltaY, 3)
           });
         }
       }
@@ -495,10 +500,11 @@ export class CapacityTestSameSidePattern extends BaseNesting {
   }
 
   _findShiftedRowPitch(rowPlacements, rowShiftX, config, step) {
+    console.log(`_findShiftedRowPitch called: placements=${rowPlacements.length}, shiftX=${rowShiftX}`);
     if (!rowPlacements.length) return null;
 
     const spacing = config.spacing || 0;
-    const precision = Math.min(step, 0.05);
+    const precision = 0.005;
     const rowBottom = getPlacementsBottom(rowPlacements);
     const rowTop = getPlacementsTop(rowPlacements);
     const upper = Math.max(step, (rowBottom - rowTop) * 2 + spacing + step * 8);
@@ -512,8 +518,8 @@ export class CapacityTestSameSidePattern extends BaseNesting {
           neighborhood.push({
             ...p,
             id: `r${r}_${p.id}`,
-            x: p.x + currentShift,
-            y: p.y + r * deltaY
+            x: roundMetric(p.x + currentShift, 3),
+            y: roundMetric(p.y + r * deltaY, 3)
           });
         }
       }
@@ -521,36 +527,35 @@ export class CapacityTestSameSidePattern extends BaseNesting {
     });
   }
 
-  _findAlignedBodyDx(primaryOrient, alternateOrient, config, step) {
+  _findAlignedBodyDx(primaryOrient, alternateOrient, config, step, rowShiftY = 0) {
     const spacing = config.spacing || 0;
-    const precision = Math.min(step, 0.05);
+    const precision = 0.005;
     const upper = Math.max(
       step,
       Math.max(primaryOrient.width, alternateOrient.width) * 2 + spacing + step * 8
     );
 
     return findMinimalContinuousValue(step, upper, precision, (dxMm) => {
-      // Build a 2-row x 5-column neighborhood to check horizontal and diagonal spacing
       const neighborhood = [];
       for (let row = 0; row < 2; row++) {
-        for (let col = 0; col < 5; col++) {
+        const yOffset = (row % 2 === 1) ? rowShiftY : 0;
+        for (let col = 0; col < 6; col++) {
           const orient = this._resolveBodyOrient(primaryOrient, alternateOrient, 'rows', row, col);
           neighborhood.push({
-            x: col * dxMm,
-            y: row * (primaryOrient.height + spacing), // Temporary Y to check X spacing
+            id: `r${row}_c${col}`,
             orient: orient,
-            bb: orient.bb || getOrientBounds(orient)
+            x: roundMetric(col * dxMm, 3),
+            y: roundMetric(row * (primaryOrient.height + spacing) + yOffset, 3)
           });
         }
       }
-      // Check first row horizontal spacing strictly
-      return validateLocalPlacements(neighborhood.filter(n => n.y === 0), spacing).valid;
+      return validateLocalPlacements(neighborhood, spacing).valid;
     });
   }
 
   _findAlignedBodyDy(primaryOrient, alternateOrient, rowMode, dxMm, config, step) {
     const spacing = config.spacing || 0;
-    const precision = Math.min(step, 0.05);
+    const precision = 0.005;
     const upper = Math.max(
       step,
       Math.max(primaryOrient.height, alternateOrient.height) * 2 + spacing + step * 8
@@ -563,9 +568,9 @@ export class CapacityTestSameSidePattern extends BaseNesting {
     });
   }
 
-  _findUniformDx(orient, config, step) {
+  _findUniformDx(orient, config, step, rowShiftY = 0) {
     const spacing = config.spacing || 0;
-    const precision = 0.05;
+    const precision = 0.005;
     const upper = Math.max(
       step,
       orient.width * 2 + spacing + step * 8
@@ -573,14 +578,16 @@ export class CapacityTestSameSidePattern extends BaseNesting {
 
     return findMinimalContinuousValue(step, upper, precision, (dxMm) => {
       const neighborhood = [];
-      const bb = orient.bb || getOrientBounds(orient);
-      for (let col = 0; col < 6; col++) {
-        neighborhood.push({
-          x: col * dxMm,
-          y: 0,
-          orient: orient,
-          bb: bb
-        });
+      for (let row = 0; row < 2; row++) {
+        const yOffset = (row % 2 === 1) ? rowShiftY : 0;
+        for (let col = 0; col < 8; col++) {
+          neighborhood.push({
+            id: `r${row}_c${col}`,
+            orient: orient,
+            x: roundMetric(col * dxMm, 3),
+            y: roundMetric(row * (orient.height + spacing) + yOffset, 3)
+          });
+        }
       }
       return validateLocalPlacements(neighborhood, spacing).valid;
     });
@@ -588,7 +595,7 @@ export class CapacityTestSameSidePattern extends BaseNesting {
 
   _findUniformDy(orient, dxMm, config, step) {
     const spacing = config.spacing || 0;
-    const precision = 0.05;
+    const precision = 0.005;
     const upper = Math.max(
       step,
       orient.height * 2 + spacing + step * 8
@@ -762,8 +769,10 @@ export class CapacityTestSameSidePattern extends BaseNesting {
     };
   }
 
+
   _evaluateFootCandidate(sizeName, foot, polygon, config, workWidth, workHeight) {
     const step = config.gridStep || 1;
+    const spacing = config.spacing || 0;
     const pieceArea = polygonArea(polygon) || 1;
     const fineRotateOffsets = this._getSameSideFineRotateOffsets(config);
     const bodyModes = ['rows'];
@@ -824,7 +833,7 @@ export class CapacityTestSameSidePattern extends BaseNesting {
         ];
 
         const rowShiftRange = Math.max(primaryOrient.width, alternateOrient.width) * 0.45;
-        const rowShiftCandidates = buildShiftCandidates(rowShiftRange, step, 7);
+        const rowShiftCandidates = buildShiftCandidates(rowShiftRange, step, 15);
         for (const rowShiftXmm of rowShiftCandidates) {
           if (Math.abs(rowShiftXmm) < Math.max(step, 0.25) * 0.5) continue;
           const shiftedDyMm = this._findShiftedRowPitch(bodyRowPlacements, rowShiftXmm, 0, config, step);
@@ -859,19 +868,29 @@ export class CapacityTestSameSidePattern extends BaseNesting {
               : 0;
             if (fillerHeight > workHeight + 1e-6) continue;
 
-            if (filler90Rows > 0 && bodyStartOffsetAfterFillerRow == null) continue;
-            const lastFillerRowY = filler90Rows > 0
-              ? roundMetric((filler90Rows - 1) * filler90DyMm)
-              : 0;
-            const bodyStartY = filler90Rows > 0
-              ? roundMetric(lastFillerRowY + bodyStartOffsetAfterFillerRow)
-              : 0;
+            const fillerStartYOptions = (filler90Rows > 0 && fillerHeight < workHeight - 5)
+              ? [0, roundMetric(workHeight - fillerHeight)]
+              : [0];
 
-            const bodyRows = this._countRows(
-              bodyHeightMm,
-              bodyVariant.bodyDyMm,
-              Math.max(0, workHeight - bodyStartY)
-            );
+            for (const fillerStartY of fillerStartYOptions) {
+
+            if (filler90Rows > 0 && bodyStartOffsetAfterFillerRow == null) continue;
+              const lastFillerRowY = filler90Rows > 0
+                ? roundMetric(fillerStartY + (filler90Rows - 1) * filler90DyMm)
+                : 0;
+              const bodyStartY = (filler90Rows > 0 && fillerStartY < 1e-3)
+                ? roundMetric(lastFillerRowY + bodyStartOffsetAfterFillerRow)
+                : 0;
+
+              const bodyMaxHeight = (filler90Rows > 0 && fillerStartY > 1e-3)
+                ? Math.max(0, fillerStartY - spacing)
+                : Math.max(0, workHeight - bodyStartY);
+
+              const bodyRows = this._countRows(
+                bodyHeightMm,
+                bodyVariant.bodyDyMm,
+                bodyMaxHeight
+              );
             const bodyCount = bodyCols * bodyRows;
             const fillerCount = filler90Cols * filler90Rows;
             const totalCount = bodyCount + fillerCount;
@@ -888,9 +907,35 @@ export class CapacityTestSameSidePattern extends BaseNesting {
               }
             }
 
-            const fillerPlacements = filler90Rows > 0
-              ? this._buildUniformPlacements(filler90Orient, filler90Cols, filler90Rows, filler90DxMm, filler90DyMm, 0)
-              : [];
+              let actualFillerDy = filler90DyMm;
+              let actualFillerStartY = fillerStartY;
+              
+              if (filler90Rows > 0 && bodyRows > 0) {
+                // Determine how many body rows one filler piece roughly spans
+                const bodyDy = bodyVariant.bodyDyMm;
+                const ratio = filler90DyMm / bodyDy;
+                const N = Math.ceil(ratio);
+                const alignedDy = N * bodyDy;
+                const alignedStartY = bodyStartY;
+                
+                // Only align if it doesn't cause out-of-bounds
+                const totalHeight = alignedStartY + (filler90Rows - 1) * alignedDy + filler90Orient.height;
+                if (totalHeight <= workHeight + 1e-6) {
+                  actualFillerDy = alignedDy;
+                  actualFillerStartY = alignedStartY;
+                } else if (bodyDy > filler90DyMm) {
+                  // Fallback to 1:1 alignment if 1:N doesn't fit
+                  const totalHeight1 = alignedStartY + (filler90Rows - 1) * bodyDy + filler90Orient.height;
+                  if (totalHeight1 <= workHeight + 1e-6) {
+                    actualFillerDy = bodyDy;
+                    actualFillerStartY = alignedStartY;
+                  }
+                }
+              }
+
+              const fillerPlacements = filler90Rows > 0
+                ? this._buildUniformPlacements(filler90Orient, filler90Cols, filler90Rows, filler90DxMm, actualFillerDy, actualFillerStartY)
+                : [];
             const bodyPlacements = bodyRows > 0
               ? this._buildRepeatedBodyPlacements(
                 bodyVariant.rowPlacements,
@@ -928,6 +973,7 @@ export class CapacityTestSameSidePattern extends BaseNesting {
                 filler90DxMm: filler90DxMm != null ? roundMetric(filler90DxMm) : null,
                 filler90DyMm: filler90DyMm != null ? roundMetric(filler90DyMm) : null,
                 filler90Angle: filler90Orient ? filler90Angle : null,
+                filler90StartY: fillerStartY,
                 scanOrder: bodyVariant.rowShiftXmm ? 'staggered-row-bands' : 'left-to-right-then-down'
               },
               workWidth,
@@ -945,6 +991,7 @@ export class CapacityTestSameSidePattern extends BaseNesting {
         }
       }
     }
+  }
 
     if (!candidatePool.length) return null;
 

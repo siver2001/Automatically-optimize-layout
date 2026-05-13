@@ -10,6 +10,12 @@ import {
   orderTasksByEstimatedWeight,
   resolveAdaptiveParallelWorkerCount
 } from './parallelCapacityUtils.js';
+import {
+  getOrientBounds,
+  validateLocalPlacements
+} from './patternCapacityUtils.js';
+import { findMinimalContinuousValue } from './CapacityTestSameSidePattern.js';
+import { buildSplitHalfDefinitions } from './splittingUtils.js';
 
 const SAME_SIDE_CAPACITY_WORKER_URL = new URL('../../../workers/diecutCapacitySameSideWorker.js', import.meta.url);
 
@@ -131,9 +137,15 @@ export class CapacityTestPrePairedSameSidePattern extends CapacityTestSameSidePa
   _materializePlacedItems(sizeName, placements, config) {
     const materialized = super._materializePlacedItems(sizeName, placements, config);
     if (materialized && materialized.placed) {
-      for (const item of materialized.placed) {
-        item.pieceCount = 2;
-        item.foot = 'X';
+      for (let i = 0; i < materialized.placed.length; i++) {
+        const item = materialized.placed[i];
+        const placement = placements[i];
+        item.pieceCount = placement.isSplit ? 1 : 2;
+        if (placement.isSplit) {
+          item.foot = placement.splitSide === 'split-left' ? 'L' : 'R';
+        } else {
+          item.foot = 'X';
+        }
       }
     }
     return materialized;
@@ -205,6 +217,17 @@ export class CapacityTestPrePairedSameSidePattern extends CapacityTestSameSidePa
         config
       );
 
+      // Try to add split fillers in remaining space
+      if (candidate) {
+        const splitDefs = buildSplitHalfDefinitions(polygon, config.internalPaths?.[sizeName] || []);
+        if (splitDefs.length > 0) {
+          this._addSplitFillers(candidate.placements, splitDefs, orient, dxMm, dyMm, workWidth, workHeight, config);
+          candidate.placedCount = candidate.placements.length;
+          // Prefer candidates with fillers at the bottom if count is same
+          candidate.filler90StartY = candidate.placements.find(p => p.isSplit)?.y || 0;
+        }
+      }
+
       const finalizedCandidate = candidate ? this._finalizeCandidate(candidate, config) : null;
       if (finalizedCandidate && compareTightCandidates(finalizedCandidate, bestCandidate) < 0) {
         bestCandidate = finalizedCandidate;
@@ -212,6 +235,99 @@ export class CapacityTestPrePairedSameSidePattern extends CapacityTestSameSidePa
     }
 
     return bestCandidate;
+  }
+
+  _addSplitFillers(placements, splitDefs, parentOrient, dxMm, dyMm, workWidth, workHeight, config) {
+    const step = config.gridStep || 1;
+    const spacing = config.spacing || 0;
+    let maxGridX = 0;
+
+    // 1. Fill right side gaps
+    for (const p of placements) {
+      const bb = getOrientBounds(p.orient);
+      maxGridX = Math.max(maxGridX, p.x + bb.maxX);
+    }
+
+    for (const def of splitDefs) {
+      const splitOrient = this._decorateOrient(parentOrient.sizeName, def.key, def.polygon, parentOrient.angle, config, step);
+      const rows = this._countRows(splitOrient.height, dyMm, workHeight);
+      const totalFillerHeight = splitOrient.height + (rows - 1) * dyMm;
+
+      const alignOptions = (totalFillerHeight < workHeight - 5) ? ['top', 'bottom'] : ['top'];
+
+      for (const align of alignOptions) {
+        const startY = align === 'bottom' ? roundMetric(workHeight - totalFillerHeight) : 0;
+
+        const fillerX = findMinimalContinuousValue(maxGridX + spacing - splitOrient.bb.minX, workWidth - splitOrient.bb.maxX, 0.005, (x) => {
+          const columnPlacements = [];
+          for (let row = 0; row < rows; row++) {
+            columnPlacements.push({
+              id: `filler_col_${def.key}_${row}`,
+              orient: splitOrient,
+              x: roundMetric(x, 3),
+              y: roundMetric(startY + row * dyMm, 3),
+            });
+          }
+          return validateLocalPlacements([...placements, ...columnPlacements], spacing).valid;
+        });
+
+        if (fillerX != null) {
+          for (let row = 0; row < rows; row++) {
+            placements.push({
+              id: `filler_col_${def.key}_${row}`,
+              orient: splitOrient,
+              x: fillerX,
+              y: startY + row * dyMm,
+              isSplit: true,
+              splitSide: def.key
+            });
+          }
+          const bb = getOrientBounds(splitOrient);
+          maxGridX = Math.max(maxGridX, fillerX + bb.maxX);
+          break; // successfully added one column, skip other align
+        }
+      }
+    }
+
+    // 2. Fill bottom side gaps
+    let maxGridY = 0;
+    for (const p of placements) {
+      const bb = getOrientBounds(p.orient);
+      maxGridY = Math.max(maxGridY, p.y + bb.maxY);
+    }
+
+    for (const def of splitDefs) {
+      const splitOrient = this._decorateOrient(parentOrient.sizeName, def.key, def.polygon, parentOrient.angle, config, step);
+      const cols = this._countCols(splitOrient.width, dxMm, workWidth);
+
+      const fillerY = findMinimalContinuousValue(maxGridY + spacing - splitOrient.bb.minY, workHeight - splitOrient.bb.maxY, 0.005, (y) => {
+        const rowPlacements = [];
+        for (let col = 0; col < cols; col++) {
+          rowPlacements.push({
+            id: `filler_row_${def.key}_${col}`,
+            orient: splitOrient,
+            x: roundMetric(col * dxMm, 3),
+            y: roundMetric(y, 3),
+          });
+        }
+        return validateLocalPlacements([...placements, ...rowPlacements], spacing).valid;
+      });
+
+      if (fillerY != null) {
+        for (let col = 0; col < cols; col++) {
+          placements.push({
+            id: `filler_row_${def.key}_${col}`,
+            orient: splitOrient,
+            x: col * dxMm,
+            y: fillerY,
+            isSplit: true,
+            splitSide: def.key
+          });
+        }
+        const bb = getOrientBounds(splitOrient);
+        maxGridY = Math.max(maxGridY, fillerY + bb.maxY);
+      }
+    }
   }
 
   async testCapacity(sizeList, overrideConfig = {}) {

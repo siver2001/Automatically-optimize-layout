@@ -7,7 +7,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 class WorkerPool {
-    constructor(workerScript, poolSize = Math.max(2, os.cpus().length - 1)) { // Dynamic pool size
+    constructor(workerScript, poolSize = Math.max(1, Math.floor(os.cpus().length * 0.6))) { // Use ~60% of cores, at least 1
         this.workerScript = workerScript;
         this.poolSize = poolSize;
         this.workers = [];

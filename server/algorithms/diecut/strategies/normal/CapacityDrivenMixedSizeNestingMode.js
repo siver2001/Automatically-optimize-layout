@@ -6,7 +6,7 @@ import {
   translate
 } from '../../core/polygonUtils.js';
 import { CapacityTestComplementaryPattern } from '../capacity/CapacityTestComplementaryPattern.js';
-import { CapacityTestDoubleInsoleDoubleContourPattern } from '../capacity/CapacityTestDoubleInsoleDoubleContourPattern.js';
+import { CapacityTestDoubleInsoleDoubleContourPattern } from '../capacity/double-contour/CapacityTestDoubleInsoleDoubleContourPattern.js';
 import { CapacityTestSameSidePattern } from '../capacity/CapacityTestSameSidePattern.js';
 import { cachedPolygonsOverlap } from '../capacity/patternCapacityUtils.js';
 import { finalizeNestingResult, sortSizesByDescendingArea } from './nestingPlanUtils.js';

@@ -19,13 +19,12 @@ export function getLogicalCpuCount() {
 }
 
 function resolveCpuWorkerCap(logicalCpuCount) {
-  if (logicalCpuCount <= 2) return 1;
-  if (logicalCpuCount <= 4) return 2;
+  if (logicalCpuCount <= 4) return 1;
   if (logicalCpuCount <= 8) return 4;
-  if (logicalCpuCount <= 12) return 8;
-  if (logicalCpuCount <= 16) return 12;
+  if (logicalCpuCount <= 12) return 6;
+  if (logicalCpuCount <= 16) return 10;
   if (logicalCpuCount <= 32) return 16;
-  return 20;
+  return 10;
 }
 
 function resolveMemoryWorkerCap(totalMemoryGb) {
@@ -38,22 +37,24 @@ function resolveMemoryWorkerCap(totalMemoryGb) {
 }
 
 export function resolveAdaptiveParallelWorkerCount(sizeList, config = {}) {
+  const logicalCpuCount = getLogicalCpuCount();
+  const cpuCap = resolveCpuWorkerCap(logicalCpuCount);
+  const memoryCap = resolveMemoryWorkerCap(getTotalMemoryGb());
+  const hardCap = Math.min(cpuCap, memoryCap);
+
   if (config.parallelWorkerCount > 0) {
-    return Math.min(sizeList.length, Math.max(1, config.parallelWorkerCount));
+    return Math.min(sizeList.length, Math.max(1, Math.min(config.parallelWorkerCount, hardCap)));
   }
 
   if (!sizeList?.length) return 0;
 
-  const logicalCpuCount = getLogicalCpuCount();
-  const cpuCap = resolveCpuWorkerCap(logicalCpuCount);
-  const memoryCap = resolveMemoryWorkerCap(getTotalMemoryGb());
   const sizeCap = sizeList.length <= 2
     ? 2
     : sizeList.length <= 4
       ? 4
       : Number.POSITIVE_INFINITY;
 
-  return Math.min(sizeList.length, Math.max(1, Math.min(cpuCap, memoryCap, sizeCap)));
+  return Math.min(sizeList.length, Math.max(1, Math.min(hardCap, sizeCap)));
 }
 
 export function orderTasksByEstimatedWeight(tasks, estimateWeight) {

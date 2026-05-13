@@ -1,7 +1,7 @@
 import { parentPort } from 'worker_threads';
 import { CapacityTestSameSidePattern } from '../diecut/strategies/capacity/CapacityTestSameSidePattern.js';
 import { CapacityTestPrePairedSameSidePattern } from '../diecut/strategies/capacity/CapacityTestPrePairedSameSidePattern.js';
-import { CapacityTestDoubleInsoleDoubleContourPattern } from '../diecut/strategies/capacity/CapacityTestDoubleInsoleDoubleContourPattern.js';
+import { CapacityTestDoubleInsoleDoubleContourPattern } from '../diecut/strategies/capacity/double-contour/CapacityTestDoubleInsoleDoubleContourPattern.js';
 
 if (!parentPort) {
   throw new Error('diecutCapacitySameSideWorker requires a parent port');
@@ -52,6 +52,8 @@ parentPort.on('message', async (task) => {
       parallelSizes: false
     });
     const summaryItem = result.summary?.[0] || buildEmptySummaryItem(size);
+    // Include timeMs in summary if present
+    if (result.timeMs) summaryItem.timeMs = result.timeMs;
 
     parentPort.postMessage({
       index,
