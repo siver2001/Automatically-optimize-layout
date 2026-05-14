@@ -2479,7 +2479,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     let marginPlacementsCount = 0;
     let addedAny = true;
 
-    while (addedAny && marginPlacementsCount < 50) {
+    while (addedAny && marginPlacementsCount < 20) {
       addedAny = false;
       let bestOverallCandidate = null;
       let bestOverallOrient = null;
@@ -2567,7 +2567,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     const rowShiftRange = orient.width * 1.0; 
     let geometricShiftCandidates = extractInternalGapShiftCandidates(orient, step);
     
-    // Enable granular shifts for all sizes to find perfect interlocking
+    // High-precision shifts to find the absolute best interlocking
     for (let s = 0; s <= rowShiftRange; s += 1.0) {
        geometricShiftCandidates.push({ dx: s, dy: 0 });
     }
@@ -2896,7 +2896,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
        }
     }
 
-    const limit = isCritical ? 300 : 2; 
+    const limit = isCritical ? 1000 : 2; 
     return variants.slice(0, limit);
   }
   _evaluateFootCandidateForAngles(sizeName, foot, polygon, config, workWidth, workHeight, angles) {
@@ -3172,7 +3172,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
                   if (filler90BottomRows > 0 && fillerStartOffsetAfterBodyRow == null) continue;
 
                   const sizeVal = parseFloat(sizeName);
-                  const isSmallSize = sizeVal <= 5.0;
+                  const isHighQuality = true; // Use high-quality offset search for all sizes
                   if (filler90BottomRows > 0 && fillerStartOffsetAfterBodyRow == null) continue;
 
                   const lastTopFillerRowY = filler90TopRows > 0
@@ -3216,7 +3216,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
                     )
                     : [];
                   // Targeted body offsets: Optimized set for small sizes
-                  const bodyOffsetChoices = isSmallSize ? [0, 3, 6] : [0]; 
+                  const bodyOffsetChoices = isHighQuality ? [0, 3, 6] : [0]; 
                   for (const bodyOffsetX of bodyOffsetChoices) {
                     const bodyPlacements = this._buildRepeatedBodyPlacements(
                       variant.rowPlacements,
@@ -3369,12 +3369,26 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         return candidatePool[0];
       }
 
-      const topCandidates = candidatePool.slice(0, isCritical ? 50 : 1); 
+      // DIVERSITY-FIRST SELECTION: Take top 15 from each orientation to ensure we don't miss "gems" 
+      // like the Horizontal pattern for Size 6 that allows fillers.
+      const topCandidates = [];
+      const angles = [...new Set(candidatePool.map(c => c.bodyPrimaryAngle))];
+      for (const angle of angles) {
+        topCandidates.push(...candidatePool.filter(c => c.bodyPrimaryAngle === angle).slice(0, 50));
+      }
+      topCandidates.sort((a, b) => (b.actualPairs || b.placedCount) - (a.actualPairs || a.placedCount)); 
       
       const splitCandidates = topCandidates.map(c => c.placed ? c : this._finalizeCandidate(c, config, workWidth, workHeight));
       for (const candidate of splitCandidates) {
         if (!candidate) continue;
         if (!candidate.placements?.length) continue;
+
+        // THEORETICAL MAX PRUNING: If this candidate + theoretical max fillers can't beat current best, skip.
+        const currentPairs = candidate.actualPairs || 0;
+        const currentBestPairs = bestCandidate ? (bestCandidate.actualPairs || 0) : 0;
+        const estimatedMaxFillerPairs = 3; // Generous estimate for insole fillers
+        if (currentPairs + estimatedMaxFillerPairs < currentBestPairs) continue;
+
         const augmentedCandidate = this._augmentCandidateWithSplitFillers(
           sizeName,
           polygon,
@@ -3761,7 +3775,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         ?? null,
       preparedSplitFillCandidateLimit: overrideConfig.preparedSplitFillCandidateLimit
         ?? this.config.preparedSplitFillCandidateLimit
-        ?? (deepSplitFillEnabled ? 40 : (sizeList.length > 1 && normalizedSizeList.some(s => parseFloat(s.sizeName) <= 5) ? 6 : 1))
+        ?? (deepSplitFillEnabled ? 100 : (sizeList.length > 1 ? 50 : 20))
     };
 
     this._doubleContourSourceBySize = new Map(

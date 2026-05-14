@@ -12,7 +12,10 @@ import {
 } from './parallelCapacityUtils.js';
 import {
   getOrientBounds,
-  validateLocalPlacements
+  validateLocalPlacements,
+  rotateVector,
+  resolveAxisSideFromVector,
+  isSplitLineFacingOutward
 } from './patternCapacityUtils.js';
 import { findMinimalContinuousValue } from './CapacityTestSameSidePattern.js';
 import { buildSplitHalfDefinitions } from './splittingUtils.js';
@@ -250,6 +253,9 @@ export class CapacityTestPrePairedSameSidePattern extends CapacityTestSameSidePa
 
     for (const def of splitDefs) {
       const splitOrient = this._decorateOrient(parentOrient.sizeName, def.key, def.polygon, parentOrient.angle, config, step);
+      const splitOutwardVector = rotateVector(def.splitOutwardVector || { x: 1, y: 0 }, parentOrient.angle);
+      splitOrient.splitOutwardSide = resolveAxisSideFromVector(splitOutwardVector);
+
       const rows = this._countRows(splitOrient.height, dyMm, workHeight);
       const totalFillerHeight = splitOrient.height + (rows - 1) * dyMm;
 
@@ -268,7 +274,16 @@ export class CapacityTestPrePairedSameSidePattern extends CapacityTestSameSidePa
               y: roundMetric(startY + row * dyMm, 3),
             });
           }
-          return validateLocalPlacements([...placements, ...columnPlacements], spacing).valid;
+          if (!validateLocalPlacements([...placements, ...columnPlacements], spacing).valid) {
+            return false;
+          }
+          // Enforce outward facing requirement
+          for (const cp of columnPlacements) {
+            if (!isSplitLineFacingOutward(cp.orient, cp.x, cp.y, placements, workWidth, workHeight)) {
+              return false;
+            }
+          }
+          return true;
         });
 
         if (fillerX != null) {
@@ -310,7 +325,16 @@ export class CapacityTestPrePairedSameSidePattern extends CapacityTestSameSidePa
             y: roundMetric(y, 3),
           });
         }
-        return validateLocalPlacements([...placements, ...rowPlacements], spacing).valid;
+        if (!validateLocalPlacements([...placements, ...rowPlacements], spacing).valid) {
+          return false;
+        }
+        // Enforce outward facing requirement
+        for (const rp of rowPlacements) {
+          if (!isSplitLineFacingOutward(rp.orient, rp.x, rp.y, placements, workWidth, workHeight)) {
+            return false;
+          }
+        }
+        return true;
       });
 
       if (fillerY != null) {

@@ -8,6 +8,12 @@ const overlapCache = new Map();
 const localValidationCache = new Map();
 let nextObjectId = 1;
 
+export function clearPatternCapacityCaches() {
+  overlapCache.clear();
+  localValidationCache.clear();
+  // We keep objectIdCache as it's a WeakMap and safe from leaks
+}
+
 function getObjectId(object) {
   if (!object || (typeof object !== 'object' && typeof object !== 'function')) {
     return String(object);
@@ -381,4 +387,94 @@ export function compareComplementaryCandidates(nextCandidate, bestCandidate) {
     return nextCandidate.topBandUsed ? -1 : 1;
   }
   return 0;
+}
+
+export function rotateVector(vector, angleDegrees) {
+  const rad = (angleDegrees * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  return {
+    x: vector.x * cos - vector.y * sin,
+    y: vector.x * sin + vector.y * cos
+  };
+}
+
+export function resolveAxisSideFromVector(vector) {
+  if (!vector) return null;
+  if (Math.abs(vector.x) >= Math.abs(vector.y)) {
+    return vector.x >= 0 ? 'right' : 'left';
+  }
+  return vector.y >= 0 ? 'bottom' : 'top';
+}
+
+export function isSplitLineFacingOutward(orient, x, y, occupiedPlacements, workWidth, workHeight, spatialIndex = null) {
+  const splitSide = orient?.splitOutwardSide;
+  if (!splitSide) return true;
+
+  const bb = orient.bb || getBoundingBox(orient.polygon);
+  const minX = x + bb.minX;
+  const maxX = x + bb.maxX;
+  const minY = y + bb.minY;
+  const maxY = y + bb.maxY;
+
+  let corridor = null;
+  if (splitSide === 'left' && minX > 1e-6) {
+    corridor = { minX: 0, maxX: minX, minY, maxY };
+  } else if (splitSide === 'right' && maxX < workWidth - 1e-6) {
+    corridor = { minX: maxX, maxX: workWidth, minY, maxY };
+  } else if (splitSide === 'top' && minY > 1e-6) {
+    corridor = { minX, maxX, minY: 0, maxY: minY };
+  } else if (splitSide === 'bottom' && maxY < workHeight - 1e-6) {
+    corridor = { minX, maxX, minY: maxY, maxY: workHeight };
+  }
+
+  if (!corridor) return true;
+
+  if (spatialIndex && spatialIndex.grid) {
+    const { grid, cellSize } = spatialIndex;
+    const startCellX = Math.max(0, Math.floor(corridor.minX / cellSize));
+    const endCellX = Math.floor(corridor.maxX / cellSize);
+    const startCellY = Math.max(0, Math.floor(corridor.minY / cellSize));
+    const endCellY = Math.floor(corridor.maxY / cellSize);
+
+    for (let cy = startCellY; cy <= endCellY; cy++) {
+      for (let cx = startCellX; cx <= endCellX; cx++) {
+        const cell = grid.get(`${cx},${cy}`);
+        if (!cell) continue;
+        for (const entry of cell) {
+          // Allowed: Split pieces can be blocked by other split pieces to allow clustering (sát nhau)
+          if (entry.p.id?.includes('split') || entry.p.id?.includes('fill')) continue;
+
+          const overlaps = !(
+            entry.maxX <= corridor.minX + 1e-6 ||
+            entry.minX >= corridor.maxX - 1e-6 ||
+            entry.maxY <= corridor.minY + 1e-6 ||
+            entry.minY >= corridor.maxY - 1e-6
+          );
+          if (overlaps) return false;
+        }
+      }
+    }
+  } else {
+    for (const entry of occupiedPlacements) {
+      // Allowed: Split pieces can be blocked by other split pieces to allow clustering (sát nhau)
+      if (entry.id?.includes('split') || entry.id?.includes('fill')) continue;
+
+      const entryBB = getOrientBounds(entry.orient);
+      const eMinX = entry.x + entryBB.minX;
+      const eMaxX = entry.x + entryBB.maxX;
+      const eMinY = entry.y + entryBB.minY;
+      const eMaxY = entry.y + entryBB.maxY;
+
+      const overlaps = !(
+        eMaxX <= corridor.minX + 1e-6 ||
+        eMinX >= corridor.maxX - 1e-6 ||
+        eMaxY <= corridor.minY + 1e-6 ||
+        eMinY >= corridor.maxY - 1e-6
+      );
+      if (overlaps) return false;
+    }
+  }
+
+  return true;
 }

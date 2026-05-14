@@ -2,6 +2,7 @@ import { parentPort } from 'worker_threads';
 import { CapacityTestSameSidePattern } from '../diecut/strategies/capacity/CapacityTestSameSidePattern.js';
 import { CapacityTestPrePairedSameSidePattern } from '../diecut/strategies/capacity/CapacityTestPrePairedSameSidePattern.js';
 import { CapacityTestDoubleInsoleDoubleContourPattern } from '../diecut/strategies/capacity/double-contour/CapacityTestDoubleInsoleDoubleContourPattern.js';
+import { clearPatternCapacityCaches } from '../diecut/strategies/capacity/patternCapacityUtils.js';
 
 if (!parentPort) {
   throw new Error('diecutCapacitySameSideWorker requires a parent port');
@@ -67,5 +68,7 @@ parentPort.on('message', async (task) => {
       index,
       error: error?.message || String(error)
     });
+  } finally {
+    clearPatternCapacityCaches();
   }
 });

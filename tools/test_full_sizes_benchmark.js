@@ -20,7 +20,7 @@ async function run() {
     marginY: 20,
     spacing: 4,
     staggerSpacing: 4,
-    gridStep: 1,
+    gridStep: 0.5,
     preparedSplitFillEnabled: true,
     capacityLayoutMode: 'same-side-double-contour',
     allowRotate180: true,

@@ -8,8 +8,12 @@ import {
 
 import {
   computeEnvelope,
-  roundMetric
+  roundMetric,
+  rotateVector,
+  resolveAxisSideFromVector
 } from '../patternCapacityUtils.js';
+
+export { rotateVector, resolveAxisSideFromVector };
 
 
 
@@ -350,17 +354,25 @@ export function rankDoubleContourVariant(variant, workWidth, workHeight) {
 
 
 export function buildRowShiftPairs(orient, step, shiftXCandidates) {
-  const sizeVal = parseFloat(orient?.sizeName || orient?.name || 0);
   const pairs = [];
   const shiftYCandidates = [0];
   
-  if (orient && orient.height) {
-    const isLarge = (sizeVal >= 10.5);
-    const safeStep = isLarge ? 1.0 : 4.0; // Granular search for large sizes to find tight vertical interlock
-    const range = Math.min(orient.height * 0.35, 30); // Slightly wider range for deep interlocking
+  const pieceArea = orient.areaMm2 || 15000;
+  const pieceHeight = orient.height || 150;
+  
+  // PHYSICAL ADAPTIVITY: Instead of 'Size' names, use piece area and height
+  // Smaller pieces (Area < 18000) are high-density targets and need finer search.
+  // Larger pieces (Area > 28000) are bulky and need fewer variations but larger shifts.
+  const isSmall = pieceArea < 18000;
+  const isLarge = pieceArea > 28000;
+
+  if (pieceHeight > 0) {
+    // Super granular 0.5mm search for small pieces, 1.0mm for standard/large
+    const safeStep = isSmall ? 0.5 : 1.0; 
+    const range = Math.min(pieceHeight * 0.85, 85); 
     for (let y = safeStep; y <= range; y += safeStep) {
-      shiftYCandidates.push(roundMetric(y));
-      shiftYCandidates.push(roundMetric(-y));
+      shiftYCandidates.push(roundMetric(y, 3));
+      shiftYCandidates.push(roundMetric(-y, 3));
     }
   }
 
@@ -383,10 +395,11 @@ export function buildRowShiftPairs(orient, step, shiftXCandidates) {
     || Math.abs(a.rowShiftXmm) - Math.abs(b.rowShiftXmm)
   );
 
-  const y0Limit = sizeVal <= 5 ? 30 : (sizeVal >= 10 ? 40 : 25);
-  const yShiftLimit = sizeVal <= 5 ? 45 : (sizeVal >= 10 ? 60 : 35);
+  // ADAPTIVE LIMITS: Smaller pieces need significantly more candidates (250+) 
+  // to find the 'magical' interlocking point.
+  const y0Limit = isSmall ? 200 : (isLarge ? 60 : 80);
+  const yShiftLimit = isSmall ? 600 : (isLarge ? 120 : 200);
 
-  // Increase limits to explore more interlocking possibilities
   const combined = [...y0Pairs.slice(0, y0Limit), ...yShiftPairs.slice(0, yShiftLimit)];
   const seen = new Set();
   return combined.filter(p => {
@@ -460,24 +473,6 @@ export function buildDenseAxisCandidates(minValue, maxValue, step, maxSamples = 
 }
 
 
-
-export function rotateVector(vector, angleDegrees) {
-  const angleRad = angleDegrees * Math.PI / 180;
-  const cos = Math.cos(angleRad);
-  const sin = Math.sin(angleRad);
-  return {
-    x: roundMetric(vector.x * cos - vector.y * sin, 6),
-    y: roundMetric(vector.x * sin + vector.y * cos, 6)
-  };
-}
-
-export function resolveAxisSideFromVector(vector) {
-  if (!vector) return null;
-  if (Math.abs(vector.x) >= Math.abs(vector.y)) {
-    return vector.x >= 0 ? 'right' : 'left';
-  }
-  return vector.y >= 0 ? 'bottom' : 'top';
-}
 
 export function normalizeAngleDegrees(angle) {
   return ((roundMetric(Number(angle), 3) % 360) + 360) % 360;
