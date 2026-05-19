@@ -74,10 +74,10 @@ const DieCutLayout = () => {
   const [config, setConfig] = useState({
     sheetWidth: 1100,
     sheetHeight: 2000,
-    spacing: 3,
-    staggerSpacing: 3,
+    spacing: 4,
+    staggerSpacing: 4,
     marginX: 5,
-    marginY: 5,
+    marginY: 20,
     allowRotate90: true,
     allowRotate180: true,
     mirrorPairs: true,
@@ -123,11 +123,34 @@ const DieCutLayout = () => {
         placedBySize[key] = (placedBySize[key] || 0) + (item.pieceCount || 1);
       }
     }
-    return nestingResult.planningSummary.sizes.map((size) => ({
+    const rawSummary = nestingResult.planningSummary.sizes.map((size) => ({
       ...size,
       placedPieces: size.placedPieces ?? (placedBySize[size.sizeName] || 0),
       placedPairs: size.placedPairs ?? Math.floor((placedBySize[size.sizeName] || 0) / 2)
     }));
+
+    const parseSizeNameToValue = (name) => {
+      if (typeof name === 'number') return name;
+      const str = String(name || '').trim();
+      if (!str) return 0;
+      const fractionMatch = str.match(/(\d+)\s*[- ]\s*(\d+)\/(\d+)/);
+      if (fractionMatch) {
+        return parseInt(fractionMatch[1], 10) + (parseInt(fractionMatch[2], 10) / parseInt(fractionMatch[3], 10));
+      }
+      const pureFractionMatch = str.match(/^(\d+)\/(\d+)$/);
+      if (pureFractionMatch) {
+        return parseInt(pureFractionMatch[1], 10) / parseInt(pureFractionMatch[2], 10);
+      }
+      const val = parseFloat(str);
+      return Number.isFinite(val) ? val : 0;
+    };
+
+    // Sắp xếp danh sách size theo thứ tự tăng dần
+    return [...rawSummary].sort((a, b) => {
+      const valA = typeof a.sizeValue === 'number' ? a.sizeValue : parseSizeNameToValue(a.sizeName || a.name || 0);
+      const valB = typeof b.sizeValue === 'number' ? b.sizeValue : parseSizeNameToValue(b.sizeName || b.name || 0);
+      return valA - valB;
+    });
   }, [nestingResult]);
 
   const activeNestingResultSizeSummary = useMemo(
@@ -168,7 +191,14 @@ const DieCutLayout = () => {
   }, [nestingResult?.resultId, nestingResult?.totalSheets, testResult]);
 
   useEffect(() => {
-    const socket = io();
+    // In development, the React Dev Server runs on port 3000 (or custom clientPort)
+    // while the Express server runs on port 5000. We connect directly to port 5000
+    // to prevent WebSocket handshake timeout issues through the React proxy.
+    const socketUrl = process.env.NODE_ENV === 'development'
+      ? 'http://localhost:5000'
+      : window.location.origin;
+
+    const socket = io(socketUrl);
     socket.on('test-capacity-progress', (data) => {
       setTestProgress((prev) => {
         const nextStatusMap = { ...prev.statusMap, [data.sizeName]: data.status };

@@ -12,7 +12,7 @@ let cachedConfigKey = null;
 let cachedAlgorithm = null;
 
 function createAlgorithm(config) {
-  if (config?.sameSidePreparedVariant === 'double-contour') {
+  if (config?.sameSidePreparedVariant === 'double-contour' || config?.capacityLayoutMode === 'same-side-double-contour') {
     return new CapacityTestDoubleInsoleDoubleContourPattern(config);
   }
 

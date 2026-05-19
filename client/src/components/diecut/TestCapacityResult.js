@@ -10,20 +10,41 @@ const TestCapacityResult = ({
   onExportCyc,
   showCycExport = false
 }) => {
-  const summary = result?.summary || [];
+  const summary = useMemo(() => {
+    const rawSummary = result?.summary || [];
+    const parseSizeNameToValue = (name) => {
+      if (typeof name === 'number') return name;
+      const str = String(name || '').trim();
+      if (!str) return 0;
+      const fractionMatch = str.match(/(\d+)\s*[- ]\s*(\d+)\/(\d+)/);
+      if (fractionMatch) {
+        return parseInt(fractionMatch[1], 10) + (parseInt(fractionMatch[2], 10) / parseInt(fractionMatch[3], 10));
+      }
+      const pureFractionMatch = str.match(/^(\d+)\/(\d+)$/);
+      if (pureFractionMatch) {
+        return parseInt(pureFractionMatch[1], 10) / parseInt(pureFractionMatch[2], 10);
+      }
+      const val = parseFloat(str);
+      return Number.isFinite(val) ? val : 0;
+    };
+
+    return [...rawSummary].sort((a, b) => {
+      const valA = typeof a.sizeValue === 'number' ? a.sizeValue : parseSizeNameToValue(a.sizeName || a.name || 0);
+      const valB = typeof b.sizeValue === 'number' ? b.sizeValue : parseSizeNameToValue(b.sizeName || b.name || 0);
+      return valA - valB;
+    });
+  }, [result]);
   const sheetsBySize = result?.sheetsBySize || null;
   const initialSize = useMemo(() => {
     if (!result) return null;
 
-    const resultSummary = result.summary || [];
-    const resultSheetsBySize = result.sheetsBySize || null;
-    const firstSizeWithLayout = resultSummary.find((item) => {
-      const sheetForSize = resultSheetsBySize?.[item.sizeName];
+    const firstSizeWithLayout = summary.find((item) => {
+      const sheetForSize = sheetsBySize?.[item.sizeName];
       return (sheetForSize?.placedCount ?? item.totalPieces ?? 0) > 0;
     });
 
-    return firstSizeWithLayout?.sizeName || result.defaultSizeName || resultSummary[0]?.sizeName || null;
-  }, [result]);
+    return firstSizeWithLayout?.sizeName || result.defaultSizeName || summary[0]?.sizeName || null;
+  }, [result, summary, sheetsBySize]);
   const [selectedSize, setSelectedSize] = useState(initialSize);
 
   useEffect(() => {

@@ -779,10 +779,18 @@ export class CapacityTestSameSidePattern extends BaseNesting {
     let bestCandidate = null;
     const candidatePool = [];
 
-    for (const rotationOffset of fineRotateOffsets) {
-      const primaryAngle = roundMetric(rotationOffset, 3);
-      const alternateAngle = roundMetric(180 + rotationOffset, 3);
-      const filler90Angle = roundMetric(90 + rotationOffset, 3);
+    const anglesToTest = [];
+    for (const offset of fineRotateOffsets) {
+      anglesToTest.push({ offset, baseAngle: 0 });
+      if (config.allowRotate90 !== false) {
+        anglesToTest.push({ offset, baseAngle: 90 });
+      }
+    }
+
+    for (const { offset, baseAngle } of anglesToTest) {
+      const primaryAngle = roundMetric(baseAngle + offset, 3);
+      const alternateAngle = roundMetric(baseAngle + 180 + offset, 3);
+      const filler90Angle = roundMetric(baseAngle + 90 + offset, 3);
       const primaryOrient = this._decorateOrient(sizeName, foot, polygon, primaryAngle, config, step);
       const alternateOrient = this._decorateOrient(sizeName, foot, polygon, alternateAngle, config, step);
       const filler90Orient = config.allowRotate90 === false

@@ -144,6 +144,16 @@ function buildSplitClipPolygon(divider, bounds, side) {
   ];
 }
 
+function getPolygonCentroid(pts) {
+  if (!pts || !pts.length) return { x: 0, y: 0 };
+  let sx = 0, sy = 0;
+  for (const p of pts) {
+    sx += p.x;
+    sy += p.y;
+  }
+  return { x: sx / pts.length, y: sy / pts.length };
+}
+
 export function buildSplitHalfDefinitions(polygon, internalPath = []) {
   const dividerPath = buildDividerFromInternalPath(polygon, internalPath);
   const dividerGap = buildDividerFromInternalGaps(polygon);
@@ -185,17 +195,25 @@ export function buildSplitHalfDefinitions(polygon, internalPath = []) {
     return [];
   }
 
+  const cWhole = getPolygonCentroid(polygon);
+
   return rawDefs
     .sort((left, right) => left.rawHalfBounds.minX - right.rawHalfBounds.minX)
-    .map((definition, index) => ({
-      key: index === 0 ? 'split-left' : 'split-right',
-      polygon: normalizeToOrigin(definition.rawHalfPolygon),
-      cycSourcePolygon: translate(
-        polygon,
-        -definition.rawHalfBounds.minX,
-        -definition.rawHalfBounds.minY
-      ),
-      areaMm2: definition.halfArea,
-      splitOutwardVector: index === 0 ? { x: 1, y: 0 } : { x: -1, y: 0 }
-    }));
+    .map((definition, index) => {
+      const cHalf = getPolygonCentroid(definition.rawHalfPolygon);
+      const vecX = cWhole.x - cHalf.x;
+      const vecY = cWhole.y - cHalf.y;
+      const len = Math.hypot(vecX, vecY) || 1;
+      return {
+        key: index === 0 ? 'split-left' : 'split-right',
+        polygon: normalizeToOrigin(definition.rawHalfPolygon),
+        cycSourcePolygon: translate(
+          polygon,
+          -definition.rawHalfBounds.minX,
+          -definition.rawHalfBounds.minY
+        ),
+        areaMm2: definition.halfArea,
+        splitOutwardVector: { x: vecX / len, y: vecY / len }
+      };
+    });
 }

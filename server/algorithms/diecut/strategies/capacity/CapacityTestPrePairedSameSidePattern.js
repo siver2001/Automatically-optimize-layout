@@ -252,55 +252,68 @@ export class CapacityTestPrePairedSameSidePattern extends CapacityTestSameSidePa
     }
 
     for (const def of splitDefs) {
-      const splitOrient = this._decorateOrient(parentOrient.sizeName, def.key, def.polygon, parentOrient.angle, config, step);
-      const splitOutwardVector = rotateVector(def.splitOutwardVector || { x: 1, y: 0 }, parentOrient.angle);
-      splitOrient.splitOutwardSide = resolveAxisSideFromVector(splitOutwardVector);
+      const angles = [parentOrient.angle];
+      if (config.allowRotate180 !== false) {
+        angles.push((parentOrient.angle + 180) % 360);
+      }
 
-      const rows = this._countRows(splitOrient.height, dyMm, workHeight);
-      const totalFillerHeight = splitOrient.height + (rows - 1) * dyMm;
+      let placed = false;
+      for (const angle of angles) {
+        const splitOrient = this._decorateOrient(parentOrient.sizeName, def.key, def.polygon, angle, config, step);
+        const splitOutwardVector = rotateVector(def.splitOutwardVector || { x: 1, y: 0 }, angle);
+        splitOrient.splitOutwardSide = resolveAxisSideFromVector(splitOutwardVector);
 
-      const alignOptions = (totalFillerHeight < workHeight - 5) ? ['top', 'bottom'] : ['top'];
+        const rows = this._countRows(splitOrient.height, dyMm, workHeight);
+        const totalFillerHeight = splitOrient.height + (rows - 1) * dyMm;
 
-      for (const align of alignOptions) {
-        const startY = align === 'bottom' ? roundMetric(workHeight - totalFillerHeight) : 0;
+        const alignOptions = (totalFillerHeight < workHeight - 5) ? ['top', 'bottom'] : ['top'];
 
-        const fillerX = findMinimalContinuousValue(maxGridX + spacing - splitOrient.bb.minX, workWidth - splitOrient.bb.maxX, 0.005, (x) => {
-          const columnPlacements = [];
-          for (let row = 0; row < rows; row++) {
-            columnPlacements.push({
-              id: `filler_col_${def.key}_${row}`,
-              orient: splitOrient,
-              x: roundMetric(x, 3),
-              y: roundMetric(startY + row * dyMm, 3),
-            });
-          }
-          if (!validateLocalPlacements([...placements, ...columnPlacements], spacing).valid) {
-            return false;
-          }
-          // Enforce outward facing requirement
-          for (const cp of columnPlacements) {
-            if (!isSplitLineFacingOutward(cp.orient, cp.x, cp.y, placements, workWidth, workHeight)) {
+        for (const align of alignOptions) {
+          const startY = align === 'bottom' ? roundMetric(workHeight - totalFillerHeight) : 0;
+
+          const minSearchX = Math.max(0, -splitOrient.bb.minX);
+          const maxSearchX = workWidth - splitOrient.bb.maxX;
+
+          const fillerX = findMinimalContinuousValue(minSearchX, maxSearchX, 0.005, (x) => {
+            const columnPlacements = [];
+            for (let row = 0; row < rows; row++) {
+              columnPlacements.push({
+                id: `filler_col_${def.key}_${row}`,
+                orient: splitOrient,
+                x: roundMetric(x, 3),
+                y: roundMetric(startY + row * dyMm, 3),
+              });
+            }
+            if (!validateLocalPlacements([...placements, ...columnPlacements], spacing).valid) {
               return false;
             }
-          }
-          return true;
-        });
+            // Enforce outward facing requirement
+            for (const cp of columnPlacements) {
+              if (!isSplitLineFacingOutward(cp.orient, cp.x, cp.y, placements, workWidth, workHeight)) {
+                return false;
+              }
+            }
+            return true;
+          });
 
-        if (fillerX != null) {
-          for (let row = 0; row < rows; row++) {
-            placements.push({
-              id: `filler_col_${def.key}_${row}`,
-              orient: splitOrient,
-              x: fillerX,
-              y: startY + row * dyMm,
-              isSplit: true,
-              splitSide: def.key
-            });
+          if (fillerX != null) {
+            for (let row = 0; row < rows; row++) {
+              placements.push({
+                id: `filler_col_${def.key}_${row}`,
+                orient: splitOrient,
+                x: fillerX,
+                y: startY + row * dyMm,
+                isSplit: true,
+                splitSide: def.key
+              });
+            }
+            const bb = getOrientBounds(splitOrient);
+            maxGridX = Math.max(maxGridX, fillerX + bb.maxX);
+            placed = true;
+            break;
           }
-          const bb = getOrientBounds(splitOrient);
-          maxGridX = Math.max(maxGridX, fillerX + bb.maxX);
-          break; // successfully added one column, skip other align
         }
+        if (placed) break;
       }
     }
 
@@ -312,44 +325,60 @@ export class CapacityTestPrePairedSameSidePattern extends CapacityTestSameSidePa
     }
 
     for (const def of splitDefs) {
-      const splitOrient = this._decorateOrient(parentOrient.sizeName, def.key, def.polygon, parentOrient.angle, config, step);
-      const cols = this._countCols(splitOrient.width, dxMm, workWidth);
+      const angles = [parentOrient.angle];
+      if (config.allowRotate180 !== false) {
+        angles.push((parentOrient.angle + 180) % 360);
+      }
 
-      const fillerY = findMinimalContinuousValue(maxGridY + spacing - splitOrient.bb.minY, workHeight - splitOrient.bb.maxY, 0.005, (y) => {
-        const rowPlacements = [];
-        for (let col = 0; col < cols; col++) {
-          rowPlacements.push({
-            id: `filler_row_${def.key}_${col}`,
-            orient: splitOrient,
-            x: roundMetric(col * dxMm, 3),
-            y: roundMetric(y, 3),
-          });
-        }
-        if (!validateLocalPlacements([...placements, ...rowPlacements], spacing).valid) {
-          return false;
-        }
-        // Enforce outward facing requirement
-        for (const rp of rowPlacements) {
-          if (!isSplitLineFacingOutward(rp.orient, rp.x, rp.y, placements, workWidth, workHeight)) {
+      let placed = false;
+      for (const angle of angles) {
+        const splitOrient = this._decorateOrient(parentOrient.sizeName, def.key, def.polygon, angle, config, step);
+        const splitOutwardVector = rotateVector(def.splitOutwardVector || { x: 1, y: 0 }, angle);
+        splitOrient.splitOutwardSide = resolveAxisSideFromVector(splitOutwardVector);
+
+        const cols = this._countCols(splitOrient.width, dxMm, workWidth);
+
+        const minSearchY = Math.max(0, -splitOrient.bb.minY);
+        const maxSearchY = workHeight - splitOrient.bb.maxY;
+
+        const fillerY = findMinimalContinuousValue(minSearchY, maxSearchY, 0.005, (y) => {
+          const rowPlacements = [];
+          for (let col = 0; col < cols; col++) {
+            rowPlacements.push({
+              id: `filler_row_${def.key}_${col}`,
+              orient: splitOrient,
+              x: roundMetric(col * dxMm, 3),
+              y: roundMetric(y, 3),
+            });
+          }
+          if (!validateLocalPlacements([...placements, ...rowPlacements], spacing).valid) {
             return false;
           }
-        }
-        return true;
-      });
+          // Enforce outward facing requirement
+          for (const rp of rowPlacements) {
+            if (!isSplitLineFacingOutward(rp.orient, rp.x, rp.y, placements, workWidth, workHeight)) {
+              return false;
+            }
+          }
+          return true;
+        });
 
-      if (fillerY != null) {
-        for (let col = 0; col < cols; col++) {
-          placements.push({
-            id: `filler_row_${def.key}_${col}`,
-            orient: splitOrient,
-            x: col * dxMm,
-            y: fillerY,
-            isSplit: true,
-            splitSide: def.key
-          });
+        if (fillerY != null) {
+          for (let col = 0; col < cols; col++) {
+            placements.push({
+              id: `filler_row_${def.key}_${col}`,
+              orient: splitOrient,
+              x: col * dxMm,
+              y: fillerY,
+              isSplit: true,
+              splitSide: def.key
+            });
+          }
+          const bb = getOrientBounds(splitOrient);
+          maxGridY = Math.max(maxGridY, fillerY + bb.maxY);
+          placed = true;
+          break;
         }
-        const bb = getOrientBounds(splitOrient);
-        maxGridY = Math.max(maxGridY, fillerY + bb.maxY);
       }
     }
   }

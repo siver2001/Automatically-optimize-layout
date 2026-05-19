@@ -78,8 +78,45 @@ export function attachLeftoverMetrics(candidate, workWidth, workHeight) {
   };
 }
 
+function isSplitPlacement(placement = {}) {
+  const id = placement.id || '';
+  const foot = placement.orient?.foot || placement.foot || '';
+  return id.startsWith('split_fill_')
+    || id.startsWith('margin_fill_')
+    || foot.startsWith('split-')
+    || placement.isSplit === true;
+}
+
+export function getWholePlacementCount(candidate = {}) {
+  if (Array.isArray(candidate.placements)) {
+    return candidate.placements.filter((placement) => !isSplitPlacement(placement)).length;
+  }
+
+  if (Number.isFinite(candidate.dcCount)) {
+    return Math.max(0, Number(candidate.dcCount));
+  }
+
+  const bodyCount = Number.isFinite(candidate.bodyCount)
+    ? Math.max(0, Number(candidate.bodyCount))
+    : null;
+  const filler90Count = Number.isFinite(candidate.filler90Count)
+    ? Math.max(0, Number(candidate.filler90Count))
+    : 0;
+  if (bodyCount != null) {
+    return bodyCount + filler90Count;
+  }
+
+  return getWholePairsPlaced(candidate);
+}
+
 export function compareDoubleInsoleCandidates(nextCandidate, bestCandidate) {
   if (!bestCandidate) return -1;
+
+  const nextWholeCount = getWholePlacementCount(nextCandidate);
+  const bestWholeCount = getWholePlacementCount(bestCandidate);
+  if (nextWholeCount !== bestWholeCount) {
+    return bestWholeCount - nextWholeCount;
+  }
 
   const getActualPairs = (c) => c.actualPairs ?? c.pairs ?? ((c.placedCount || 0) / 2);
   const nextActual = getActualPairs(nextCandidate);

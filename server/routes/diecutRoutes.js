@@ -239,6 +239,9 @@ router.post('/parse-dxf', upload.array('dxfFiles', 20), async (req, res) => {
         return res.status(400).json({ error: 'Không tìm thấy biên dạng hợp lệ trong file DXF' });
       }
 
+      // Sắp xếp danh sách shapes theo thứ tự size tăng dần
+      shapes.sort((a, b) => (a.sizeValue || 0) - (b.sizeValue || 0));
+
       return res.json({
         success: true,
         shapes,
@@ -259,6 +262,9 @@ router.post('/parse-dxf', upload.array('dxfFiles', 20), async (req, res) => {
     }
 
     const sizedShapes = assignSizesToPolygons(allPolygons, startSize, stepSize);
+
+    // Sắp xếp danh sách shapes theo thứ tự size tăng dần
+    sizedShapes.sort((a, b) => (a.sizeValue || 0) - (b.sizeValue || 0));
 
     res.json({
       success: true,
@@ -492,11 +498,12 @@ router.post('/test-capacity', async (req, res) => {
       return res.status(400).json({ error: 'Danh sách size rỗng' });
     }
 
+    const configFromUi = buildDieCutConfigFromUi(req.body, { maxTimeMs: 120000 });
     const config = {
-      ...buildDieCutConfigFromUi(req.body, { maxTimeMs: 120000 }),
+      ...configFromUi,
       parallelSizes: true,
       preparedSplitFillEnabled: true,
-      preparedSplitFillDeep: false
+      preparedSplitFillDeep: configFromUi.gridStep <= 1.0
     };
 
 
@@ -586,6 +593,31 @@ router.post('/test-capacity', async (req, res) => {
         }
 
         return mappedItem;
+      });
+    }
+
+    // Sắp xếp summary theo thứ tự sizeValue tăng dần để đảm bảo giao diện hiển thị đúng thứ tự
+    if (result && Array.isArray(result.summary)) {
+      const parseSizeNameToValue = (name) => {
+        if (typeof name === 'number') return name;
+        const str = String(name || '').trim();
+        if (!str) return 0;
+        const fractionMatch = str.match(/(\d+)\s*[- ]\s*(\d+)\/(\d+)/);
+        if (fractionMatch) {
+          return parseInt(fractionMatch[1], 10) + (parseInt(fractionMatch[2], 10) / parseInt(fractionMatch[3], 10));
+        }
+        const pureFractionMatch = str.match(/^(\d+)\/(\d+)$/);
+        if (pureFractionMatch) {
+          return parseInt(pureFractionMatch[1], 10) / parseInt(pureFractionMatch[2], 10);
+        }
+        const val = parseFloat(str);
+        return Number.isFinite(val) ? val : 0;
+      };
+
+      result.summary.sort((a, b) => {
+        const valA = typeof a.sizeValue === 'number' ? a.sizeValue : parseSizeNameToValue(a.sizeName || a.name || 0);
+        const valB = typeof b.sizeValue === 'number' ? b.sizeValue : parseSizeNameToValue(b.sizeName || b.name || 0);
+        return valA - valB;
       });
     }
 

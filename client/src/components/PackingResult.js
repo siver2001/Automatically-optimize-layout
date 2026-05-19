@@ -1296,11 +1296,11 @@ const PackingResult = () => {
                         <div key={`h-${i}`} className="absolute left-0 right-0 h-px bg-gray-400" style={{ top: `${(i + 1) * 100 * scale}px` }}></div>
                       ))}
                     </div>
-                    {displayRectangles.map((rect) => {
+                    {displayRectangles.map((rect, index) => {
                       if (!rect || typeof rect.width !== 'number' || typeof rect.length !== 'number') return null;
                       return (
                         <DraggableRectangle
-                          key={rect.id}
+                          key={`${rect.id || 'rect'}-${index}`}
                           rect={rect}
                           scale={scale}
                           isLandscape={isLandscape}
@@ -1336,7 +1336,7 @@ const PackingResult = () => {
                       ))}
 
                       {/* Rectangles */}
-                      {displayRectangles.map((rect) => {
+                      {displayRectangles.map((rect, index) => {
                         if (!rect || typeof rect.width !== 'number' || typeof rect.length !== 'number') return null;
 
                         const rectWidth = rect.width * scale;
@@ -1357,7 +1357,7 @@ const PackingResult = () => {
                         const isRotatedText = (finalLength > finalWidth && finalWidth < 60);
 
                         return (
-                          <React.Fragment key={rect.id}>
+                          <React.Fragment key={`${rect.id || 'rect'}-${index}`}>
                             <KonvaRect
                               x={rectX}
                               y={rectY}

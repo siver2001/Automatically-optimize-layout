@@ -1,0 +1,158 @@
+﻿--- Running _fillMarginHalves sizeName=8.5 ---
+=== Placed margin pieces for size 8.5: count=7 ===
+  Margin 0: id=margin_fill_right_0, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1659.18
+  Margin 1: id=margin_fill_right_1, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1382.65
+  Margin 2: id=margin_fill_right_2, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1106.12
+  Margin 3: id=margin_fill_right_3, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=829.59
+  Margin 4: id=margin_fill_right_4, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=553.06
+  Margin 5: id=margin_fill_right_5, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=276.53
+  Margin 6: id=margin_fill_right_6, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=0.00
+--- Running _fillMarginHalves sizeName=8.5 ---
+=== Placed margin pieces for size 8.5: count=7 ===
+  Margin 0: id=margin_fill_right_0, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1659.18
+  Margin 1: id=margin_fill_right_1, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1382.65
+  Margin 2: id=margin_fill_right_2, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1106.12
+  Margin 3: id=margin_fill_right_3, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=829.59
+  Margin 4: id=margin_fill_right_4, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=553.06
+  Margin 5: id=margin_fill_right_5, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=276.53
+  Margin 6: id=margin_fill_right_6, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=0.00
+--- Running _fillMarginHalves sizeName=8.5 ---
+=== Placed margin pieces for size 8.5: count=7 ===
+  Margin 0: id=margin_fill_right_0, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1659.18
+  Margin 1: id=margin_fill_right_1, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1382.65
+  Margin 2: id=margin_fill_right_2, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1106.12
+  Margin 3: id=margin_fill_right_3, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=829.59
+  Margin 4: id=margin_fill_right_4, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=553.06
+  Margin 5: id=margin_fill_right_5, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=276.53
+  Margin 6: id=margin_fill_right_6, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=0.00
+--- Running _fillMarginHalves sizeName=8.5 ---
+=== Placed margin pieces for size 8.5: count=7 ===
+  Margin 0: id=margin_fill_right_0, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1659.18
+  Margin 1: id=margin_fill_right_1, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1382.65
+  Margin 2: id=margin_fill_right_2, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1106.12
+  Margin 3: id=margin_fill_right_3, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=829.59
+  Margin 4: id=margin_fill_right_4, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=553.06
+  Margin 5: id=margin_fill_right_5, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=276.53
+  Margin 6: id=margin_fill_right_6, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=0.00
+--- Running _fillMarginHalves sizeName=8.5 ---
+=== Placed margin pieces for size 8.5: count=7 ===
+  Margin 0: id=margin_fill_right_0, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1659.18
+  Margin 1: id=margin_fill_right_1, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1382.65
+  Margin 2: id=margin_fill_right_2, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1106.12
+  Margin 3: id=margin_fill_right_3, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=829.59
+  Margin 4: id=margin_fill_right_4, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=553.06
+  Margin 5: id=margin_fill_right_5, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=276.53
+  Margin 6: id=margin_fill_right_6, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=0.00
+--- Running _fillMarginHalves sizeName=8.5 ---
+=== Placed margin pieces for size 8.5: count=7 ===
+  Margin 0: id=margin_fill_right_0, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1659.18
+  Margin 1: id=margin_fill_right_1, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1382.65
+  Margin 2: id=margin_fill_right_2, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1106.12
+  Margin 3: id=margin_fill_right_3, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=829.59
+  Margin 4: id=margin_fill_right_4, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=553.06
+  Margin 5: id=margin_fill_right_5, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=276.53
+  Margin 6: id=margin_fill_right_6, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=0.00
+--- Running _fillMarginHalves sizeName=8.5 ---
+=== Placed margin pieces for size 8.5: count=7 ===
+  Margin 0: id=margin_fill_right_0, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1659.18
+  Margin 1: id=margin_fill_right_1, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1382.65
+  Margin 2: id=margin_fill_right_2, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1106.12
+  Margin 3: id=margin_fill_right_3, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=829.59
+  Margin 4: id=margin_fill_right_4, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=553.06
+  Margin 5: id=margin_fill_right_5, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=276.53
+  Margin 6: id=margin_fill_right_6, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=0.00
+--- Running _fillMarginHalves sizeName=8.5 ---
+=== Placed margin pieces for size 8.5: count=7 ===
+  Margin 0: id=margin_fill_right_0, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1659.18
+  Margin 1: id=margin_fill_right_1, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1382.65
+  Margin 2: id=margin_fill_right_2, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1106.12
+  Margin 3: id=margin_fill_right_3, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=829.59
+  Margin 4: id=margin_fill_right_4, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=553.06
+  Margin 5: id=margin_fill_right_5, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=276.53
+  Margin 6: id=margin_fill_right_6, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=0.00
+--- Running _fillMarginHalves sizeName=8.5 ---
+=== Placed margin pieces for size 8.5: count=7 ===
+  Margin 0: id=margin_fill_right_0, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1659.18
+  Margin 1: id=margin_fill_right_1, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1382.65
+  Margin 2: id=margin_fill_right_2, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1106.12
+  Margin 3: id=margin_fill_right_3, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=829.59
+  Margin 4: id=margin_fill_right_4, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=553.06
+  Margin 5: id=margin_fill_right_5, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=276.53
+  Margin 6: id=margin_fill_right_6, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=0.00
+--- Running _fillMarginHalves sizeName=8.5 ---
+=== Placed margin pieces for size 8.5: count=7 ===
+  Margin 0: id=margin_fill_right_0, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1659.18
+  Margin 1: id=margin_fill_right_1, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1382.65
+  Margin 2: id=margin_fill_right_2, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1106.12
+  Margin 3: id=margin_fill_right_3, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=829.59
+  Margin 4: id=margin_fill_right_4, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=553.06
+  Margin 5: id=margin_fill_right_5, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=276.53
+  Margin 6: id=margin_fill_right_6, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=0.00
+--- Running _fillMarginHalves sizeName=8.5 ---
+=== Placed margin pieces for size 8.5: count=7 ===
+  Margin 0: id=margin_fill_right_0, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1659.18
+  Margin 1: id=margin_fill_right_1, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1382.65
+  Margin 2: id=margin_fill_right_2, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1106.12
+  Margin 3: id=margin_fill_right_3, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=829.59
+  Margin 4: id=margin_fill_right_4, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=553.06
+  Margin 5: id=margin_fill_right_5, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=276.53
+  Margin 6: id=margin_fill_right_6, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=0.00
+--- Running _fillMarginHalves sizeName=8.5 ---
+=== Placed margin pieces for size 8.5: count=7 ===
+  Margin 0: id=margin_fill_right_0, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1659.18
+  Margin 1: id=margin_fill_right_1, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1382.65
+  Margin 2: id=margin_fill_right_2, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1106.12
+  Margin 3: id=margin_fill_right_3, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=829.59
+  Margin 4: id=margin_fill_right_4, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=553.06
+  Margin 5: id=margin_fill_right_5, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=276.53
+  Margin 6: id=margin_fill_right_6, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=0.00
+--- Running _fillMarginHalves sizeName=8.5 ---
+=== Placed margin pieces for size 8.5: count=7 ===
+  Margin 0: id=margin_fill_right_0, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1659.18
+  Margin 1: id=margin_fill_right_1, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1382.65
+  Margin 2: id=margin_fill_right_2, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1106.12
+  Margin 3: id=margin_fill_right_3, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=829.59
+  Margin 4: id=margin_fill_right_4, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=553.06
+  Margin 5: id=margin_fill_right_5, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=276.53
+  Margin 6: id=margin_fill_right_6, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=0.00
+--- Running _fillMarginHalves sizeName=8.5 ---
+=== Placed margin pieces for size 8.5: count=7 ===
+  Margin 0: id=margin_fill_right_0, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1659.18
+  Margin 1: id=margin_fill_right_1, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1382.65
+  Margin 2: id=margin_fill_right_2, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1106.12
+  Margin 3: id=margin_fill_right_3, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=829.59
+  Margin 4: id=margin_fill_right_4, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=553.06
+  Margin 5: id=margin_fill_right_5, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=276.53
+  Margin 6: id=margin_fill_right_6, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=0.00
+--- Running _fillMarginHalves sizeName=8.5 ---
+=== Placed margin pieces for size 8.5: count=7 ===
+  Margin 0: id=margin_fill_right_0, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1659.18
+  Margin 1: id=margin_fill_right_1, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1382.65
+  Margin 2: id=margin_fill_right_2, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1106.12
+  Margin 3: id=margin_fill_right_3, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=829.59
+  Margin 4: id=margin_fill_right_4, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=553.06
+  Margin 5: id=margin_fill_right_5, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=276.53
+  Margin 6: id=margin_fill_right_6, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=0.00
+--- Running _fillMarginHalves sizeName=8.5 ---
+=== Placed margin pieces for size 8.5: count=7 ===
+  Margin 0: id=margin_fill_right_0, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1659.18
+  Margin 1: id=margin_fill_right_1, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1382.65
+  Margin 2: id=margin_fill_right_2, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=1106.12
+  Margin 3: id=margin_fill_right_3, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=829.59
+  Margin 4: id=margin_fill_right_4, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=553.06
+  Margin 5: id=margin_fill_right_5, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=276.53
+  Margin 6: id=margin_fill_right_6, foot=undefined, angle=180, splitOutwardSide=right, x=945.18, y=0.00
+--- Running _fillMarginHalves sizeName=8.5 ---
+=== Placed margin pieces for size 8.5: count=4 ===
+  Margin 0: id=margin_fill_right_0, foot=undefined, angle=180, splitOutwardSide=right, x=963.18, y=1609.49
+  Margin 1: id=margin_fill_right_1, foot=undefined, angle=180, splitOutwardSide=right, x=963.18, y=1072.99
+  Margin 2: id=margin_fill_right_2, foot=undefined, angle=180, splitOutwardSide=right, x=963.18, y=536.50
+  Margin 3: id=margin_fill_right_3, foot=undefined, angle=180, splitOutwardSide=right, x=963.18, y=0.00
+=== Final placed pieces list: total=49 ===
+  Split Placement 42: id=8.5_split-right_42, foot=split-right, angle=180, x=950.18, y=1679.18, worldMinX=950.18, worldMaxX=1050.00, worldMinY=1679.18, worldMaxY=1952.72, width=99.82
+  Split Placement 43: id=8.5_split-right_43, foot=split-right, angle=180, x=950.18, y=1402.65, worldMinX=950.18, worldMaxX=1050.00, worldMinY=1402.65, worldMaxY=1676.19, width=99.82
+  Split Placement 44: id=8.5_split-right_44, foot=split-right, angle=180, x=950.18, y=1126.12, worldMinX=950.18, worldMaxX=1050.00, worldMinY=1126.12, worldMaxY=1399.66, width=99.82
+  Split Placement 45: id=8.5_split-right_45, foot=split-right, angle=180, x=950.18, y=849.59, worldMinX=950.18, worldMaxX=1050.00, worldMinY=849.59, worldMaxY=1123.13, width=99.82
+  Split Placement 46: id=8.5_split-right_46, foot=split-right, angle=180, x=950.18, y=573.06, worldMinX=950.18, worldMaxX=1050.00, worldMinY=573.06, worldMaxY=846.60, width=99.82
+  Split Placement 47: id=8.5_split-right_47, foot=split-right, angle=180, x=950.18, y=296.53, worldMinX=950.18, worldMaxX=1050.00, worldMinY=296.53, worldMaxY=570.07, width=99.82
+  Split Placement 48: id=8.5_split-right_48, foot=split-right, angle=180, x=950.18, y=20.00, worldMinX=950.18, worldMaxX=1050.00, worldMinY=20.00, worldMaxY=293.54, width=99.82

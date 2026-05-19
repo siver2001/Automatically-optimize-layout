@@ -328,18 +328,36 @@ class PackingOrchestrator {
 
     // --- REBUILD LOGIC ---
     _runRebuildPhase(mergedRects) {
-        const newFinalPlates = [];
-        const plateMap = new Map();
-        let displayIdCounter = 1;
+    const newFinalPlates = [];
+    const plateMap = new Map();
+    let displayIdCounter = 1;
+    const usedDisplayIds = new Set();
 
-        mergedRects.sort((a, b) => a.plateIndex - b.plateIndex || a.layer - b.layer);
+    const makeUniqueDisplayId = (baseId) => {
+        let candidate = String(baseId || 'rect');
+        if (!usedDisplayIds.has(candidate)) {
+            usedDisplayIds.add(candidate);
+            return candidate;
+        }
 
-        for (const rect of mergedRects) {
+        while (usedDisplayIds.has(candidate)) {
+            candidate = `${baseId}_${displayIdCounter++}`;
+        }
+        usedDisplayIds.add(candidate);
+        return candidate;
+    };
+
+    mergedRects.sort((a, b) => a.plateIndex - b.plateIndex || a.layer - b.layer);
+
+    for (const rect of mergedRects) {
+            const baseId = rect.id || `rect_${displayIdCounter++}`;
             // Re-assign polite IDs for display
-            if (rect.id.startsWith('merged_') || rect.id.startsWith('full_')) {
-                rect.id = `rect_${displayIdCounter++}`;
-            } else if (rect.pairId && !rect.id.startsWith('rect_half_')) {
-                rect.id = `rect_half_${displayIdCounter++}`;
+            if (String(rect.id || '').startsWith('merged_') || String(rect.id || '').startsWith('full_')) {
+                rect.id = makeUniqueDisplayId(`rect_${displayIdCounter++}`);
+            } else if (rect.pairId && !String(rect.id || '').startsWith('rect_half_')) {
+                rect.id = makeUniqueDisplayId(`rect_half_${displayIdCounter++}`);
+            } else {
+                rect.id = makeUniqueDisplayId(baseId);
             }
 
             if (!plateMap.has(rect.plateIndex)) {

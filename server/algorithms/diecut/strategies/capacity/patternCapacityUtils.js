@@ -422,10 +422,10 @@ export function isSplitLineFacingOutward(orient, x, y, occupiedPlacements, workW
     corridor = { minX: 0, maxX: minX, minY, maxY };
   } else if (splitSide === 'right' && maxX < workWidth - 1e-6) {
     corridor = { minX: maxX, maxX: workWidth, minY, maxY };
-  } else if (splitSide === 'top' && minY > 1e-6) {
-    corridor = { minX, maxX, minY: 0, maxY: minY };
-  } else if (splitSide === 'bottom' && maxY < workHeight - 1e-6) {
+  } else if (splitSide === 'top' && maxY < workHeight - 1e-6) {
     corridor = { minX, maxX, minY: maxY, maxY: workHeight };
+  } else if (splitSide === 'bottom' && minY > 1e-6) {
+    corridor = { minX, maxX, minY: 0, maxY: minY };
   }
 
   if (!corridor) return true;
@@ -442,9 +442,6 @@ export function isSplitLineFacingOutward(orient, x, y, occupiedPlacements, workW
         const cell = grid.get(`${cx},${cy}`);
         if (!cell) continue;
         for (const entry of cell) {
-          // Allowed: Split pieces can be blocked by other split pieces to allow clustering (sát nhau)
-          if (entry.p.id?.includes('split') || entry.p.id?.includes('fill')) continue;
-
           const overlaps = !(
             entry.maxX <= corridor.minX + 1e-6 ||
             entry.minX >= corridor.maxX - 1e-6 ||
@@ -457,10 +454,7 @@ export function isSplitLineFacingOutward(orient, x, y, occupiedPlacements, workW
     }
   } else {
     for (const entry of occupiedPlacements) {
-      // Allowed: Split pieces can be blocked by other split pieces to allow clustering (sát nhau)
-      if (entry.id?.includes('split') || entry.id?.includes('fill')) continue;
-
-      const entryBB = getOrientBounds(entry.orient);
+      const entryBB = entry.orient.bb || getBoundingBox(entry.orient.polygon);
       const eMinX = entry.x + entryBB.minX;
       const eMaxX = entry.x + entryBB.maxX;
       const eMinY = entry.y + entryBB.minY;
