@@ -8,7 +8,7 @@ Size: 6     | Pairs: 53    | Efficiency: 79.3%
 Size: 6.5   | Pairs: 53    | Efficiency: 81.7%
 Size: 7     | Pairs: 51    | Efficiency: 80.9%
 Size: 7.5   | Pairs: 50    | Efficiency: 81.6%
-Size: 8     | Pairs: 50    | Efficiency: 83.9%
+Size: 8     | Pairs: 49.5  | Efficiency: 83.0%
 Size: 8.5   | Pairs: 45.5  | Efficiency: 78.5%
 Size: 9     | Pairs: 45.5  | Efficiency: 80.6%
 Size: 9.5   | Pairs: 44.5  | Efficiency: 81.1%

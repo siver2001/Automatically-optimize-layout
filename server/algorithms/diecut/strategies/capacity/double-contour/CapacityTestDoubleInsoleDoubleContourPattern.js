@@ -377,7 +377,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       
       const validation = validateLocalPlacements(testPlacements, config.spacing || 0);
       if (validation.valid) {
-        if (bestX === null || targetX > bestX) {
+        if (bestX === null || targetX < bestX) {
           bestX = targetX;
         }
       }
@@ -424,7 +424,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       
       const validation = validateLocalPlacements(testPlacements, config.spacing || 0);
       if (validation.valid) {
-        if (bestY === null || targetY > bestY) {
+        if (bestY === null || targetY < bestY) {
           bestY = targetY;
         }
       }
@@ -2991,13 +2991,14 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     const scanDepthLimit = Math.max(150, (orient.bb ? (orient.bb.maxY - orient.bb.minY) : 150) * 1.5);
     const limitY = Math.max(minY, maxY - scanDepthLimit);
 
-    for (let y = maxY; y >= limitY - 1e-6; y -= step) {
+    for (let y = limitY; y <= maxY + 1e-6; y += step) {
       if (this._canPlaceSplitOrient(allPlacements, orient, x, y, config, workWidth, workHeight, spatialIndex, false)) {
         return y;
       }
     }
     return null;
   }
+
 
 
   _fillMarginHalves(sizeName, polygon, candidate, config, workWidth, workHeight) {
