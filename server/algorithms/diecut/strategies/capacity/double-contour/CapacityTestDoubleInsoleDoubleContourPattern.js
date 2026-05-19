@@ -336,8 +336,170 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       });
     }
     
-    return squeezed;
+    return this._alignMarginSplits(squeezed, config, workWidth, workHeight);
   }
+
+  _findBestAlignedX(placements, rightSplits, workWidth, workHeight, config) {
+    if (!rightSplits.length) return null;
+    
+    let minX = Infinity;
+    let maxX = -Infinity;
+    for (const item of rightSplits) {
+      if (item.p.x < minX) minX = item.p.x;
+      if (item.p.x > maxX) maxX = item.p.x;
+    }
+    
+    if (maxX - minX < 1e-3) return minX;
+    
+    const steps = 10;
+    let bestX = null;
+    
+    for (let i = 0; i <= steps; i++) {
+      const targetX = minX + (maxX - minX) * (i / steps);
+      
+      const testPlacements = placements.map(p => {
+        const isTarget = rightSplits.some(rs => rs.p === p);
+        if (isTarget) {
+          return { ...p, x: roundMetric(targetX, 3) };
+        }
+        return p;
+      });
+      
+      const bounds = computeEnvelope(testPlacements);
+      if (
+        bounds.minX < -1e-6 ||
+        bounds.minY < -1e-6 ||
+        bounds.maxX > workWidth + 1e-6 ||
+        bounds.maxY > workHeight + 1e-6
+      ) {
+        continue;
+      }
+      
+      const validation = validateLocalPlacements(testPlacements, config.spacing || 0);
+      if (validation.valid) {
+        if (bestX === null || targetX > bestX) {
+          bestX = targetX;
+        }
+      }
+    }
+    
+    return bestX;
+  }
+
+  _findBestAlignedY(placements, bottomSplits, workWidth, workHeight, config) {
+    if (!bottomSplits.length) return null;
+    
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (const item of bottomSplits) {
+      if (item.p.y < minY) minY = item.p.y;
+      if (item.p.y > maxY) maxY = item.p.y;
+    }
+    
+    if (maxY - minY < 1e-3) return minY;
+    
+    const steps = 10;
+    let bestY = null;
+    
+    for (let i = 0; i <= steps; i++) {
+      const targetY = minY + (maxY - minY) * (i / steps);
+      
+      const testPlacements = placements.map(p => {
+        const isTarget = bottomSplits.some(bs => bs.p === p);
+        if (isTarget) {
+          return { ...p, y: roundMetric(targetY, 3) };
+        }
+        return p;
+      });
+      
+      const bounds = computeEnvelope(testPlacements);
+      if (
+        bounds.minX < -1e-6 ||
+        bounds.minY < -1e-6 ||
+        bounds.maxX > workWidth + 1e-6 ||
+        bounds.maxY > workHeight + 1e-6
+      ) {
+        continue;
+      }
+      
+      const validation = validateLocalPlacements(testPlacements, config.spacing || 0);
+      if (validation.valid) {
+        if (bestY === null || targetY > bestY) {
+          bestY = targetY;
+        }
+      }
+    }
+    
+    return bestY;
+  }
+
+  _alignMarginSplits(placements, config, workWidth, workHeight) {
+    if (!placements.length) return placements;
+    
+    const rightMarginSplits = [];
+    const bottomMarginSplits = [];
+    
+    for (const p of placements) {
+      if (!this._isSplitFillPlacement(p)) continue;
+      
+      const bb = p.orient?.bb || getBoundingBox(p.orient?.polygon || []);
+      const isRightMargin = p.x + bb.maxX > workWidth - 250;
+      const isBottomMargin = p.y + bb.maxY > workHeight - 250;
+      const isVertical = bb.height > bb.width;
+      const isHorizontal = bb.width > bb.height;
+      
+      if (isRightMargin && isVertical) {
+        rightMarginSplits.push({ p, bb });
+      } else if (isBottomMargin && isHorizontal) {
+        bottomMarginSplits.push({ p, bb });
+      }
+    }
+    
+    const bestAlignedX = rightMarginSplits.length > 1
+      ? this._findBestAlignedX(placements, rightMarginSplits, workWidth, workHeight, config)
+      : null;
+      
+    const bestAlignedY = bottomMarginSplits.length > 1
+      ? this._findBestAlignedY(placements, bottomMarginSplits, workWidth, workHeight, config)
+      : null;
+      
+    if (rightMarginSplits.length > 1) {
+      console.log(`[AlignMarginSplits] Found ${rightMarginSplits.length} right-margin splits. bestAlignedX=${bestAlignedX !== null ? bestAlignedX.toFixed(2) : 'NONE'}`);
+    }
+    if (bottomMarginSplits.length > 1) {
+      console.log(`[AlignMarginSplits] Found ${bottomMarginSplits.length} bottom-margin splits. bestAlignedY=${bestAlignedY !== null ? bestAlignedY.toFixed(2) : 'NONE'}`);
+    }
+    
+    return placements.map(p => {
+      if (!this._isSplitFillPlacement(p)) return p;
+      
+      const bb = p.orient?.bb || getBoundingBox(p.orient?.polygon || []);
+      const isRightMargin = p.x + bb.maxX > workWidth - 250;
+      const isBottomMargin = p.y + bb.maxY > workHeight - 250;
+      const isVertical = bb.height > bb.width;
+      const isHorizontal = bb.width > bb.height;
+      
+      let newX = p.x;
+      let newY = p.y;
+      
+      if (isRightMargin && isVertical && bestAlignedX !== null) {
+        newX = bestAlignedX;
+      } else if (isBottomMargin && isHorizontal && bestAlignedY !== null) {
+        newY = bestAlignedY;
+      }
+      
+      return {
+        ...p,
+        x: newX,
+        y: newY
+      };
+    });
+  }
+
+
+
+
+
 
   _filterPlacementsInBounds(placements, workWidth, workHeight) {
     return placements.filter((p) => {
@@ -2522,7 +2684,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
           const filteredGroupOptions = groupOptions.filter(groupOption => {
             return groupOption.placements.every(p => {
               const pbb = p.orient?.bb || getBoundingBox(p.orient?.polygon || []);
-              return p.x + pbb.maxX <= workWidth - 150;
+              return p.x + pbb.maxX <= workWidth;
             });
           });
 
@@ -2641,7 +2803,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
 
         const filteredMergedOptions = mergedOptions.filter(option => {
           const pbb = option.orient?.bb || getBoundingBox(option.orient?.polygon || []);
-          return option.x + pbb.maxX <= workWidth - 150;
+          return option.x + pbb.maxX <= workWidth;
         });
         options = filteredMergedOptions.slice(0, fillLimit);
 
@@ -2823,6 +2985,20 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     }
     return lastValidX;
   }
+
+  _findMinValidYForBottomMargin(orient, x, minY, maxY, allPlacements, config, workWidth, workHeight, spatialIndex) {
+    const step = Math.max(0.5, config.gridStep || 1);
+    const scanDepthLimit = Math.max(150, (orient.bb ? (orient.bb.maxY - orient.bb.minY) : 150) * 1.5);
+    const limitY = Math.max(minY, maxY - scanDepthLimit);
+
+    for (let y = maxY; y >= limitY - 1e-6; y -= step) {
+      if (this._canPlaceSplitOrient(allPlacements, orient, x, y, config, workWidth, workHeight, spatialIndex, false)) {
+        return y;
+      }
+    }
+    return null;
+  }
+
 
   _fillMarginHalves(sizeName, polygon, candidate, config, workWidth, workHeight) {
     if (!candidate?.placements?.length) return candidate;
@@ -3039,6 +3215,103 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       if (bestOverallCandidate) {
         const placement = {
           id: `margin_fill_right_${marginPlacementsCount++}`,
+          orient: bestOverallOrient,
+          x: bestOverallCandidate.x,
+          y: bestOverallCandidate.y,
+          effectiveArea: bestOverallOrient.areaMm2,
+          isSplit: true
+        };
+        allPlacements.push(placement);
+        addedAny = true;
+      }
+    }
+
+    // --- PHASE 3: BOTTOM MARGIN (Arrow 3: Left-to-Right, Squeezed DOWNWARDS) ---
+    const bottomOrients = orientVariants.filter(o => o.splitOutwardSide === 'bottom');
+    addedAny = true;
+
+    while (addedAny && marginPlacementsCount < 90) {
+      addedAny = false;
+      let bestOverallCandidate = null;
+      let bestOverallOrient = null;
+      let bestOverallScore = Infinity;
+
+      const spatialIndex = this._buildSpatialIndex(allPlacements, workWidth, workHeight, spacing);
+
+      // Now, for each bottom-oriented piece and each X candidate:
+      for (const orient of bottomOrients) {
+        const bb = orient.bb || getBoundingBox(orient.polygon);
+        const maxY = workHeight - bb.maxY; // Bottom edge of the sheet
+
+        const snappedXs = [];
+        const seenSnappedX = new Set();
+        const addSnappedX = (x) => {
+          const rounded = roundMetric(x, 3);
+          if (rounded + bb.minX < -1e-6 || rounded + bb.maxX > workWidth + 1e-6 || seenSnappedX.has(rounded)) return;
+          seenSnappedX.add(rounded);
+          snappedXs.push(rounded);
+        };
+
+        const wholePlacements = allPlacements.filter(p => !this._isSplitFillPlacement(p));
+        for (const p of wholePlacements) {
+          const pbb = p.orient.bb || getBoundingBox(p.orient.polygon);
+          const pCenterX = p.x + (pbb.minX + pbb.maxX) / 2;
+          const snappedX = pCenterX - (bb.minX + bb.maxX) / 2;
+          addSnappedX(snappedX);
+        }
+        addSnappedX(-bb.minX);
+        addSnappedX(workWidth - bb.maxX);
+
+        // Generate fine perturbed candidates around snapped points
+        const perturbedXs = [];
+        const seenPerturbedX = new Set();
+        const addPerturbedX = (x, offset) => {
+          const rounded = roundMetric(x, 3);
+          if (rounded + bb.minX < -1e-6 || rounded + bb.maxX > workWidth + 1e-6 || seenPerturbedX.has(rounded)) return;
+          seenPerturbedX.add(rounded);
+          perturbedXs.push({ x: rounded, offset });
+        };
+
+        // Perturb around each snapped X
+        // Optimal wiggle range to align split pieces to their columns with minor adjustments (up to 15mm)
+        const offsets = [-15, -12, -9, -6, -3, 0, 3, 6, 9, 12, 15];
+        for (const baseX of snappedXs) {
+          for (const offset of offsets) {
+            addPerturbedX(baseX + offset, offset);
+          }
+        }
+
+        for (const cand of perturbedXs) {
+          // Find the bottom-most valid Y (compaction downwards)
+          const validY = this._findMinValidYForBottomMargin(
+            orient,
+            cand.x,
+            0,
+            maxY,
+            allPlacements,
+            config,
+            workWidth,
+            workHeight,
+            spatialIndex
+          );
+
+          if (validY !== null) {
+            // Prioritize bottom-most position (larger validY is best)
+            // If multiple positions have similar depth, prefer leftmost (smaller x)
+            // Penalize the wiggle offset heavily to keep the piece centered in the column
+            const score = -validY * 100000 + cand.x + Math.abs(cand.offset) * 100;
+            if (score < bestOverallScore) {
+              bestOverallScore = score;
+              bestOverallCandidate = { x: cand.x, y: validY };
+              bestOverallOrient = orient;
+            }
+          }
+        }
+      }
+
+      if (bestOverallCandidate) {
+        const placement = {
+          id: `margin_fill_bottom_${marginPlacementsCount++}`,
           orient: bestOverallOrient,
           x: bestOverallCandidate.x,
           y: bestOverallCandidate.y,
@@ -4102,7 +4375,10 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
 
   _finalizeCandidate(candidate, config, workWidth, workHeight, fastOnly = true) {
     if (!candidate?.placements?.length) return null;
-    const bounds = candidate.bounds || computeEnvelope(candidate.placements);
+    
+    // Align margin splits before finalizing candidate
+    const alignedPlacements = this._alignMarginSplits(candidate.placements, config, workWidth, workHeight);
+    const bounds = computeEnvelope(alignedPlacements);
     if (
       bounds.minX < -1e-6 ||
       bounds.minY < -1e-6 ||
@@ -4111,15 +4387,24 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     ) {
       return null;
     }
-    const usedAreaMm2 = candidate.usedAreaMm2 || candidate.placements.reduce((sum, p) => sum + (p.effectiveArea || p.orient?.areaMm2 || 0), 0);
+    const usedAreaMm2 = candidate.usedAreaMm2 || alignedPlacements.reduce((sum, p) => sum + (p.effectiveArea || p.orient?.areaMm2 || 0), 0);
     
     // CRITICAL: Final overlap validation to prevent >100% efficiency and physically impossible layouts
-    if (candidate.placements.length > 1) {
-      const validation = validateLocalPlacements(candidate.placements, config.spacing || 0);
+    if (alignedPlacements.length > 1) {
+      const validation = validateLocalPlacements(alignedPlacements, config.spacing || 0);
       if (!validation.valid) {
         return null;
       }
     }
+
+    const updatedCandidate = {
+      ...candidate,
+      placements: alignedPlacements,
+      bounds,
+      usedAreaMm2
+    };
+    candidate = updatedCandidate;
+
 
     const totalPieces = candidate.placements.reduce((sum, p) => {
       const f = p.orient?.foot || 'X';
