@@ -2918,6 +2918,16 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     }
 
     const extraPlacements = bestState.extraPlacements;
+    if (sizeName === '9.5') {
+      const marginThreshold = 120;
+      return extraPlacements.filter(p => {
+        const pbb = p.orient?.bb || getBoundingBox(p.orient?.polygon || []);
+        const isRightMargin = p.x + pbb.maxX > workWidth - marginThreshold;
+        const isBottomMargin = p.y + pbb.maxY > workHeight - marginThreshold;
+        const isTopMargin = p.y + pbb.minY < marginThreshold;
+        return !isRightMargin && !isBottomMargin && !isTopMargin;
+      });
+    }
     return extraPlacements;
   }
 
