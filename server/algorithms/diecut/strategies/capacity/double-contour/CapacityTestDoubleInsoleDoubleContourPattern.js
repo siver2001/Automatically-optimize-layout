@@ -291,14 +291,17 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       
       const isSplit = item.isSplit || item.id?.includes('split') || item.id?.startsWith('margin_fill_');
       const isRightSplit = isSplit && (item.id?.includes('right') || item.orient?.splitOutwardSide === 'right');
+      const isLeftSplit = isSplit && (item.id?.includes('left') || item.orient?.splitOutwardSide === 'left');
       const isTopSplit = isSplit && (item.id?.includes('top') || item.orient?.splitOutwardSide === 'top');
+      const isBottomSplit = isSplit && (item.id?.includes('bottom') || item.orient?.splitOutwardSide === 'bottom');
 
       // Binary search for the minimum valid X
       let lowX = 0;
       let highX = currentX;
       let lastValidX = currentX;
       
-      if (!isTopSplit) {
+      // Do not squeeze X if it's a top or bottom split (they should remain snapped to their columns)
+      if (!isTopSplit && !isBottomSplit) {
         while (lowX <= highX) {
           const midX = roundMetric((lowX + highX) / 2, 3);
           if (this._canPlaceSplitOrient(squeezed, item.orient, midX, currentY, config, workWidth, workHeight, spatialIndex, true)) {
@@ -316,7 +319,8 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       let highY = currentY;
       let lastValidY = currentY;
       
-      if (!isRightSplit) {
+      // Do not squeeze Y if it's a left or right split (they should remain snapped to their rows)
+      if (!isRightSplit && !isLeftSplit) {
         while (lowY <= highY) {
           const midY = roundMetric((lowY + highY) / 2, 3);
           if (this._canPlaceSplitOrient(squeezed, item.orient, currentX, midY, config, workWidth, workHeight, spatialIndex, true)) {
@@ -351,16 +355,15 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     
     if (maxX - minX < 1e-3) return minX;
     
-    const steps = 10;
+    // Instead of random steps, test exactly the current X coordinates of the splits to snap them to a single straight column
+    const candidates = [...new Set(rightSplits.map(rs => roundMetric(rs.p.x, 3)))];
     let bestX = null;
     
-    for (let i = 0; i <= steps; i++) {
-      const targetX = minX + (maxX - minX) * (i / steps);
-      
+    for (const targetX of candidates) {
       const testPlacements = placements.map(p => {
         const isTarget = rightSplits.some(rs => rs.p === p);
         if (isTarget) {
-          return { ...p, x: roundMetric(targetX, 3) };
+          return { ...p, x: targetX };
         }
         return p;
       });
@@ -398,16 +401,15 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     
     if (maxY - minY < 1e-3) return minY;
     
-    const steps = 10;
+    // Test exact current Y coordinates to snap them to a single straight row
+    const candidates = [...new Set(bottomSplits.map(bs => roundMetric(bs.p.y, 3)))];
     let bestY = null;
     
-    for (let i = 0; i <= steps; i++) {
-      const targetY = minY + (maxY - minY) * (i / steps);
-      
+    for (const targetY of candidates) {
       const testPlacements = placements.map(p => {
         const isTarget = bottomSplits.some(bs => bs.p === p);
         if (isTarget) {
-          return { ...p, y: roundMetric(targetY, 3) };
+          return { ...p, y: targetY };
         }
         return p;
       });
@@ -438,13 +440,14 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     
     const rightMarginSplits = [];
     const bottomMarginSplits = [];
+    const gridStep = config.gridStep || 0.5;
     
     for (const p of placements) {
       if (!this._isSplitFillPlacement(p)) continue;
       
       const bb = p.orient?.bb || getBoundingBox(p.orient?.polygon || []);
-      const isRightMargin = p.x + bb.maxX > workWidth - 250;
-      const isBottomMargin = p.y + bb.maxY > workHeight - 250;
+      const isRightMargin = p.x + bb.maxX > workWidth - 350;
+      const isBottomMargin = p.y + bb.maxY > workHeight - 350;
       const isVertical = bb.height > bb.width;
       const isHorizontal = bb.width > bb.height;
       
@@ -455,45 +458,115 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       }
     }
     
+    let currentPlacements = [...placements];
+    
+    // ==========================================
+    // STEP 1: RIGHT-MARGIN COLUMN COMPACTION (SQUEEZE LEFT)
+    // ==========================================
     const bestAlignedX = rightMarginSplits.length > 1
-      ? this._findBestAlignedX(placements, rightMarginSplits, workWidth, workHeight, config)
+      ? this._findBestAlignedX(currentPlacements, rightMarginSplits, workWidth, workHeight, config)
       : null;
       
-    const bestAlignedY = bottomMarginSplits.length > 1
-      ? this._findBestAlignedY(placements, bottomMarginSplits, workWidth, workHeight, config)
-      : null;
-      
-    if (rightMarginSplits.length > 1) {
-      console.log(`[AlignMarginSplits] Found ${rightMarginSplits.length} right-margin splits. bestAlignedX=${bestAlignedX !== null ? bestAlignedX.toFixed(2) : 'NONE'}`);
-    }
-    if (bottomMarginSplits.length > 1) {
-      console.log(`[AlignMarginSplits] Found ${bottomMarginSplits.length} bottom-margin splits. bestAlignedY=${bestAlignedY !== null ? bestAlignedY.toFixed(2) : 'NONE'}`);
+    let finalAlignedX = bestAlignedX;
+    if (finalAlignedX === null && rightMarginSplits.length === 1) {
+      finalAlignedX = rightMarginSplits[0].p.x;
     }
     
-    return placements.map(p => {
-      if (!this._isSplitFillPlacement(p)) return p;
+    if (finalAlignedX !== null && rightMarginSplits.length > 0) {
+      let lowX = Math.max(0, finalAlignedX - 150); // Squeeze leftwards by at most 150mm
+      let highX = finalAlignedX;
+      let lastValidX = finalAlignedX;
       
-      const bb = p.orient?.bb || getBoundingBox(p.orient?.polygon || []);
-      const isRightMargin = p.x + bb.maxX > workWidth - 250;
-      const isBottomMargin = p.y + bb.maxY > workHeight - 250;
-      const isVertical = bb.height > bb.width;
-      const isHorizontal = bb.width > bb.height;
-      
-      let newX = p.x;
-      let newY = p.y;
-      
-      if (isRightMargin && isVertical && bestAlignedX !== null) {
-        newX = bestAlignedX;
-      } else if (isBottomMargin && isHorizontal && bestAlignedY !== null) {
-        newY = bestAlignedY;
+      while (lowX <= highX) {
+        const midX = roundMetric((lowX + highX) / 2, 3);
+        
+        const testPlacements = currentPlacements.map(p => {
+          const isTarget = rightMarginSplits.some(rs => rs.p.id === p.id);
+          if (isTarget) {
+            return { ...p, x: midX };
+          }
+          return p;
+        });
+        
+        const bounds = computeEnvelope(testPlacements);
+        const inBounds = bounds.minX >= -1e-6 && bounds.maxX <= workWidth + 1e-6 &&
+                         bounds.minY >= -1e-6 && bounds.maxY <= workHeight + 1e-6;
+                         
+        if (inBounds && validateLocalPlacements(testPlacements, config.spacing || 0).valid) {
+          lastValidX = midX;
+          highX = midX - gridStep; // Try to squeeze tighter leftwards
+        } else {
+          lowX = midX + gridStep;
+        }
       }
+      finalAlignedX = lastValidX;
       
-      return {
-        ...p,
-        x: newX,
-        y: newY
-      };
-    });
+      // Update state for right splits to feed into bottom row compaction
+      currentPlacements = currentPlacements.map(p => {
+        const isTarget = rightMarginSplits.some(rs => rs.p.id === p.id);
+        if (isTarget) {
+          return { ...p, x: finalAlignedX };
+        }
+        return p;
+      });
+      
+      console.log(`[AlignMarginSplits] Right-margin column squeezed from ${bestAlignedX !== null ? bestAlignedX.toFixed(2) : 'NONE'} to ${finalAlignedX.toFixed(2)}`);
+    }
+
+    // ==========================================
+    // STEP 2: BOTTOM-MARGIN ROW COMPACTION (SQUEEZE UP)
+    // ==========================================
+    const bestAlignedY = bottomMarginSplits.length > 1
+      ? this._findBestAlignedY(currentPlacements, bottomMarginSplits, workWidth, workHeight, config)
+      : null;
+      
+    let finalAlignedY = bestAlignedY;
+    if (finalAlignedY === null && bottomMarginSplits.length === 1) {
+      finalAlignedY = bottomMarginSplits[0].p.y;
+    }
+    
+    if (finalAlignedY !== null && bottomMarginSplits.length > 0) {
+      let lowY = Math.max(0, finalAlignedY - 150); // Squeeze upwards by at most 150mm
+      let highY = finalAlignedY;
+      let lastValidY = finalAlignedY;
+      
+      while (lowY <= highY) {
+        const midY = roundMetric((lowY + highY) / 2, 3);
+        
+        const testPlacements = currentPlacements.map(p => {
+          const isTarget = bottomMarginSplits.some(bs => bs.p.id === p.id);
+          if (isTarget) {
+            return { ...p, y: midY };
+          }
+          return p;
+        });
+        
+        const bounds = computeEnvelope(testPlacements);
+        const inBounds = bounds.minX >= -1e-6 && bounds.maxX <= workWidth + 1e-6 &&
+                         bounds.minY >= -1e-6 && bounds.maxY <= workHeight + 1e-6;
+                         
+        if (inBounds && validateLocalPlacements(testPlacements, config.spacing || 0).valid) {
+          lastValidY = midY;
+          highY = midY - gridStep; // Try to squeeze tighter upwards
+        } else {
+          lowY = midY + gridStep;
+        }
+      }
+      finalAlignedY = lastValidY;
+      
+      // Update state for bottom splits
+      currentPlacements = currentPlacements.map(p => {
+        const isTarget = bottomMarginSplits.some(bs => bs.p.id === p.id);
+        if (isTarget) {
+          return { ...p, y: finalAlignedY };
+        }
+        return p;
+      });
+      
+      console.log(`[AlignMarginSplits] Bottom-margin row squeezed from ${bestAlignedY !== null ? bestAlignedY.toFixed(2) : 'NONE'} to ${finalAlignedY.toFixed(2)}`);
+    }
+    
+    return currentPlacements;
   }
 
 
@@ -1252,7 +1325,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     const centerY = y + (bb.minY + bb.maxY) / 2;
     
     // Strict boundary proximity check: ensure the piece is actually placed at its designated boundary
-    const boundaryTolerance = 45; // mm tolerance for margin alignment
+    const boundaryTolerance = 350; // mm tolerance for margin alignment (increased from 250 to allow tight compaction)
     if (splitSide === 'left' && minX > boundaryTolerance) {
       return false;
     }
@@ -1281,6 +1354,11 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     if (!corridor) return true;
 
     const isBlocking = (placement) => {
+      // A split piece does not block another split piece in the same margin
+      if (placement.isSplit || placement.id?.includes('split') || placement.id?.startsWith('margin_fill_')) {
+        return false;
+      }
+
       const pbb = placement.orient?.bb || getBoundingBox(placement.orient?.polygon || []);
       const pMinX = placement.x + pbb.minX;
       const pMaxX = placement.x + pbb.maxX;
@@ -2952,11 +3030,11 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     
     // We scan Y from minY (top edge) downwards.
     // Restrict scan depth to avoid checking too deep in the sheet (margin is thin)
-    const scanDepthLimit = Math.max(150, (orient.bb ? (orient.bb.maxY - orient.bb.minY) : 150) * 1.5);
+    const scanDepthLimit = 350;
     const limitY = Math.min(maxY, minY + scanDepthLimit);
 
     for (let y = minY; y <= limitY + 1e-6; y += step) {
-      if (this._canPlaceSplitOrient(allPlacements, orient, x, y, config, workWidth, workHeight, spatialIndex, false)) {
+      if (this._canPlaceSplitOrient(allPlacements, orient, x, y, config, workWidth, workHeight, spatialIndex, true)) {
         lastValidY = y;
       } else {
         // Once we hit a collision when moving downwards, stop.
@@ -2972,11 +3050,11 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     
     // We scan X from maxX (right edge) leftwards (decreasing X).
     // Restrict scan depth to avoid checking too deep in the sheet (margin is thin)
-    const scanDepthLimit = Math.max(150, (orient.bb ? (orient.bb.maxX - orient.bb.minX) : 150) * 1.5);
+    const scanDepthLimit = 350;
     const limitX = Math.max(minX, maxX - scanDepthLimit);
 
     for (let x = maxX; x >= limitX - 1e-6; x -= step) {
-      if (this._canPlaceSplitOrient(allPlacements, orient, x, y, config, workWidth, workHeight, spatialIndex, false)) {
+      if (this._canPlaceSplitOrient(allPlacements, orient, x, y, config, workWidth, workHeight, spatialIndex, true)) {
         lastValidX = x;
       } else {
         // Once we hit a collision when moving leftwards, stop.
@@ -2987,16 +3065,21 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
   }
 
   _findMinValidYForBottomMargin(orient, x, minY, maxY, allPlacements, config, workWidth, workHeight, spatialIndex) {
+    let lastValidY = null;
     const step = Math.max(0.5, config.gridStep || 1);
-    const scanDepthLimit = Math.max(150, (orient.bb ? (orient.bb.maxY - orient.bb.minY) : 150) * 1.5);
+    const scanDepthLimit = 350;
     const limitY = Math.max(minY, maxY - scanDepthLimit);
 
-    for (let y = limitY; y <= maxY + 1e-6; y += step) {
-      if (this._canPlaceSplitOrient(allPlacements, orient, x, y, config, workWidth, workHeight, spatialIndex, false)) {
-        return y;
+    // Scan upwards from the bottom edge of the sheet (maxY) towards the center (decreasing Y)
+    for (let y = maxY; y >= limitY - 1e-6; y -= step) {
+      if (this._canPlaceSplitOrient(allPlacements, orient, x, y, config, workWidth, workHeight, spatialIndex, true)) {
+        lastValidY = y;
+      } else {
+        // Stop once we hit a collision
+        break;
       }
     }
-    return null;
+    return lastValidY;
   }
 
 
@@ -3080,8 +3163,8 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         };
 
         // Perturb around each snapped X
-        // Optimal wiggle range to align split pieces to their columns with minor adjustments (up to 15mm)
-        const offsets = [-15, -12, -9, -6, -3, 0, 3, 6, 9, 12, 15];
+        // Reduced wiggle range to enforce strict alignment (up to 6mm max)
+        const offsets = [0, -3, 3, -6, 6];
         for (const baseX of snappedXs) {
           for (const offset of offsets) {
             addPerturbedX(baseX + offset, offset);
@@ -3105,8 +3188,8 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
           if (validY !== null) {
             // Prioritize going deep into the valleys (larger validY is best)
             // If multiple positions have similar depth, prefer leftmost (smaller x)
-            // Penalize the wiggle offset heavily to keep the piece centered in the column
-            const score = -validY * 100000 + cand.x + Math.abs(cand.offset) * 100;
+            // Penalize the wiggle offset heavily (500000) to keep the piece centered in the column
+            const score = -validY * 100000 + cand.x + Math.abs(cand.offset) * 500000;
             if (score < bestOverallScore) {
               bestOverallScore = score;
               bestOverallCandidate = { x: cand.x, y: validY };
@@ -3177,8 +3260,8 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         };
 
         // Perturb around each snapped Y
-        // Optimal wiggle range to align split pieces to their rows with minor adjustments (up to 15mm)
-        const offsets = [-15, -12, -9, -6, -3, 0, 3, 6, 9, 12, 15];
+        // Reduced wiggle range to enforce strict alignment (up to 6mm max)
+        const offsets = [0, -3, 3, -6, 6];
         for (const baseY of snappedYs) {
           for (const offset of offsets) {
             addPerturbedY(baseY + offset, offset);
@@ -3202,8 +3285,8 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
           if (validX !== null) {
             // Prioritize going deep leftwards (smaller validX is best)
             // If multiple positions have similar depth, prefer bottom-most (larger y)
-            // Penalize the wiggle offset heavily to keep the piece centered in the column
-            const score = validX * 100000 + (workHeight - cand.y) + Math.abs(cand.offset) * 100;
+            // Penalize the wiggle offset heavily (500000) to keep the piece centered in the row
+            const score = validX * 100000 + (workHeight - cand.y) + Math.abs(cand.offset) * 500000;
             if (score < bestOverallScore) {
               bestOverallScore = score;
               bestOverallCandidate = { x: validX, y: cand.y };
@@ -3274,8 +3357,8 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         };
 
         // Perturb around each snapped X
-        // Optimal wiggle range to align split pieces to their columns with minor adjustments (up to 15mm)
-        const offsets = [-15, -12, -9, -6, -3, 0, 3, 6, 9, 12, 15];
+        // Reduced wiggle range to enforce strict alignment (up to 6mm max)
+        const offsets = [0, -3, 3, -6, 6];
         for (const baseX of snappedXs) {
           for (const offset of offsets) {
             addPerturbedX(baseX + offset, offset);
@@ -3283,7 +3366,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         }
 
         for (const cand of perturbedXs) {
-          // Find the bottom-most valid Y (compaction downwards)
+          // Find the bottom-most valid Y (compaction upwards/deep into the sheet)
           const validY = this._findMinValidYForBottomMargin(
             orient,
             cand.x,
@@ -3297,10 +3380,10 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
           );
 
           if (validY !== null) {
-            // Prioritize bottom-most position (larger validY is best)
+            // Prioritize deepest position upwards (smaller validY is best)
             // If multiple positions have similar depth, prefer leftmost (smaller x)
-            // Penalize the wiggle offset heavily to keep the piece centered in the column
-            const score = -validY * 100000 + cand.x + Math.abs(cand.offset) * 100;
+            // Penalize the wiggle offset heavily (500000) to keep the piece centered in the column
+            const score = validY * 100000 + cand.x + Math.abs(cand.offset) * 500000;
             if (score < bestOverallScore) {
               bestOverallScore = score;
               bestOverallCandidate = { x: cand.x, y: validY };

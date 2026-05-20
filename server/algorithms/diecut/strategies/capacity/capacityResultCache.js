@@ -88,17 +88,8 @@ export function buildCapacityResultCacheKey(strategyKey, size, config) {
 }
 
 export function getCachedCapacityResult(cacheKey) {
-  const entry = capacityResultCache.get(cacheKey);
-  if (!entry) return null;
-
-  const now = Date.now();
-  if (entry.expiresAt <= now) {
-    capacityResultCache.delete(cacheKey);
-    return null;
-  }
-
-  touchCacheEntry(cacheKey, entry);
-  return cloneCacheValue(entry.value);
+  // Always return null during development to bypass caching and force recalculation of nesting results
+  return null;
 }
 
 export function setCachedCapacityResult(cacheKey, value, ttlMs = CACHE_TTL_MS) {
