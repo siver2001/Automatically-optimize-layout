@@ -120,11 +120,29 @@ export class PairOptimizer {
     const maxY = bbA.height;
 
     for (let dy = minY; dy <= maxY; dy += this.translationStep) {
-      const safeX = bbA.width + this.spacing + this.translationStep;
-      if (polygonsOverlap(polyA, polyB, { x: 0, y: 0 }, { x: safeX, y: dy }, this.spacing, bbA, bbB)) {
+      // Early Exit 1: Kiểm tra nhanh nếu hộp bao dọc không giao nhau
+      const hasYOverlap = !(
+        dy + bbB.minY - this.spacing >= bbA.maxY ||
+        dy + bbB.maxY + this.spacing <= bbA.minY
+      );
+
+      if (!hasYOverlap) {
+        // Nếu không giao nhau theo Y, chúng không bao giờ va chạm với nhau cho dù dx bằng bao nhiêu.
+        // Do đó, dx nhỏ nhất không va chạm chính là giới hạn biên trái: -bbB.width - spacing
+        const bestSafeX = -bbB.width - this.spacing;
+        const bbox = this._getCombinedBBox(bbA, bbB, bestSafeX, dy);
+        const area = bbox.width * bbox.height;
+        if (!best || area < best.area) {
+          best = {
+            offset: { x: bestSafeX, y: dy },
+            bbox,
+            area
+          };
+        }
         continue;
       }
 
+      const safeX = bbA.width + this.spacing + this.translationStep;
       let low = -bbB.width - this.spacing;
       let high = safeX;
       let bestSafeX = safeX;

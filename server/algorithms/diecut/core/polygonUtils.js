@@ -329,42 +329,70 @@ function segmentsIntersectOptimized(p0x, p0y, p1x, p1y, p2x, p2y, p3x, p3y) {
   return s >= 0 && s <= 1 && t >= 0 && t <= 1;
 }
 
-export function polygonsOverlap(polyA, polyB, offsetA = { x: 0, y: 0 }, offsetB = { x: 0, y: 0 }, spacing = 0) {
+export function polygonsOverlap(polyA, polyB, offsetA = { x: 0, y: 0 }, offsetB = { x: 0, y: 0 }, spacing = 0, bbA = null, bbB = null) {
   const ax = offsetA.x, ay = offsetA.y;
   const bx = offsetB.x, by = offsetB.y;
+  const pad = Math.max(0, spacing || 0);
+
+  // 1. Polygon-level bounding box early exit check
+  const boxA = bbA || getBoundingBox(polyA);
+  const boxB = bbB || getBoundingBox(polyB);
+
+  if (
+    ax + boxA.maxX + pad < bx + boxB.minX - 1e-9 ||
+    ax + boxA.minX - pad > bx + boxB.maxX + 1e-9 ||
+    ay + boxA.maxY + pad < by + boxB.minY - 1e-9 ||
+    ay + boxA.minY - pad > by + boxB.maxY + 1e-9
+  ) {
+    return false;
+  }
   
-  // 1. Precise SAT-like intersection check with spacing
+  // 2. Precise SAT-like intersection check with spacing
   const nA = polyA.length;
   const nB = polyB.length;
   const sqSpacing = spacing * spacing;
 
-  // Pre-transform polyA to avoid repeated additions
-  const pA = new Float64Array(nA * 2);
   for (let i = 0; i < nA; i++) {
-    pA[i*2] = polyA[i].x + ax;
-    pA[i*2+1] = polyA[i].y + ay;
-  }
+    const pAi = polyA[i];
+    const pAiNext = polyA[(i + 1) % nA];
+    const a1x = pAi.x + ax, a1y = pAi.y + ay;
+    const a2x = pAiNext.x + ax, a2y = pAiNext.y + ay;
 
-  // Pre-transform polyB
-  const pB = new Float64Array(nB * 2);
-  for (let i = 0; i < nB; i++) {
-    pB[i*2] = polyB[i].x + bx;
-    pB[i*2+1] = polyB[i].y + by;
-  }
-
-  for (let i = 0; i < nA; i++) {
-    const a1x = pA[i*2], a1y = pA[i*2+1];
-    const a2x = pA[((i+1)%nA)*2], a2y = pA[((i+1)%nA)*2+1];
+    const minAx = a1x < a2x ? a1x : a2x;
+    const maxAx = a1x > a2x ? a1x : a2x;
+    const minAy = a1y < a2y ? a1y : a2y;
+    const maxAy = a1y > a2y ? a1y : a2y;
 
     for (let j = 0; j < nB; j++) {
-      const b1x = pB[j*2], b1y = pB[j*2+1];
-      const b2x = pB[((j+1)%nB)*2], b2y = pB[((j+1)%nB)*2+1];
+      const pBj = polyB[j];
+      const pBjNext = polyB[(j + 1) % nB];
+      const b1x = pBj.x + bx, b1y = pBj.y + by;
+      const b2x = pBjNext.x + bx, b2y = pBjNext.y + by;
+
+      const minBx = b1x < b2x ? b1x : b2x;
+      const maxBx = b1x > b2x ? b1x : b2x;
+      const minBy = b1y < b2y ? b1y : b2y;
+      const maxBy = b1y > b2y ? b1y : b2y;
+
+      // Edge-level bounding box early exit
+      if (
+        maxAx + pad < minBx ||
+        minAx - pad > maxBx ||
+        maxAy + pad < minBy ||
+        minAy - pad > maxBy
+      ) {
+        continue;
+      }
 
       if (segmentsIntersectOptimized(a1x, a1y, a2x, a2y, b1x, b1y, b2x, b2y)) return true;
 
       if (spacing > 0) {
-        if (sqDistPointSegment(a1x, a1y, b1x, b1y, b2x, b2y) <= sqSpacing) return true;
-        if (sqDistPointSegment(b1x, b1y, a1x, a1y, a2x, a2y) <= sqSpacing) return true;
+        if (a1x >= minBx - spacing && a1x <= maxBx + spacing && a1y >= minBy - spacing && a1y <= maxBy + spacing) {
+          if (sqDistPointSegment(a1x, a1y, b1x, b1y, b2x, b2y) <= sqSpacing) return true;
+        }
+        if (b1x >= minAx - spacing && b1x <= maxAx + spacing && b1y >= minAy - spacing && b1y <= maxAy + spacing) {
+          if (sqDistPointSegment(b1x, b1y, a1x, a1y, a2x, a2y) <= sqSpacing) return true;
+        }
       }
     }
   }

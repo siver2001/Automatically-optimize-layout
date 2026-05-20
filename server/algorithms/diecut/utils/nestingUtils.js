@@ -26,12 +26,37 @@ export function rasterizeToBuffer(polygon, step, spacing, refBB = null) {
 
   const offX = bb.minX;
   const offY = bb.minY;
+  const n = polygon.length;
 
   for (let r = pad; r < rows - pad; r++) {
     const wy = (r - pad) * step + step * 0.5 + offY;
-    for (let c = pad; c < cols - pad; c++) {
-      const wx = (c - pad) * step + step * 0.5 + offX;
-      if (pointInPoly(wx, wy, polygon)) {
+    const intersections = [];
+
+    // Find all intersections of scanline y = wy with polygon edges
+    for (let i = 0, j = n - 1; i < n; j = i++) {
+      const xi = polygon[i].x;
+      const yi = polygon[i].y;
+      const xj = polygon[j].x;
+      const yj = polygon[j].y;
+
+      if ((yi > wy) !== (yj > wy)) {
+        const xInt = ((xj - xi) * (wy - yi)) / (yj - yi) + xi;
+        intersections.push(xInt);
+      }
+    }
+
+    // Sort intersections from left to right
+    intersections.sort((a, b) => a - b);
+
+    // Fill between pairs of intersections
+    for (let k = 0; k < intersections.length - 1; k += 2) {
+      const xStart = intersections[k];
+      const xEnd = intersections[k + 1];
+
+      const cStart = Math.max(pad, Math.ceil((xStart - offX) / step - 0.5) + pad);
+      const cEnd = Math.min(cols - pad - 1, Math.floor((xEnd - offX) / step - 0.5) + pad);
+
+      for (let c = cStart; c <= cEnd; c++) {
         cells[r * cols + c] = 1;
       }
     }
