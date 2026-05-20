@@ -3040,15 +3040,12 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     
     // We scan Y from minY (top edge) downwards.
     // Restrict scan depth to avoid checking too deep in the sheet (margin is thin)
-    const scanDepthLimit = 350;
+    const scanDepthLimit = 80;
     const limitY = Math.min(maxY, minY + scanDepthLimit);
 
     for (let y = minY; y <= limitY + 1e-6; y += step) {
       if (this._canPlaceSplitOrient(allPlacements, orient, x, y, config, workWidth, workHeight, spatialIndex, true)) {
         lastValidY = y;
-      } else {
-        // Once we hit a collision when moving downwards, stop.
-        break;
       }
     }
     return lastValidY;
@@ -3060,15 +3057,12 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     
     // We scan X from maxX (right edge) leftwards (decreasing X).
     // Restrict scan depth to avoid checking too deep in the sheet (margin is thin)
-    const scanDepthLimit = 350;
+    const scanDepthLimit = 80;
     const limitX = Math.max(minX, maxX - scanDepthLimit);
 
     for (let x = maxX; x >= limitX - 1e-6; x -= step) {
       if (this._canPlaceSplitOrient(allPlacements, orient, x, y, config, workWidth, workHeight, spatialIndex, true)) {
         lastValidX = x;
-      } else {
-        // Once we hit a collision when moving leftwards, stop.
-        break;
       }
     }
     return lastValidX;
@@ -3077,16 +3071,13 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
   _findMinValidYForBottomMargin(orient, x, minY, maxY, allPlacements, config, workWidth, workHeight, spatialIndex) {
     let lastValidY = null;
     const step = Math.max(0.5, config.gridStep || 1);
-    const scanDepthLimit = 350;
+    const scanDepthLimit = 80;
     const limitY = Math.max(minY, maxY - scanDepthLimit);
 
     // Scan upwards from the bottom edge of the sheet (maxY) towards the center (decreasing Y)
     for (let y = maxY; y >= limitY - 1e-6; y -= step) {
       if (this._canPlaceSplitOrient(allPlacements, orient, x, y, config, workWidth, workHeight, spatialIndex, true)) {
         lastValidY = y;
-      } else {
-        // Stop once we hit a collision
-        break;
       }
     }
     return lastValidY;
@@ -3118,303 +3109,42 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     );
 
     let allPlacements = [...candidate.placements];
-    const wholeBounds = this._getWholePlacementBounds(allPlacements);
-    if (!wholeBounds) return candidate;
-
-    const spacing = config.spacing || 0;
-    const gridStep = Math.max(0.5, config.gridStep || 1);
-
-    // --- PHASE 1: TOP MARGIN (Arrow 1: Left-to-Right, Squeezed DOWNWARDS) ---
-    const topOrients = orientVariants.filter(o => o.splitOutwardSide === 'top');
     let marginPlacementsCount = 0;
-    let addedAny = true;
 
-    while (addedAny && marginPlacementsCount < 30) {
-      addedAny = false;
-      let bestOverallCandidate = null;
-      let bestOverallOrient = null;
-      let bestOverallScore = Infinity;
-
-      const spatialIndex = this._buildSpatialIndex(allPlacements, workWidth, workHeight, spacing);
-
-      // Now, for each top-oriented piece and each X candidate:
-      for (const orient of topOrients) {
-        const bb = orient.bb || getBoundingBox(orient.polygon);
-        const minY = -bb.minY; // Top edge of the sheet
-        const maxScanY = workHeight - bb.maxY; // Absolute maximum Y scan
-
-        const snappedXs = [];
-        const seenSnappedX = new Set();
-        const addSnappedX = (x) => {
-          const rounded = roundMetric(x, 3);
-          if (rounded + bb.minX < -1e-6 || rounded + bb.maxX > workWidth + 1e-6 || seenSnappedX.has(rounded)) return;
-          seenSnappedX.add(rounded);
-          snappedXs.push(rounded);
-        };
-
-        const wholePlacements = allPlacements.filter(p => !this._isSplitFillPlacement(p));
-        for (const p of wholePlacements) {
-          const pbb = p.orient.bb || getBoundingBox(p.orient.polygon);
-          const pCenterX = p.x + (pbb.minX + pbb.maxX) / 2;
-          const snappedX = pCenterX - (bb.minX + bb.maxX) / 2;
-          addSnappedX(snappedX);
-        }
-        addSnappedX(-bb.minX);
-        addSnappedX(workWidth - bb.maxX);
-
-        // Generate fine perturbed candidates around snapped points
-        const perturbedXs = [];
-        const seenPerturbedX = new Set();
-        const addPerturbedX = (x, offset) => {
-          const rounded = roundMetric(x, 3);
-          if (rounded + bb.minX < -1e-6 || rounded + bb.maxX > workWidth + 1e-6 || seenPerturbedX.has(rounded)) return;
-          seenPerturbedX.add(rounded);
-          perturbedXs.push({ x: rounded, offset });
-        };
-
-        // Perturb around each snapped X
-        // Reduced wiggle range to enforce strict alignment (up to 6mm max)
-        const offsets = [0, -3, 3, -6, 6];
-        for (const baseX of snappedXs) {
-          for (const offset of offsets) {
-            addPerturbedX(baseX + offset, offset);
-          }
-        }
-
-        for (const cand of perturbedXs) {
-          // Find the maximum valid Y (compaction downwards)
-          const validY = this._findMaxValidYForTopMargin(
-            orient,
-            cand.x,
-            minY,
-            maxScanY,
-            allPlacements,
-            config,
-            workWidth,
-            workHeight,
-            spatialIndex
-          );
-
-          if (validY !== null) {
-            // Prioritize going deep into the valleys (larger validY is best)
-            // If multiple positions have similar depth, prefer leftmost (smaller x)
-            // Penalize the wiggle offset heavily (500000) to keep the piece centered in the column
-            const score = -validY * 100000 + cand.x + Math.abs(cand.offset) * 500000;
-            if (score < bestOverallScore) {
-              bestOverallScore = score;
-              bestOverallCandidate = { x: cand.x, y: validY };
-              bestOverallOrient = orient;
-            }
-          }
-        }
-      }
-
-      if (bestOverallCandidate) {
-        const placement = {
-          id: `margin_fill_top_${marginPlacementsCount++}`,
-          orient: bestOverallOrient,
-          x: bestOverallCandidate.x,
-          y: bestOverallCandidate.y,
-          effectiveArea: bestOverallOrient.areaMm2,
-          isSplit: true
-        };
-        allPlacements.push(placement);
-        addedAny = true;
-      }
+    // --- PHASE 1: TOP MARGIN ---
+    const topOrients = orientVariants.filter(o => o.splitOutwardSide === 'top');
+    const topPlacements = this._optimizeMarginDFS(
+      sizeName, allPlacements, topOrients, 'top', config, workWidth, workHeight
+    );
+    for (const p of topPlacements) {
+      allPlacements.push({
+        ...p,
+        id: `margin_fill_top_${marginPlacementsCount++}`
+      });
     }
 
-    // --- PHASE 2: RIGHT MARGIN (Arrow 2: Bottom-to-Top, Squeezed LEFTWARDS) ---
+    // --- PHASE 2: RIGHT MARGIN ---
     const rightOrients = orientVariants.filter(o => o.splitOutwardSide === 'right');
-    addedAny = true;
-
-    while (addedAny && marginPlacementsCount < 60) {
-      addedAny = false;
-      let bestOverallCandidate = null;
-      let bestOverallOrient = null;
-      let bestOverallScore = Infinity;
-
-      const spatialIndex = this._buildSpatialIndex(allPlacements, workWidth, workHeight, spacing);
-
-      // Now, for each right-oriented piece and each Y candidate:
-      for (const orient of rightOrients) {
-        const bb = orient.bb || getBoundingBox(orient.polygon);
-        const maxScanX = workWidth - bb.maxX; // Right edge of the sheet
-
-        const snappedYs = [];
-        const seenSnappedY = new Set();
-        const addSnappedY = (y) => {
-          const rounded = roundMetric(y, 3);
-          if (rounded + bb.minY < -1e-6 || rounded + bb.maxY > workHeight + 1e-6 || seenSnappedY.has(rounded)) return;
-          seenSnappedY.add(rounded);
-          snappedYs.push(rounded);
-        };
-
-        const wholePlacements = allPlacements.filter(p => !this._isSplitFillPlacement(p));
-        for (const p of wholePlacements) {
-          const pbb = p.orient.bb || getBoundingBox(p.orient.polygon);
-          const pCenterY = p.y + (pbb.minY + pbb.maxY) / 2;
-          const snappedY = pCenterY - (bb.minY + bb.maxY) / 2;
-          addSnappedY(snappedY);
-        }
-        addSnappedY(-bb.minY);
-        addSnappedY(workHeight - bb.maxY);
-
-        // Generate fine perturbed candidates around snapped points
-        const perturbedYs = [];
-        const seenPerturbedY = new Set();
-        const addPerturbedY = (y, offset) => {
-          const rounded = roundMetric(y, 3);
-          if (rounded + bb.minY < -1e-6 || rounded + bb.maxY > workHeight + 1e-6 || seenPerturbedY.has(rounded)) return;
-          seenPerturbedY.add(rounded);
-          perturbedYs.push({ y: rounded, offset });
-        };
-
-        // Perturb around each snapped Y
-        // Reduced wiggle range to enforce strict alignment (up to 6mm max)
-        const offsets = [0, -3, 3, -6, 6];
-        for (const baseY of snappedYs) {
-          for (const offset of offsets) {
-            addPerturbedY(baseY + offset, offset);
-          }
-        }
-
-        for (const cand of perturbedYs) {
-          // Find the leftmost valid X (compaction leftwards)
-          const validX = this._findMinValidXForRightMargin(
-            orient,
-            cand.y,
-            0, // Scan all the way to 0 leftwards
-            maxScanX,
-            allPlacements,
-            config,
-            workWidth,
-            workHeight,
-            spatialIndex
-          );
-
-          if (validX !== null) {
-            // Prioritize going deep leftwards (smaller validX is best)
-            // If multiple positions have similar depth, prefer bottom-most (larger y)
-            // Penalize the wiggle offset heavily (500000) to keep the piece centered in the row
-            const score = validX * 100000 + (workHeight - cand.y) + Math.abs(cand.offset) * 500000;
-            if (score < bestOverallScore) {
-              bestOverallScore = score;
-              bestOverallCandidate = { x: validX, y: cand.y };
-              bestOverallOrient = orient;
-            }
-          }
-        }
-      }
-
-      if (bestOverallCandidate) {
-        const placement = {
-          id: `margin_fill_right_${marginPlacementsCount++}`,
-          orient: bestOverallOrient,
-          x: bestOverallCandidate.x,
-          y: bestOverallCandidate.y,
-          effectiveArea: bestOverallOrient.areaMm2,
-          isSplit: true
-        };
-        allPlacements.push(placement);
-        addedAny = true;
-      }
+    const rightPlacements = this._optimizeMarginDFS(
+      sizeName, allPlacements, rightOrients, 'right', config, workWidth, workHeight
+    );
+    for (const p of rightPlacements) {
+      allPlacements.push({
+        ...p,
+        id: `margin_fill_right_${marginPlacementsCount++}`
+      });
     }
 
-    // --- PHASE 3: BOTTOM MARGIN (Arrow 3: Left-to-Right, Squeezed DOWNWARDS) ---
+    // --- PHASE 3: BOTTOM MARGIN ---
     const bottomOrients = orientVariants.filter(o => o.splitOutwardSide === 'bottom');
-    addedAny = true;
-
-    while (addedAny && marginPlacementsCount < 90) {
-      addedAny = false;
-      let bestOverallCandidate = null;
-      let bestOverallOrient = null;
-      let bestOverallScore = Infinity;
-
-      const spatialIndex = this._buildSpatialIndex(allPlacements, workWidth, workHeight, spacing);
-
-      // Now, for each bottom-oriented piece and each X candidate:
-      for (const orient of bottomOrients) {
-        const bb = orient.bb || getBoundingBox(orient.polygon);
-        const maxY = workHeight - bb.maxY; // Bottom edge of the sheet
-
-        const snappedXs = [];
-        const seenSnappedX = new Set();
-        const addSnappedX = (x) => {
-          const rounded = roundMetric(x, 3);
-          if (rounded + bb.minX < -1e-6 || rounded + bb.maxX > workWidth + 1e-6 || seenSnappedX.has(rounded)) return;
-          seenSnappedX.add(rounded);
-          snappedXs.push(rounded);
-        };
-
-        const wholePlacements = allPlacements.filter(p => !this._isSplitFillPlacement(p));
-        for (const p of wholePlacements) {
-          const pbb = p.orient.bb || getBoundingBox(p.orient.polygon);
-          const pCenterX = p.x + (pbb.minX + pbb.maxX) / 2;
-          const snappedX = pCenterX - (bb.minX + bb.maxX) / 2;
-          addSnappedX(snappedX);
-        }
-        addSnappedX(-bb.minX);
-        addSnappedX(workWidth - bb.maxX);
-
-        // Generate fine perturbed candidates around snapped points
-        const perturbedXs = [];
-        const seenPerturbedX = new Set();
-        const addPerturbedX = (x, offset) => {
-          const rounded = roundMetric(x, 3);
-          if (rounded + bb.minX < -1e-6 || rounded + bb.maxX > workWidth + 1e-6 || seenPerturbedX.has(rounded)) return;
-          seenPerturbedX.add(rounded);
-          perturbedXs.push({ x: rounded, offset });
-        };
-
-        // Perturb around each snapped X
-        // Reduced wiggle range to enforce strict alignment (up to 6mm max)
-        const offsets = [0, -3, 3, -6, 6];
-        for (const baseX of snappedXs) {
-          for (const offset of offsets) {
-            addPerturbedX(baseX + offset, offset);
-          }
-        }
-
-        for (const cand of perturbedXs) {
-          // Find the bottom-most valid Y (compaction upwards/deep into the sheet)
-          const validY = this._findMinValidYForBottomMargin(
-            orient,
-            cand.x,
-            0,
-            maxY,
-            allPlacements,
-            config,
-            workWidth,
-            workHeight,
-            spatialIndex
-          );
-
-          if (validY !== null) {
-            // Prioritize deepest position upwards (smaller validY is best)
-            // If multiple positions have similar depth, prefer leftmost (smaller x)
-            // Penalize the wiggle offset heavily (500000) to keep the piece centered in the column
-            const score = validY * 100000 + cand.x + Math.abs(cand.offset) * 500000;
-            if (score < bestOverallScore) {
-              bestOverallScore = score;
-              bestOverallCandidate = { x: cand.x, y: validY };
-              bestOverallOrient = orient;
-            }
-          }
-        }
-      }
-
-      if (bestOverallCandidate) {
-        const placement = {
-          id: `margin_fill_bottom_${marginPlacementsCount++}`,
-          orient: bestOverallOrient,
-          x: bestOverallCandidate.x,
-          y: bestOverallCandidate.y,
-          effectiveArea: bestOverallOrient.areaMm2,
-          isSplit: true
-        };
-        allPlacements.push(placement);
-        addedAny = true;
-      }
+    const bottomPlacements = this._optimizeMarginDFS(
+      sizeName, allPlacements, bottomOrients, 'bottom', config, workWidth, workHeight
+    );
+    for (const p of bottomPlacements) {
+      allPlacements.push({
+        ...p,
+        id: `margin_fill_bottom_${marginPlacementsCount++}`
+      });
     }
 
     if (marginPlacementsCount === 0) return candidate;
@@ -3445,6 +3175,229 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     if (!augmented) return candidate;
     const finalized = this._finalizeCandidate(augmented, config, workWidth, workHeight, false);
     return finalized || candidate;
+  }
+
+  _optimizeMarginDFS(sizeName, basePlacements, orientVariants, marginType, config, workWidth, workHeight) {
+    if (!orientVariants.length) return [];
+    
+    const spacing = config.spacing || 0;
+    const isYBased = (marginType === 'right' || marginType === 'left');
+    
+    // Step 1: Generate candidates and cluster them
+    const clusters = [];
+    const allCandVals = [];
+    for (const orient of orientVariants) {
+      const bb = orient.bb || getBoundingBox(orient.polygon);
+      const snappedVals = [];
+      const seen = new Set();
+      
+      const addSnappedVal = (val) => {
+        const rounded = roundMetric(val, 3);
+        if (isYBased) {
+          if (rounded + bb.minY < -1e-6 || rounded + bb.maxY > workHeight + 1e-6 || seen.has(rounded)) return;
+        } else {
+          if (rounded + bb.minX < -1e-6 || rounded + bb.maxX > workWidth + 1e-6 || seen.has(rounded)) return;
+        }
+        seen.add(rounded);
+        snappedVals.push(rounded);
+      };
+      
+      const wholePlacements = basePlacements.filter(p => !this._isSplitFillPlacement(p));
+      for (const p of wholePlacements) {
+        const pbb = p.orient.bb || getBoundingBox(p.orient.polygon);
+        if (isYBased) {
+          const pCenterY = p.y + (pbb.minY + pbb.maxY) / 2;
+          const snappedY = pCenterY - (bb.minY + bb.maxY) / 2;
+          addSnappedVal(snappedY);
+        } else {
+          const pCenterX = p.x + (pbb.minX + pbb.maxX) / 2;
+          const snappedX = pCenterX - (bb.minX + bb.maxX) / 2;
+          addSnappedVal(snappedX);
+        }
+      }
+      
+      if (isYBased) {
+        addSnappedVal(-bb.minY);
+        addSnappedVal(workHeight - bb.maxY);
+      } else {
+        addSnappedVal(-bb.minX);
+        addSnappedVal(workWidth - bb.maxX);
+      }
+      
+      for (const baseVal of snappedVals) {
+        for (const offset of [0, -3, 3, -6, 6]) {
+          const rounded = roundMetric(baseVal + offset, 3);
+          if (isYBased) {
+            if (rounded + bb.minY >= -1e-6 && rounded + bb.maxY <= workHeight + 1e-6) {
+              allCandVals.push(rounded);
+            }
+          } else {
+            if (rounded + bb.minX >= -1e-6 && rounded + bb.maxX <= workWidth + 1e-6) {
+              allCandVals.push(rounded);
+            }
+          }
+        }
+      }
+    }
+    
+    const sortedVals = [...new Set(allCandVals)].sort((a, b) => a - b);
+    if (sortedVals.length > 0) {
+      let currentCluster = [sortedVals[0]];
+      for (let i = 1; i < sortedVals.length; i++) {
+        const val = sortedVals[i];
+        const lastVal = currentCluster[currentCluster.length - 1];
+        if (val - lastVal < 25) {
+          currentCluster.push(val);
+        } else {
+          clusters.push(currentCluster);
+          currentCluster = [val];
+        }
+      }
+      clusters.push(currentCluster);
+    }
+    
+    if (isYBased) {
+      clusters.sort((a, b) => b[0] - a[0]); // bottom-to-top (descending Y)
+    } else {
+      clusters.sort((a, b) => a[0] - b[0]); // left-to-right (ascending X)
+    }
+    
+    let bestState = {
+      placements: [],
+      score: -Infinity,
+      pairs: 0,
+      totalCount: 0
+    };
+    
+    const currentPlacements = [...basePlacements];
+    const self = this;
+    
+    function search(clusterIndex) {
+      const splits = currentPlacements.slice(basePlacements.length);
+      const numL = splits.filter(p => p.orient.foot === 'split-left').length;
+      const numR = splits.filter(p => p.orient.foot === 'split-right').length;
+      const pairs = Math.min(numL, numR);
+      const totalCount = splits.length;
+      
+      // Prune
+      const remaining = clusters.length - clusterIndex;
+      const maxPossiblePairs = Math.floor((totalCount + remaining) / 2);
+      if (maxPossiblePairs < bestState.pairs) {
+        return;
+      }
+      if (maxPossiblePairs === bestState.pairs && totalCount + remaining < bestState.totalCount) {
+        return;
+      }
+      
+      if (clusterIndex === clusters.length) {
+        let sumCoord = 0;
+        let altBonus = 0;
+        
+        if (marginType === 'right') {
+          sumCoord = splits.reduce((sum, p) => sum + p.x, 0);
+        } else if (marginType === 'top') {
+          sumCoord = splits.reduce((sum, p) => sum - p.y, 0);
+        } else if (marginType === 'bottom') {
+          sumCoord = splits.reduce((sum, p) => sum + p.y, 0);
+        }
+        
+        const sorted = [...splits].sort((a, b) => {
+          return isYBased ? a.y - b.y : a.x - b.x;
+        });
+        
+        for (let i = 0; i < sorted.length - 1; i++) {
+          if (sorted[i].orient.foot !== sorted[i + 1].orient.foot) {
+            altBonus += 1000;
+          }
+        }
+        
+        const score = pairs * 10000000 + totalCount * 100000 + altBonus - sumCoord;
+        
+        if (score > bestState.score) {
+          bestState = {
+            placements: [...currentPlacements],
+            score,
+            pairs,
+            totalCount
+          };
+        }
+        return;
+      }
+      
+      const cluster = clusters[clusterIndex];
+      
+      // Option 1: Place nothing in this cluster
+      search(clusterIndex + 1);
+      
+      // Option 2 & 3: Try to place each orientVariant
+      const spatialIndex = self._buildSpatialIndex(currentPlacements, workWidth, workHeight, spacing);
+      
+      for (const orient of orientVariants) {
+        const bb = orient.bb || getBoundingBox(orient.polygon);
+        
+        let bestCoord = null;
+        let bestSweepVal = null;
+        
+        for (const sweepVal of cluster) {
+          if (isYBased) {
+            let validX = null;
+            if (marginType === 'right') {
+              validX = self._findMinValidXForRightMargin(
+                orient, sweepVal, 0, workWidth - bb.maxX, currentPlacements, config, workWidth, workHeight, spatialIndex
+              );
+            }
+            if (validX !== null) {
+              if (bestCoord === null || validX < bestCoord) {
+                bestCoord = validX;
+                bestSweepVal = sweepVal;
+              }
+            }
+          } else {
+            let validY = null;
+            if (marginType === 'top') {
+              validY = self._findMaxValidYForTopMargin(
+                orient, sweepVal, -bb.minY, workHeight - bb.maxY, currentPlacements, config, workWidth, workHeight, spatialIndex
+              );
+            } else if (marginType === 'bottom') {
+              validY = self._findMinValidYForBottomMargin(
+                orient, sweepVal, 0, workHeight - bb.maxY, currentPlacements, config, workWidth, workHeight, spatialIndex
+              );
+            }
+            
+            if (validY !== null) {
+              if (marginType === 'top') {
+                if (bestCoord === null || validY > bestCoord) {
+                  bestCoord = validY;
+                  bestSweepVal = sweepVal;
+                }
+              } else {
+                if (bestCoord === null || validY < bestCoord) {
+                  bestCoord = validY;
+                  bestSweepVal = sweepVal;
+                }
+              }
+            }
+          }
+        }
+        
+        if (bestCoord !== null) {
+          const placement = {
+            id: `dfs_${marginType}_${clusterIndex}_${orient.foot}`,
+            orient,
+            x: isYBased ? bestCoord : bestSweepVal,
+            y: isYBased ? bestSweepVal : bestCoord,
+            effectiveArea: orient.areaMm2,
+            isSplit: true
+          };
+          currentPlacements.push(placement);
+          search(clusterIndex + 1);
+          currentPlacements.pop();
+        }
+      }
+    }
+    
+    search(0);
+    return bestState.placements.slice(basePlacements.length);
   }
 
   _rankCandidateForSplitFill(candidate, workWidth, workHeight) {
