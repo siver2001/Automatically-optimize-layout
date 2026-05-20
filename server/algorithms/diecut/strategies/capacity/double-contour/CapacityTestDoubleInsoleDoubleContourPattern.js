@@ -3219,9 +3219,23 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       if (isYBased) {
         addSnappedVal(-bb.minY);
         addSnappedVal(workHeight - bb.maxY);
+        
+        const stepSize = bb.maxY - bb.minY + spacing;
+        let val = -bb.minY;
+        while (val + bb.maxY <= workHeight + 1e-6) {
+          addSnappedVal(val);
+          val += stepSize;
+        }
       } else {
         addSnappedVal(-bb.minX);
         addSnappedVal(workWidth - bb.maxX);
+        
+        const stepSize = bb.maxX - bb.minX + spacing;
+        let val = -bb.minX;
+        while (val + bb.maxX <= workWidth + 1e-6) {
+          addSnappedVal(val);
+          val += stepSize;
+        }
       }
       
       for (const baseVal of snappedVals) {
@@ -3296,9 +3310,9 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         if (marginType === 'right') {
           sumCoord = splits.reduce((sum, p) => sum + p.x, 0);
         } else if (marginType === 'top') {
-          sumCoord = splits.reduce((sum, p) => sum - p.y, 0);
+          sumCoord = splits.reduce((sum, p) => sum - p.y + p.x * 0.05, 0);
         } else if (marginType === 'bottom') {
-          sumCoord = splits.reduce((sum, p) => sum + p.y, 0);
+          sumCoord = splits.reduce((sum, p) => sum + p.y + p.x * 0.05, 0);
         }
         
         const sorted = [...splits].sort((a, b) => {
