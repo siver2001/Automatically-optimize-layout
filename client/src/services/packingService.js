@@ -209,8 +209,24 @@ class PackingService {
     }
   }
 
-  // Xuất DXF
-  async exportDxf(container, allLayouts) {
+  // Lấy Blob DXF thô
+  async getDxfBlob(container, allLayouts) {
+    try {
+      const response = await this.api.post('/packing/export-dxf', {
+        container,
+        allLayouts
+      }, {
+        responseType: 'blob',
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Lỗi khi lấy Blob DXF:', error);
+      throw error;
+    }
+  }
+
+  // Xuất DXF (tải xuống thông qua trình duyệt)
+  async exportDxf(container, allLayouts, customFilename = null) {
     try {
       const response = await this.api.post('/packing/export-dxf', {
         container,
@@ -223,11 +239,14 @@ class PackingService {
       const link = document.createElement('a');
       link.href = url;
 
-      const disposition = response.headers['content-disposition'] || '';
-      const fileNameMatch = disposition.match(/filename=([^;]+)/i);
-      const fileName = fileNameMatch
-        ? fileNameMatch[1].trim().replace(/^"|"$/g, '')
-        : 'packing-layouts.dxf';
+      let fileName = customFilename;
+      if (!fileName) {
+        const disposition = response.headers['content-disposition'] || '';
+        const fileNameMatch = disposition.match(/filename=([^;]+)/i);
+        fileName = fileNameMatch
+          ? fileNameMatch[1].trim().replace(/^"|"$/g, '')
+          : 'packing-layouts.dxf';
+      }
 
       link.setAttribute('download', fileName);
       document.body.appendChild(link);

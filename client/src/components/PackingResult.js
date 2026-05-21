@@ -247,7 +247,16 @@ const PackingResult = () => {
 
         const layerCount = plate.layers?.length || 1;
         const placedCount = plate.layers?.[0]?.rectangles?.filter(Boolean)?.length || 0;
-        const efficiency = Number(plate.efficiency || 0);
+        
+        // Tính toán chính xác hiệu suất tấm thời gian thực dựa trên diện tích các chi tiết thực tế trên các lớp
+        const singleLayerArea = container.width * container.length;
+        const totalPlateArea = singleLayerArea * layerCount;
+        let totalUsedArea = 0;
+        plate.layers?.forEach(layer => {
+          totalUsedArea += (layer.rectangles || []).reduce((sum, r) => sum + (r ? (r.width * r.length) : 0), 0);
+        });
+        const efficiency = totalPlateArea > 0 ? (totalUsedArea / totalPlateArea * 100) : 0;
+
         const label = plateMeta.type === 'pure'
           ? `Tấm thuần ${plateMeta.displayIndex}`
           : `Tấm hỗn hợp ${plateMeta.displayIndex}`;
@@ -1051,25 +1060,58 @@ const PackingResult = () => {
     setExportPicker((current) => ({ ...current, isSubmitting: true }));
 
     try {
-      const selectedPlates = selectedSheetIndexes
-        .map((index) => exportPicker.items[index]?.sheet)
-        .filter(Boolean);
+      const sanitizeFilename = (name) => {
+        if (!name) return 'Tam';
+        // Loại bỏ các ký tự không hợp lệ trên Windows
+        return name.replace(/[\\/:*?"<>|]/g, '_');
+      };
 
-      for (const plate of selectedPlates) {
-        const [plateToExport] = preparePlatesForDxfExport([plate]);
-        const response = await packingService.exportDxf(container, [plateToExport]);
+      if (typeof window.showDirectoryPicker === 'function') {
+        // Sử dụng File System Access API để lưu trực tiếp vào thư mục
+        const dirHandle = await window.showDirectoryPicker();
+        
+        for (const index of selectedSheetIndexes) {
+          const item = exportPicker.items[index];
+          if (!item || !item.sheet) continue;
 
-        if (!response.success) {
-          setExportError(response.error || 'Lỗi không xác định khi xuất file DXF.');
-          setExportPicker((current) => ({ ...current, isSubmitting: false }));
-          return;
+          const [plateToExport] = preparePlatesForDxfExport([item.sheet]);
+          const dxfBlob = await packingService.getDxfBlob(container, [plateToExport]);
+
+          const name = item.label || `Tam_${index + 1}`;
+          const filename = `${sanitizeFilename(name)}.dxf`;
+
+          const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
+          const writable = await fileHandle.createWritable();
+          await writable.write(dxfBlob);
+          await writable.close();
+        }
+      } else {
+        // Fallback: Tải xuống từng file với tên tấm tùy chỉnh qua trình duyệt
+        for (const index of selectedSheetIndexes) {
+          const item = exportPicker.items[index];
+          if (!item || !item.sheet) continue;
+
+          const [plateToExport] = preparePlatesForDxfExport([item.sheet]);
+          const name = item.label || `Tam_${index + 1}`;
+          const filename = `${sanitizeFilename(name)}.dxf`;
+
+          const response = await packingService.exportDxf(container, [plateToExport], filename);
+          if (!response.success) {
+            setExportError(response.error || 'Lỗi không xác định khi xuất file DXF.');
+            setExportPicker((current) => ({ ...current, isSubmitting: false }));
+            return;
+          }
         }
       }
 
       closeExportPicker();
     } catch (error) {
-      console.error('Lỗi handleConfirmExportDxf:', error);
-      setExportError('Lỗi nghiêm trọng: ' + error.message);
+      if (error.name === 'AbortError') {
+        console.log('[DXF Export] User cancelled directory selection.');
+      } else {
+        console.error('Lỗi handleConfirmExportDxf:', error);
+        setExportError('Lỗi nghiêm trọng: ' + error.message);
+      }
       setExportPicker((current) => ({ ...current, isSubmitting: false }));
     } finally {
       setIsExporting(false);

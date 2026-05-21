@@ -59,6 +59,36 @@ class DieCutExportService {
     return downloadBlob('export-cyc', payload, 'diecut-layouts.CYC');
   }
 
+  async getRawBlob(endpoint, payload, fallbackName) {
+    const response = await fetch(`${API_BASE_URL}/diecut/${endpoint}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      let message = `Không thể lấy dữ liệu file ${fallbackName}`;
+      try {
+        const data = await response.json();
+        message = data?.error || message;
+      } catch {
+        // ignore parse failure
+      }
+      throw new Error(message);
+    }
+
+    const disposition = response.headers.get('Content-Disposition') || '';
+    const fileNameMatch = disposition.match(/filename=([^;]+)/i);
+    const fileName = fileNameMatch
+      ? fileNameMatch[1].trim().replace(/^"|"$/g, '')
+      : fallbackName;
+
+    const blob = await response.blob();
+    return { blob, fileName };
+  }
+
   async fetchNestingSheetDetail(resultId, sheetIndex) {
     const cacheKey = `${resultId}:${sheetIndex}`;
     if (this.sheetDetailCache.has(cacheKey)) {
