@@ -60,10 +60,7 @@ function resolveToolCode(item, toolCodeMap = {}) {
   const parsed = Number.parseInt(toolCode, 10);
 
   if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error(
-      `Chua nhap ma dao T cho size ${sizeName}. ` +
-      'Hay nhap so T o buoc cau hinh truoc khi xuat CYC.'
-    );
+    return null;
   }
 
   return parsed;
@@ -83,7 +80,17 @@ export function generateDieCutCyc(payload = {}) {
   }
 
   const [sheet] = exportData.sheets;
-  const cycles = sheet.placed.map((item, index) => {
+  
+  const validPlaced = (sheet.placed || []).filter((item) => {
+    const toolCode = resolveToolCode(item, toolCodeMap);
+    return toolCode !== null;
+  });
+
+  if (validPlaced.length === 0) {
+    throw new Error('Khong co chi tiet nao tren tam co ma dao T. Vui long cau hinh ma dao T truoc khi xuat.');
+  }
+
+  const cycles = validPlaced.map((item, index) => {
     const toolCode = resolveToolCode(item, toolCodeMap);
     const center = boundingBoxCenter(resolveCycPolygon(item));
 

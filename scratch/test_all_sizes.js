@@ -24,30 +24,32 @@ async function run() {
     preparedSplitFillEnabled: true,
     capacityLayoutMode: 'same-side-double-contour',
     allowRotate180: true,
-    parallelSizes: true
+    allowRotate90: true,
+    parallelSizes: false
   };
 
   const engine = new CapacityTestDoubleInsoleDoubleContourPattern(config);
   
+  const targetSizeNames = ['3.5', '4', '4.5', '7'];
   const testSizes = shapes.map(shape => ({
     ...shape,
     sizeName: shape.sizeName || shape.name || 'Unknown'
-  })).sort((a, b) => parseFloat(a.sizeName) - parseFloat(b.sizeName));
+  })).filter(shape => targetSizeNames.includes(shape.sizeName));
 
-  console.log(`Running full test for ${testSizes.length} sizes...`);
+  console.log(`Running test for sizes: ${targetSizeNames.join(', ')}...`);
   const res = await engine.testCapacity(testSizes, config);
   
-  console.log("\n=== ALL SIZES CAPACITY RESULTS ===");
-  let fileOutput = "=== ALL SIZES CAPACITY RESULTS ===\n";
+  console.log("\n=== SUMMARY RESULT ===");
   for (const item of (res.summary || [])) {
-    const line = `Size: ${item.sizeName.padEnd(5)} | Pairs: ${String(item.pairs).padEnd(5)} | Efficiency: ${item.efficiency.toFixed(1)}%`;
-    console.log(line);
-    fileOutput += line + "\n";
+    console.log(`Size: ${item.sizeName} | Pairs: ${item.pairs} | Efficiency: ${item.efficiency.toFixed(1)}%`);
+    const sheet = res.sheetsBySize[item.sizeName];
+    const placements = sheet ? (sheet.placed || sheet.placements) : null;
+    if (sheet && placements) {
+      console.log(`Placed count: ${placements.length}`);
+      const splits = placements.filter(p => p.foot.startsWith('split-') || p.isSplit);
+      console.log(`Splits count: ${splits.length}`);
+    }
   }
-
-  const outputFilePath = path.join(process.cwd(), 'capacity_results.txt');
-  fs.writeFileSync(outputFilePath, fileOutput, 'utf8');
-  console.log(`\n[Success] Nesting results successfully saved to: ${outputFilePath}`);
 }
 
 run().catch(console.error);

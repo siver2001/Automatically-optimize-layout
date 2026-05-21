@@ -95,8 +95,8 @@ import {
 } from '../utils/diecutNestingResultCache.js';
 
 const DEFAULT_DIECUT_UI_CONFIG = {
-  sheetWidth: 1100,
-  sheetHeight: 2000,
+  sheetWidth: 1070,
+  sheetHeight: 1970,
   spacing: 3,
   staggerSpacing: 3,
   marginX: 5,
@@ -631,11 +631,13 @@ router.post('/test-capacity', async (req, res) => {
       return {
         ...sheet,
         placed: sheet.placed.map(item => {
-          const { polygon, cycPolygon, internals, ...lightweight } = item;
+          const { polygon, internals, ...lightweight } = item;
           return {
             ...lightweight,
             // Preserve area for efficiency calculations
-            area: item.areaMm2 || item.area || 0
+            area: item.areaMm2 || item.area || 0,
+            // Preserve cycPolygon for CYC export
+            cycPolygon: item.cycPolygon
           };
         })
       };

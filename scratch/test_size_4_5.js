@@ -24,30 +24,41 @@ async function run() {
     preparedSplitFillEnabled: true,
     capacityLayoutMode: 'same-side-double-contour',
     allowRotate180: true,
-    parallelSizes: true
+    allowRotate90: true,
+    parallelSizes: false
   };
 
+  console.log("Config: ", JSON.stringify(config, null, 2));
+
   const engine = new CapacityTestDoubleInsoleDoubleContourPattern(config);
-  
   const testSizes = shapes.map(shape => ({
     ...shape,
     sizeName: shape.sizeName || shape.name || 'Unknown'
-  })).sort((a, b) => parseFloat(a.sizeName) - parseFloat(b.sizeName));
+  })).filter(shape => shape.sizeName === '4.5' || shape.sizeName === '4,5' || shape.sizeName === '4_5');
 
-  console.log(`Running full test for ${testSizes.length} sizes...`);
-  const res = await engine.testCapacity(testSizes, config);
-  
-  console.log("\n=== ALL SIZES CAPACITY RESULTS ===");
-  let fileOutput = "=== ALL SIZES CAPACITY RESULTS ===\n";
-  for (const item of (res.summary || [])) {
-    const line = `Size: ${item.sizeName.padEnd(5)} | Pairs: ${String(item.pairs).padEnd(5)} | Efficiency: ${item.efficiency.toFixed(1)}%`;
-    console.log(line);
-    fileOutput += line + "\n";
+  if (testSizes.length === 0) {
+    console.error("Size 4.5 not found!");
+    process.exit(1);
   }
 
-  const outputFilePath = path.join(process.cwd(), 'capacity_results.txt');
-  fs.writeFileSync(outputFilePath, fileOutput, 'utf8');
-  console.log(`\n[Success] Nesting results successfully saved to: ${outputFilePath}`);
+  console.log(`Running test for Size 4.5...`);
+  const res = await engine.testCapacity(testSizes, config);
+  
+  console.log("\n=== RESULT ===");
+  for (const item of (res.summary || [])) {
+    console.log(`Size: ${item.sizeName} | Pairs: ${item.pairs} | Efficiency: ${item.efficiency.toFixed(1)}%`);
+    const sheet = res.sheetsBySize[item.sizeName];
+    const placements = sheet ? (sheet.placed || sheet.placements) : null;
+    if (sheet && placements) {
+      console.log(`Placed count: ${placements.length}`);
+      
+      const sortedPlacements = [...placements].sort((a, b) => a.y - b.y || a.x - b.x);
+      sortedPlacements.forEach((p, i) => {
+        const isSplit = p.id.includes('split') || p.isSplit;
+        console.log(`Item [${i}] ID: ${p.id} | isSplit: ${isSplit} | x: ${p.x.toFixed(2)}, y: ${p.y.toFixed(2)} | angle: ${p.angle}`);
+      });
+    }
+  }
 }
 
 run().catch(console.error);

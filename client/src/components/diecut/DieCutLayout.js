@@ -74,12 +74,12 @@ const DieCutLayout = () => {
   });
 
   const [config, setConfig] = useState({
-    sheetWidth: 1100,
-    sheetHeight: 2000,
-    spacing: 4,
-    staggerSpacing: 4,
+    sheetWidth: 1070,
+    sheetHeight: 1970,
+    spacing: 3,
+    staggerSpacing: 3,
     marginX: 5,
-    marginY: 20,
+    marginY: 5,
     allowRotate90: true,
     allowRotate180: true,
     mirrorPairs: true,
@@ -110,6 +110,27 @@ const DieCutLayout = () => {
   const hasData = shapes.length > 0;
   const exportOrderNames = [...new Set(quantities.map(item => item.orderName).filter(Boolean))];
   const canExportCyc = Object.values(toolCodeMap).some((v) => v > 0);
+
+  const hasToolCode = (sizeName) => {
+    if (!sizeName) return false;
+    const name = String(sizeName).trim();
+    const numericKey = name.replace(/[^0-9.]/g, '');
+    
+    const findValue = (key) => {
+      if (!key) return undefined;
+      const target = key.toLowerCase();
+      for (const [k, v] of Object.entries(toolCodeMap)) {
+        if (String(k).trim().toLowerCase() === target) {
+          return v;
+        }
+      }
+      return undefined;
+    };
+
+    const val = findValue(name) || findValue(numericKey);
+    const parsed = parseInt(val, 10);
+    return Number.isFinite(parsed) && parsed > 0;
+  };
 
   const activeExportSizes = sizeList
     .filter((item) => (item.quantity ?? item.pairQuantity ?? 0) > 0)
@@ -236,15 +257,32 @@ const DieCutLayout = () => {
   }, []);
 
 
-  // --- HANDLERS: EXPORT PICKER ---
   const openExportPicker = (format, source, items) => {
-    const sheetIndexes = (items || []).map((_, index) => index);
+    let filteredItems = items || [];
+    if (format === 'cyc') {
+      if (source === 'test') {
+        filteredItems = (items || []).filter(item => hasToolCode(item.sizeName));
+      } else {
+        // nesting mode: items are sheets
+        filteredItems = (items || []).filter(item => {
+          const sheet = item.sheet;
+          const activeSizes = [...new Set((sheet?.placed || []).map(p => p?.sizeName).filter(Boolean))];
+          return activeSizes.some(sizeName => hasToolCode(sizeName));
+        });
+      }
+      if (filteredItems.length === 0) {
+        window.alert('Không có size/tấm nào đã xếp có cấu hình mã dao T để xuất CYC.');
+        return;
+      }
+    }
+
+    const sheetIndexes = filteredItems.map((_, index) => index);
     if (!sheetIndexes.length) return;
     setExportPicker({
       isOpen: true,
       format,
       source,
-      items,
+      items: filteredItems,
       selectedSheetIndexes: sheetIndexes,
       isSubmitting: false
     });
@@ -317,6 +355,26 @@ const DieCutLayout = () => {
     const selectedSheetIndexes = [...exportPicker.selectedSheetIndexes].sort((l, r) => l - r);
     if (!selectedSheetIndexes.length || !exportPicker.items?.length) return;
 
+    let dirHandle = null;
+    let useFallback = false;
+
+    if (exportPicker.format === 'dxf') {
+      if (typeof window.showDirectoryPicker === 'function') {
+        try {
+          dirHandle = await window.showDirectoryPicker();
+        } catch (error) {
+          if (error.name === 'AbortError') {
+            console.log('[DXF Export] User cancelled directory selection.');
+            return;
+          }
+          console.error('[DXF Export] showDirectoryPicker error, falling back to browser download:', error);
+          useFallback = true;
+        }
+      } else {
+        useFallback = true;
+      }
+    }
+
     setExportPicker((current) => ({ ...current, isSubmitting: true }));
     try {
       const labelMode = getDieCutDxfLabelMode(importAnalysis);
@@ -327,62 +385,69 @@ const DieCutLayout = () => {
           return name.replace(/[\\/:*?"<>|]/g, '_');
         };
 
-        if (typeof window.showDirectoryPicker === 'function') {
-          // Sử dụng File System Access API để lưu trực tiếp vào thư mục được chọn
-          const dirHandle = await window.showDirectoryPicker();
-          
-          if (exportPicker.source === 'test') {
-            const selectedItems = selectedSheetIndexes
-              .map((idx) => exportPicker.items[idx])
-              .filter((item) => item?.sheet?.placed?.length);
+        let dirWriteSuccess = false;
+        if (!useFallback && dirHandle) {
+          try {
+            // Sử dụng File System Access API để lưu trực tiếp vào thư mục được chọn
+            if (exportPicker.source === 'test') {
+              const selectedItems = selectedSheetIndexes
+                .map((idx) => exportPicker.items[idx])
+                .filter((item) => item?.sheet?.placed?.length);
 
-            if (!selectedItems.length) throw new Error('Không lấy được dữ liệu chi tiết của các size đã chọn.');
+              if (!selectedItems.length) throw new Error('Không lấy được dữ liệu chi tiết của các size đã chọn.');
 
-            for (const item of selectedItems) {
-              const activeSizes = item.sizeName ? [{ sizeName: item.sizeName }] : shapes;
-              const { blob } = await diecutExportService.getRawBlob('export-dxf', {
-                sheets: [item.sheet],
-                sheetWidth: item.sheet?.sheetWidth || config.sheetWidth,
-                sheetHeight: item.sheet?.sheetHeight || config.sheetHeight,
-                sizeList: activeSizes,
-                labelMode,
-                includeSizeInFileName: true,
-                title: item.sizeName ? `Capacity Test - Size ${item.sizeName}` : 'Capacity Test Result',
-                subtitle: buildExportSubtitle(config, `${item.totalPieces ?? item.sheet?.placed?.length ?? 0} pieces | 1 sheet`)
-              }, `${item.label || 'size'}.dxf`);
+              for (const item of selectedItems) {
+                const activeSizes = item.sizeName ? [{ sizeName: item.sizeName }] : shapes;
+                const { blob } = await diecutExportService.getRawBlob('export-dxf', {
+                  sheets: [item.sheet],
+                  sheetWidth: item.sheet?.sheetWidth || config.sheetWidth,
+                  sheetHeight: item.sheet?.sheetHeight || config.sheetHeight,
+                  sizeList: activeSizes,
+                  labelMode,
+                  includeSizeInFileName: true,
+                  title: item.sizeName ? `Capacity Test - Size ${item.sizeName}` : 'Capacity Test Result',
+                  subtitle: buildExportSubtitle(config, `${item.totalPieces ?? item.sheet?.placed?.length ?? 0} pieces | 1 sheet`)
+                }, `${item.label || 'size'}.dxf`);
 
-              const filename = `${sanitizeFilename(item.label || `Size_${item.sizeName}`)}.dxf`;
-              const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
-              const writable = await fileHandle.createWritable();
-              await writable.write(blob);
-              await writable.close();
+                const filename = `${sanitizeFilename(item.label || `Size_${item.sizeName}`)}.dxf`;
+                const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
+                const writable = await fileHandle.createWritable();
+                await writable.write(blob);
+                await writable.close();
+              }
+            } else {
+              const selectedSheets = await resolveSelectedNestingSheets(selectedSheetIndexes);
+              if (!selectedSheets.length) throw new Error('Không lấy được dữ liệu chi tiết của các tấm đã chọn.');
+
+              for (const [index, sheet] of selectedSheets.entries()) {
+                const item = exportPicker.items[selectedSheetIndexes[index]];
+                const label = item?.label || `Tấm ${selectedSheetIndexes[index] + 1}`;
+
+                const { blob } = await diecutExportService.getRawBlob('export-dxf', {
+                  sheets: [sheet],
+                  sheetWidth: sheet?.sheetWidth || config.sheetWidth,
+                  sheetHeight: sheet?.sheetHeight || config.sheetHeight,
+                  sizeList,
+                  labelMode,
+                  title: `Die-Cut Nesting Result - Sheet ${selectedSheetIndexes[index] + 1}`,
+                  subtitle: buildExportSubtitle(config, `${sheet?.placedCount || sheet?.placed?.length || 0} pieces | 1 sheet`)
+                }, `${label}.dxf`);
+
+                const filename = `${sanitizeFilename(label)}.dxf`;
+                const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
+                const writable = await fileHandle.createWritable();
+                await writable.write(blob);
+                await writable.close();
+              }
             }
-          } else {
-            const selectedSheets = await resolveSelectedNestingSheets(selectedSheetIndexes);
-            if (!selectedSheets.length) throw new Error('Không lấy được dữ liệu chi tiết của các tấm đã chọn.');
-
-            for (const [index, sheet] of selectedSheets.entries()) {
-              const item = exportPicker.items[selectedSheetIndexes[index]];
-              const label = item?.label || `Tấm ${selectedSheetIndexes[index] + 1}`;
-
-              const { blob } = await diecutExportService.getRawBlob('export-dxf', {
-                sheets: [sheet],
-                sheetWidth: sheet?.sheetWidth || config.sheetWidth,
-                sheetHeight: sheet?.sheetHeight || config.sheetHeight,
-                sizeList,
-                labelMode,
-                title: `Die-Cut Nesting Result - Sheet ${selectedSheetIndexes[index] + 1}`,
-                subtitle: buildExportSubtitle(config, `${sheet?.placedCount || sheet?.placed?.length || 0} pieces | 1 sheet`)
-              }, `${label}.dxf`);
-
-              const filename = `${sanitizeFilename(label)}.dxf`;
-              const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
-              const writable = await fileHandle.createWritable();
-              await writable.write(blob);
-              await writable.close();
-            }
+            dirWriteSuccess = true;
+          } catch (writeError) {
+            console.error('[DXF Export] Directory write failed, falling back to browser download:', writeError);
+            useFallback = true;
           }
-        } else {
+        }
+
+        if (useFallback || !dirHandle || !dirWriteSuccess) {
           // Fallback: Tải xuống từng file qua trình duyệt
           if (exportPicker.source === 'test') {
             const selectedItems = selectedSheetIndexes
@@ -441,9 +506,15 @@ const DieCutLayout = () => {
             .map((idx) => exportPicker.items[idx])
             .filter((item) => item?.sheet?.placed?.length);
 
-          if (!selectedItems.length) throw new Error('Khong lay duoc du lieu chi tiet cua cac size da chon.');
+          if (!selectedItems.length) throw new Error('Không lấy được dữ liệu chi tiết của các size đã chọn.');
 
-          for (const item of selectedItems) {
+          const itemsWithToolCode = selectedItems.filter((item) => hasToolCode(item.sizeName));
+
+          if (!itemsWithToolCode.length) {
+            throw new Error('Không có size nào trong các size đã chọn được cấu hình mã dao T.');
+          }
+
+          for (const item of itemsWithToolCode) {
             const activeSizes = item.sizeName ? [item.sizeName] : [];
             await diecutExportService.exportCyc({
               sheets: [item.sheet],
@@ -463,15 +534,22 @@ const DieCutLayout = () => {
           }
         } else {
           const selectedSheets = await resolveSelectedNestingSheets(selectedSheetIndexes);
-          if (!selectedSheets.length) throw new Error('Khong lay duoc du lieu chi tiet cua cac tam da chon.');
+          if (!selectedSheets.length) throw new Error('Không lấy được dữ liệu chi tiết của các tấm đã chọn.');
 
           for (const [index, sheet] of selectedSheets.entries()) {
-            const sheetActiveSizes = [...new Set((sheet?.placed || []).map((item) => item?.sizeName).filter(Boolean))];
+            const sheetActiveSizes = [...new Set((sheet?.placed || []).map((item) => item?.sizeName).filter(Boolean))]
+              .filter((sizeName) => hasToolCode(sizeName));
+
+            if (sheetActiveSizes.length === 0) {
+              console.log(`[CYC Export] Sheet ${selectedSheetIndexes[index] + 1} không có size nào có cấu hình mã dao T. Bỏ qua.`);
+              continue;
+            }
+
             await diecutExportService.exportCyc({
               sheets: [sheet],
               sheetWidth: sheet?.sheetWidth || config.sheetWidth,
               sheetHeight: sheet?.sheetHeight || config.sheetHeight,
-              sizeList: sheetActiveSizes.length ? sheetActiveSizes.map((sizeName) => ({ sizeName })) : sizeList,
+              sizeList: sheetActiveSizes.map((sizeName) => ({ sizeName })),
               labelMode,
               toolCodeMap,
               fileNameBase: buildExportFileBase({
@@ -810,7 +888,7 @@ const DieCutLayout = () => {
           config={config}
           onExportPdf={() => openExportPicker('pdf', 'test', buildTestExportItems())}
           onExportDxf={() => openExportPicker('dxf', 'test', buildTestExportItems())}
-          onExportCyc={() => openExportPicker('cyc', 'test', buildTestExportItems())}
+          onExportCyc={() => openExportPicker('cyc', 'test', buildTestExportItems().filter(item => hasToolCode(item.sizeName)))}
           showCycExport={canExportCyc}
           onClose={() => setActiveStep(3)}
         />

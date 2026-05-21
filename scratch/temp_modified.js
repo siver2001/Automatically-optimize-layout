@@ -482,17 +482,14 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         const p = item.p;
         const bb = item.bb;
         
-        const originalX = p.x;
-        const originalY = p.y;
-        
         // Align left edge of split to alignedLeftX, perfect straight alignment and 100% border-safe
         const alignedX = roundMetric(alignedLeftX - bb.minX, 3);
+        p.x = alignedX;
         
         // Squeeze Y downwards (towards 0)
         let lowY = config.marginY || 0;
-        let highY = originalY;
-        let lastValidY = originalY;
-        let foundValid = false;
+        let highY = p.y;
+        let lastValidY = p.y;
         
         // Temporarily remove this split from check set to avoid self-collision
         const otherPlacements = currentPlacements.filter(cp => cp.id !== p.id);
@@ -503,24 +500,17 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
           if (this._canPlaceSplitOrient(otherPlacements, p.orient, alignedX, midY, config, workWidth, workHeight, spatialIndex, true)) {
             lastValidY = midY;
             highY = midY - gridStep;
-            foundValid = true;
           } else {
             lowY = midY + gridStep;
           }
         }
         
-        if (foundValid) {
-          p.x = alignedX;
-          p.y = lastValidY;
-        } else {
-          p.x = originalX;
-          p.y = originalY;
-        }
+        p.y = lastValidY;
         
         // Update in currentPlacements
         const idx = currentPlacements.findIndex(cp => cp.id === p.id);
         if (idx !== -1) {
-          currentPlacements[idx] = { ...p };
+          currentPlacements[idx] = { ...p, x: alignedX, y: lastValidY };
         }
       }
       console.log(`[AlignMarginSplits] Aligned and packed ${rightMarginSplits.length} right-margin splits`);
@@ -538,17 +528,14 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         const p = item.p;
         const bb = item.bb;
         
-        const originalX = p.x;
-        const originalY = p.y;
-        
         // Align top edge of split to alignedTopY, perfect straight alignment and 100% border-safe
         const alignedY = roundMetric(alignedTopY - bb.minY, 3);
+        p.y = alignedY;
         
         // Squeeze X leftwards (towards 0)
         let lowX = config.marginX || 0;
-        let highX = originalX;
-        let lastValidX = originalX;
-        let foundValid = false;
+        let highX = p.x;
+        let lastValidX = p.x;
         
         const otherPlacements = currentPlacements.filter(cp => cp.id !== p.id);
         const spatialIndex = this._buildSpatialIndex(otherPlacements, workWidth, workHeight, config.spacing || 0);
@@ -558,24 +545,17 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
           if (this._canPlaceSplitOrient(otherPlacements, p.orient, midX, alignedY, config, workWidth, workHeight, spatialIndex, true)) {
             lastValidX = midX;
             highX = midX - gridStep;
-            foundValid = true;
           } else {
             lowX = midX + gridStep;
           }
         }
         
-        if (foundValid) {
-          p.x = lastValidX;
-          p.y = alignedY;
-        } else {
-          p.x = originalX;
-          p.y = originalY;
-        }
+        p.x = lastValidX;
         
         // Update in currentPlacements
         const idx = currentPlacements.findIndex(cp => cp.id === p.id);
         if (idx !== -1) {
-          currentPlacements[idx] = { ...p };
+          currentPlacements[idx] = { ...p, x: lastValidX, y: alignedY };
         }
       }
       console.log(`[AlignMarginSplits] Aligned and packed ${bottomMarginSplits.length} bottom-margin splits`);

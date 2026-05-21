@@ -1055,6 +1055,24 @@ const PackingResult = () => {
     const selectedSheetIndexes = [...exportPicker.selectedSheetIndexes].sort((left, right) => left - right);
     if (!selectedSheetIndexes.length) return;
 
+    let dirHandle = null;
+    let useFallback = false;
+
+    if (typeof window.showDirectoryPicker === 'function') {
+      try {
+        dirHandle = await window.showDirectoryPicker();
+      } catch (error) {
+        if (error.name === 'AbortError') {
+          console.log('[DXF Export] User cancelled directory selection.');
+          return;
+        }
+        console.error('[DXF Export] showDirectoryPicker error, falling back to browser download:', error);
+        useFallback = true;
+      }
+    } else {
+      useFallback = true;
+    }
+
     setIsExporting(true);
     setExportError(null);
     setExportPicker((current) => ({ ...current, isSubmitting: true }));
@@ -1066,26 +1084,33 @@ const PackingResult = () => {
         return name.replace(/[\\/:*?"<>|]/g, '_');
       };
 
-      if (typeof window.showDirectoryPicker === 'function') {
-        // Sử dụng File System Access API để lưu trực tiếp vào thư mục
-        const dirHandle = await window.showDirectoryPicker();
-        
-        for (const index of selectedSheetIndexes) {
-          const item = exportPicker.items[index];
-          if (!item || !item.sheet) continue;
+      let dirWriteSuccess = false;
+      if (!useFallback && dirHandle) {
+        try {
+          // Sử dụng File System Access API để lưu trực tiếp vào thư mục
+          for (const index of selectedSheetIndexes) {
+            const item = exportPicker.items[index];
+            if (!item || !item.sheet) continue;
 
-          const [plateToExport] = preparePlatesForDxfExport([item.sheet]);
-          const dxfBlob = await packingService.getDxfBlob(container, [plateToExport]);
+            const [plateToExport] = preparePlatesForDxfExport([item.sheet]);
+            const dxfBlob = await packingService.getDxfBlob(container, [plateToExport]);
 
-          const name = item.label || `Tam_${index + 1}`;
-          const filename = `${sanitizeFilename(name)}.dxf`;
+            const name = item.label || `Tam_${index + 1}`;
+            const filename = `${sanitizeFilename(name)}.dxf`;
 
-          const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
-          const writable = await fileHandle.createWritable();
-          await writable.write(dxfBlob);
-          await writable.close();
+            const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
+            const writable = await fileHandle.createWritable();
+            await writable.write(dxfBlob);
+            await writable.close();
+          }
+          dirWriteSuccess = true;
+        } catch (writeError) {
+          console.error('[DXF Export] Directory write failed, falling back to browser download:', writeError);
+          useFallback = true;
         }
-      } else {
+      }
+
+      if (useFallback || !dirHandle || !dirWriteSuccess) {
         // Fallback: Tải xuống từng file với tên tấm tùy chỉnh qua trình duyệt
         for (const index of selectedSheetIndexes) {
           const item = exportPicker.items[index];
@@ -1106,12 +1131,8 @@ const PackingResult = () => {
 
       closeExportPicker();
     } catch (error) {
-      if (error.name === 'AbortError') {
-        console.log('[DXF Export] User cancelled directory selection.');
-      } else {
-        console.error('Lỗi handleConfirmExportDxf:', error);
-        setExportError('Lỗi nghiêm trọng: ' + error.message);
-      }
+      console.error('Lỗi handleConfirmExportDxf:', error);
+      setExportError('Lỗi nghiêm trọng: ' + error.message);
       setExportPicker((current) => ({ ...current, isSubmitting: false }));
     } finally {
       setIsExporting(false);
