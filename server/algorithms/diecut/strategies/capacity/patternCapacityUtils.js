@@ -1,7 +1,11 @@
 import { getBoundingBox, polygonsOverlap as rawPolygonsOverlap } from '../../core/polygonUtils.js';
 
-const MAX_OVERLAP_CACHE_ENTRIES = 500000;
-const MAX_LOCAL_VALIDATION_CACHE_ENTRIES = 100000;
+const DEFAULT_MAX_OVERLAP_CACHE_ENTRIES = 500000;
+const DEFAULT_MAX_LOCAL_VALIDATION_CACHE_ENTRIES = 100000;
+
+// Exporting constants to maintain backwards compatibility if they are referenced anywhere else
+export const MAX_OVERLAP_CACHE_ENTRIES = DEFAULT_MAX_OVERLAP_CACHE_ENTRIES;
+export const MAX_LOCAL_VALIDATION_CACHE_ENTRIES = DEFAULT_MAX_LOCAL_VALIDATION_CACHE_ENTRIES;
 
 const objectIdCache = new WeakMap();
 const overlapCache = new Map();
@@ -27,12 +31,66 @@ function getObjectId(object) {
   return id;
 }
 
+/**
+ * Dynamically gets the maximum allowed cache entries based on environment variables
+ * and system/V8 heap memory usage to prevent Out Of Memory (OOM) crashes.
+ */
+function getDynamicMaxEntries(defaultLimit, envVarName) {
+  // 1. Allow environment variable overrides
+  if (typeof process !== 'undefined' && process.env) {
+    const envVal = process.env[envVarName];
+    if (envVal) {
+      const parsed = parseInt(envVal, 10);
+      if (!isNaN(parsed) && parsed > 0) return parsed;
+    }
+  }
+
+  // 2. Adaptive Memory Sizing: Scale down limits if Node.js V8 heap is under pressure
+  if (typeof process !== 'undefined' && typeof process.memoryUsage === 'function') {
+    try {
+      const { heapUsed } = process.memoryUsage();
+      
+      // If heap is > 1.2 GB, scale down to 20% of the default limit
+      if (heapUsed > 1200 * 1024 * 1024) {
+        return Math.max(1000, Math.floor(defaultLimit * 0.2));
+      }
+      // If heap is > 800 MB, scale down to 50% of the default limit
+      if (heapUsed > 800 * 1024 * 1024) {
+        return Math.max(2000, Math.floor(defaultLimit * 0.5));
+      }
+    } catch (e) {
+      // Graceful fallback if process.memoryUsage() throws or fails
+    }
+  }
+
+  return defaultLimit;
+}
+
+/**
+ * Gets an entry from the Map cache and refreshes its position (Least Recently Used - LRU)
+ */
+function getLruCacheEntry(cache, key) {
+  if (cache.has(key)) {
+    const value = cache.get(key);
+    // Delete and re-set moves the key to the end of insertion order in modern JS Map,
+    // marking it as the most recently accessed entry.
+    cache.delete(key);
+    cache.set(key, value);
+    return value;
+  }
+  return undefined;
+}
+
+/**
+ * Sets a cache entry, restricting the cache size to maxEntries.
+ * Uses a while loop in case maxEntries dynamically drops due to memory pressure.
+ */
 function setBoundedCacheEntry(cache, key, value, maxEntries) {
   if (cache.has(key)) {
     cache.delete(key);
   }
   cache.set(key, value);
-  if (cache.size > maxEntries) {
+  while (cache.size > maxEntries) {
     const oldestKey = cache.keys().next().value;
     cache.delete(oldestKey);
   }
@@ -108,12 +166,14 @@ export function cachedPolygonsOverlap(polyA, polyB, offsetA = { x: 0, y: 0 }, of
   }
 
   const cacheKey = buildOverlapCacheKey(polyA, polyB, offsetA, offsetB, spacing);
-  if (overlapCache.has(cacheKey)) {
-    return overlapCache.get(cacheKey);
+  const cachedVal = getLruCacheEntry(overlapCache, cacheKey);
+  if (cachedVal !== undefined) {
+    return cachedVal;
   }
 
   const result = rawPolygonsOverlap(polyA, polyB, offsetA, offsetB, spacing, boxA, boxB);
-  return setBoundedCacheEntry(overlapCache, cacheKey, result, MAX_OVERLAP_CACHE_ENTRIES);
+  const dynamicMax = getDynamicMaxEntries(DEFAULT_MAX_OVERLAP_CACHE_ENTRIES, 'MAX_OVERLAP_CACHE_ENTRIES');
+  return setBoundedCacheEntry(overlapCache, cacheKey, result, dynamicMax);
 }
 
 export function roundMetric(value, decimals = 2) {
@@ -338,12 +398,14 @@ export function validateLocalPlacements(placements, spacing, padding = 10) {
     spacing
   );
 
-  if (localValidationCache.has(cacheKey)) {
-    return localValidationCache.get(cacheKey);
+  const cachedVal = getLruCacheEntry(localValidationCache, cacheKey);
+  if (cachedVal !== undefined) {
+    return cachedVal;
   }
 
   const result = validatePatternPlacements(rebased.placements, rebased.workWidth, rebased.workHeight, spacing);
-  return setBoundedCacheEntry(localValidationCache, cacheKey, result, MAX_LOCAL_VALIDATION_CACHE_ENTRIES);
+  const dynamicMax = getDynamicMaxEntries(DEFAULT_MAX_LOCAL_VALIDATION_CACHE_ENTRIES, 'MAX_LOCAL_VALIDATION_CACHE_ENTRIES');
+  return setBoundedCacheEntry(localValidationCache, cacheKey, result, dynamicMax);
 }
 
 export function comparePatternCandidates(nextCandidate, bestCandidate) {
