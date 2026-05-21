@@ -18,5 +18,5 @@ Size: 11    | Pairs: 39    | Efficiency: 76.9%
 Size: 11.5  | Pairs: 39    | Efficiency: 78.9%
 Size: 12    | Pairs: 39    | Efficiency: 80.9%
 Size: 12.5  | Pairs: 37.5  | Efficiency: 79.8%
-Size: 13    | Pairs: 37.5  | Efficiency: 81.7%
+Size: 13    | Pairs: 37.5  | Efficiency: 81.8%
 Size: 14    | Pairs: 36    | Efficiency: 82.4%

@@ -133,6 +133,24 @@ export function compareDoubleInsoleCandidates(nextCandidate, bestCandidate) {
     return bestPairs - nextPairs;
   }
 
+  if (nextCandidate.placedCount !== bestCandidate.placedCount) {
+    return bestCandidate.placedCount - nextCandidate.placedCount;
+  }
+
+  const nextDc = nextCandidate.dcCount ?? 0;
+  const bestDc = bestCandidate.dcCount ?? 0;
+  if (nextDc !== bestDc) {
+    return bestDc - nextDc;
+  }
+
+  if ((nextCandidate.splitPairCount || 0) !== (bestCandidate.splitPairCount || 0)) {
+    return (bestCandidate.splitPairCount || 0) - (nextCandidate.splitPairCount || 0);
+  }
+
+  if ((nextCandidate.splitUnpairedCount || 0) !== (bestCandidate.splitUnpairedCount || 0)) {
+    return (nextCandidate.splitUnpairedCount || 0) - (bestCandidate.splitUnpairedCount || 0);
+  }
+
   const nextLeftover = nextCandidate.leftoverAreaMm2 ?? 0;
   const bestLeftover = bestCandidate.leftoverAreaMm2 ?? 0;
   if (nextLeftover !== bestLeftover) {
@@ -143,21 +161,6 @@ export function compareDoubleInsoleCandidates(nextCandidate, bestCandidate) {
   const bestOpenSheet = bestCandidate.openSheetAreaMm2 ?? 0;
   if (nextOpenSheet !== bestOpenSheet) {
     return bestOpenSheet - nextOpenSheet;
-  }
-
-  if (nextCandidate.placedCount !== bestCandidate.placedCount) {
-    return bestCandidate.placedCount - nextCandidate.placedCount;
-  }
-  const nextDc = nextCandidate.dcCount ?? 0;
-  const bestDc = bestCandidate.dcCount ?? 0;
-  if (nextDc !== bestDc) {
-    return bestDc - nextDc;
-  }
-  if ((nextCandidate.splitPairCount || 0) !== (bestCandidate.splitPairCount || 0)) {
-    return (bestCandidate.splitPairCount || 0) - (nextCandidate.splitPairCount || 0);
-  }
-  if ((nextCandidate.splitUnpairedCount || 0) !== (bestCandidate.splitUnpairedCount || 0)) {
-    return (bestCandidate.splitUnpairedCount || 0) - (nextCandidate.splitUnpairedCount || 0);
   }
   if (nextCandidate.bodyCount !== bestCandidate.bodyCount) {
     return bestCandidate.bodyCount - nextCandidate.bodyCount;

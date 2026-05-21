@@ -32,7 +32,7 @@ async function run() {
   const testSizes = shapes.map(shape => ({
     ...shape,
     sizeName: shape.sizeName || shape.name || 'Unknown'
-  })).filter(shape => shape.sizeName === '11');
+  })).filter(shape => shape.sizeName === '9.5');
 
   if (testSizes.length === 0) {
     console.error("Size 11 not found!");

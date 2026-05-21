@@ -2784,7 +2784,40 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         if (depth > 15 && states.length > 1) {
             // This already processed the best state first, so we just limit future expansions
         }
-        if (state.extraPlacements.length + 1 < maxExtraFillers && pairTemplates.length) {
+        let leftCount = 0;
+        let rightCount = 0;
+        for (const p of state.extraPlacements) {
+          const foot = p.orient?.foot;
+          if (foot === 'split-left') leftCount++;
+          else if (foot === 'split-right') rightCount++;
+        }
+
+        let forcePartnerSearch = false;
+        let partnerFilter = null;
+        let unpairedPlacement = null;
+
+        if (config.preparedSplitFillPreferPairs !== false && state.extraPlacements.length > 0) {
+          if (leftCount > rightCount) {
+            unpairedPlacement = [...state.extraPlacements].reverse().find(p => p.orient?.foot === 'split-left');
+            if (unpairedPlacement) {
+              forcePartnerSearch = true;
+              partnerFilter = (orient) =>
+                orient?.foot === 'split-right' &&
+                orient?.splitPairAngleFamily === unpairedPlacement.orient?.splitPairAngleFamily;
+            }
+          } else if (rightCount > leftCount) {
+            unpairedPlacement = [...state.extraPlacements].reverse().find(p => p.orient?.foot === 'split-right');
+            if (unpairedPlacement) {
+              forcePartnerSearch = true;
+              partnerFilter = (orient) =>
+                orient?.foot === 'split-left' &&
+                orient?.splitPairAngleFamily === unpairedPlacement.orient?.splitPairAngleFamily;
+            }
+          }
+        }
+
+        let placedGroup = false;
+        if (!forcePartnerSearch && state.extraPlacements.length + 1 < maxExtraFillers && pairTemplates.length) {
           const groupOptions = this._findSplitPairGroupPlacementOptions(
             pairTemplates,
             state.occupiedPlacements,
@@ -2822,9 +2855,10 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
               workHeight,
               spatialIndex: nextSpatialIndex
             });
+            placedGroup = true;
           }
 
-          if (groupOptions.length > 0 && depth > 5) {
+          if (placedGroup && depth > 5) {
             // If we found a group (pair/template), we prioritize it and don't look for single pieces
             // this speeds up small sizes significantly.
             continue;
@@ -2832,17 +2866,23 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         }
 
         let options = [];
-        if (config.preparedSplitFillPreferPairs !== false && state.extraPlacements.length > 0) {
-          const lastPlacement = state.extraPlacements[state.extraPlacements.length - 1];
-          const partnerFoot = this._getSplitPairPartnerFoot(lastPlacement?.orient?.foot);
-          const partnerAngleFamily = lastPlacement?.orient?.splitPairAngleFamily;
-          if (partnerFoot) {
-            const partnerFilter = (orient) =>
-              orient?.foot === partnerFoot
-              && orient?.splitPairAngleFamily === partnerAngleFamily;
+        if (forcePartnerSearch && unpairedPlacement && partnerFilter) {
+          options = this._findSplitPartnerNearPlacementOptions(
+            unpairedPlacement,
+            orientVariants,
+            state.occupiedPlacements,
+            config,
+            workWidth,
+            workHeight,
+            step,
+            partnerFilter,
+            depth > 10 ? 15 : 35,
+            state.spatialIndex
+          );
 
-            options = this._findSplitPartnerNearPlacementOptions(
-              lastPlacement,
+          if (!options.length) {
+            options = this._findNextSplitFillPlacementOptions(
+              sizeName,
               orientVariants,
               state.occupiedPlacements,
               config,
@@ -2850,50 +2890,38 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
               workHeight,
               step,
               partnerFilter,
-              depth > 10 ? 10 : 25,
+              depth > 10 ? 20 : 50,
               state.spatialIndex
             );
-
-            if (!options.length) {
-              options = this._findNextSplitFillPlacementOptions(
-                sizeName,
-                orientVariants,
-                state.occupiedPlacements,
-                config,
-                workWidth,
-                workHeight,
-                step,
-                partnerFilter,
-                depth > 10 ? 15 : 40,
-                state.spatialIndex
-              );
-            }
           }
         }
 
-        const genericOptions = this._findNextSplitFillPlacementOptions(
-          sizeName,
-          orientVariants,
-          state.occupiedPlacements,
-          config,
-          workWidth,
-          workHeight,
-          step,
-          null,
-          depth > 10 ? 10 : 20,
-          state.spatialIndex
-        );
+        if (!forcePartnerSearch || options.length === 0) {
+          const genericOptions = this._findNextSplitFillPlacementOptions(
+            sizeName,
+            orientVariants,
+            state.occupiedPlacements,
+            config,
+            workWidth,
+            workHeight,
+            step,
+            null,
+            depth > 10 ? 10 : 20,
+            state.spatialIndex
+          );
 
-        let mergedOptions = [...options];
-        const seenOptions = new Set(mergedOptions.map((option) =>
-          `${option.orient.foot}|${option.orient.angle}|${roundMetric(option.x, 3)}|${roundMetric(option.y, 3)}`
-        ));
+          let mergedOptions = [...options];
+          const seenOptions = new Set(mergedOptions.map((option) =>
+            `${option.orient.foot}|${option.orient.angle}|${roundMetric(option.x, 3)}|${roundMetric(option.y, 3)}`
+          ));
 
-        for (const option of genericOptions) {
-          const key = `${option.orient.foot}|${option.orient.angle}|${roundMetric(option.x, 3)}|${roundMetric(option.y, 3)}`;
-          if (seenOptions.has(key)) continue;
-          seenOptions.add(key);
-          mergedOptions.push(option);
+          for (const option of genericOptions) {
+            const key = `${option.orient.foot}|${option.orient.angle}|${roundMetric(option.x, 3)}|${roundMetric(option.y, 3)}`;
+            if (seenOptions.has(key)) continue;
+            seenOptions.add(key);
+            mergedOptions.push(option);
+          }
+          options = mergedOptions;
         }
 
         const avgArea = orientVariants[0]?.area || 1;
@@ -2916,11 +2944,11 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         }
         fillLimit = Math.min(fillLimit, isSmall ? 10 : 6);
 
-        const filteredMergedOptions = mergedOptions.filter(option => {
+        const filteredOptions = options.filter(option => {
           const pbb = option.orient?.bb || getBoundingBox(option.orient?.polygon || []);
           return option.x + pbb.maxX <= workWidth;
         });
-        options = filteredMergedOptions.slice(0, fillLimit);
+        options = filteredOptions.slice(0, fillLimit);
 
         for (const option of options) {
           const nextPlacement = {
