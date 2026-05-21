@@ -169,7 +169,13 @@ export function buildSplitHalfDefinitions(polygon, internalPath = []) {
   const rawDefs = [];
 
   for (const side of ['left', 'right']) {
-    const clipPolygon = buildSplitClipPolygon(divider, bounds, side);
+    // Trừ đi 1mm vào mặt cắt cho cả hai nửa (Lùi về bên trái 1mm cho miếng trái, lùi về bên phải 1mm cho miếng phải)
+    const shiftedDivider = divider.map((point) => ({
+      x: side === 'left' ? point.x - 1.0 : point.x + 1.0,
+      y: point.y
+    }));
+
+    const clipPolygon = buildSplitClipPolygon(shiftedDivider, bounds, side);
     if (!clipPolygon?.length) continue;
 
     const clipped = polygonClipping.intersection(fullPolygonClip, [[toClipRing(clipPolygon)]]);

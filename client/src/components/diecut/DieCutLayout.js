@@ -2,7 +2,7 @@
  * DieCutLayout.js - Main Page for Die-Cut Nesting
  * Refactored for better readability and maintainability.
  */
-import React, { startTransition, useState, useMemo, useEffect } from 'react';
+import React, { startTransition, useState, useMemo, useEffect, useRef } from 'react';
 
 // Core Sub-components
 import DieCutDxfUploader from './DieCutDxfUploader.js';
@@ -31,6 +31,8 @@ import {
 
 const DieCutLayout = () => {
   const [testProgress, setTestProgress] = useState({ completed: 0, total: 0, currentSize: '', statusMap: {} });
+  const progressMapRef = useRef({});
+  const lastActiveSizeRef = useRef('');
   // --- UTILS ---
   const buildExportSubtitle = (configValue, extraText = '') => {
     if (!configValue) return extraText || '';
@@ -199,19 +201,35 @@ const DieCutLayout = () => {
       : window.location.origin;
 
     const socket = io(socketUrl);
-    socket.on('test-capacity-progress', (data) => {
+    let throttleTimeout = null;
+
+    const flushProgressUpdate = () => {
       setTestProgress((prev) => {
-        const nextStatusMap = { ...prev.statusMap, [data.sizeName]: data.status };
+        const nextStatusMap = { ...progressMapRef.current };
         const completed = Object.values(nextStatusMap).filter((s) => s === 'done').length;
         return {
           ...prev,
           completed,
-          currentSize: data.sizeName,
+          currentSize: lastActiveSizeRef.current,
           statusMap: nextStatusMap
         };
       });
+      throttleTimeout = null;
+    };
+
+    socket.on('test-capacity-progress', (data) => {
+      progressMapRef.current[data.sizeName] = data.status;
+      if (data.status === 'started' || data.status === 'done') {
+        lastActiveSizeRef.current = data.sizeName;
+      }
+
+      if (!throttleTimeout) {
+        throttleTimeout = setTimeout(flushProgressUpdate, 300);
+      }
     });
+
     return () => {
+      if (throttleTimeout) clearTimeout(throttleTimeout);
       socket.off('test-capacity-progress');
       socket.disconnect();
     };
@@ -552,6 +570,8 @@ const DieCutLayout = () => {
     setIsTestRunning(true);
     setTestError(null);
     setTestResult(null);
+    progressMapRef.current = {};
+    lastActiveSizeRef.current = '';
     setTestProgress({ completed: 0, total: shapes.length, currentSize: '', statusMap: {} });
     try {
       const payload = { sizeList: shapes, ...applyRecommendedMode(config, importAnalysis) };

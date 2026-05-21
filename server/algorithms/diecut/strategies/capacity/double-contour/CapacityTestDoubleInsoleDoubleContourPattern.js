@@ -89,7 +89,6 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
   }
 
   _findShiftedUniformDy(orient, dxMm, rowShiftXmm, rowShiftYmm, config, step) {
-    // Balanced precision for performance and "khít" (tightness)
     const precision = 0.02;
     const upper = Math.max(
       step,
@@ -949,6 +948,44 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       }
       return validateLocalPlacements(neighborhood, spacing).valid;
     });
+  }
+
+  _findBodyStartOffsetAfterFillerRow(fillerRowPlacements, bodyRowPlacements, config, step) {
+    if (!fillerRowPlacements.length) return 0;
+
+    const precision = Math.min(step, 0.05);
+    const bodyTop = getPlacementsTop(bodyRowPlacements);
+    const fillerBottom = getPlacementsBottom(fillerRowPlacements);
+    const minDeltaY = 0;
+    const upper = Math.max(
+      step,
+      fillerBottom - bodyTop + getPlacementsBottom(bodyRowPlacements) + config.spacing + step * 8
+    );
+
+    const deltaY = findMinimalContinuousValue(minDeltaY, upper, precision, (delta) => {
+      for (const first of fillerRowPlacements) {
+        const bb1 = first.orient.bb || getOrientBounds(first.orient);
+        for (const second of bodyRowPlacements) {
+          const bb2 = second.orient.bb || getOrientBounds(second.orient);
+          if (
+            cachedPolygonsOverlap(
+              first.orient.polygon,
+              second.orient.polygon,
+              { x: first.x, y: first.y },
+              { x: second.x, y: second.y + delta },
+              config.spacing || 0,
+              bb1,
+              bb2
+            )
+          ) {
+            return false;
+          }
+        }
+      }
+      return true;
+    });
+
+    return deltaY == null ? null : roundMetric(deltaY, 3);
   }
 
   _findBestPreparedSplitPlacement(occupiedPlacements, orient, workWidth, workHeight, config, step, providedSpatialIndex = null) {
@@ -3893,6 +3930,11 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         const bodyRows = this._countRows(variant.bodyHeightMm, variant.bodyDyMm, workHeight, variant.rowShiftYmm || 0) + 1;
         if (!bodyCols || !bodyRows) continue;
 
+        const maxPotentialBodyCount = maxCols * bodyRows;
+        if (bestCandidate && maxPotentialBodyCount < getWholePlacementCount(bestCandidate)) {
+          continue;
+        }
+
         const bodyPlacements = [];
         const startX = variant.rowShiftXmm < 0 ? -variant.rowShiftXmm : 0;
         const startY = -Math.min(0, variant.rowShiftYmm);
@@ -3997,6 +4039,8 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         }
 
         const bodyRowPlacements = variant.rowPlacements;
+        const bodyStartOffsetCache = new Map();
+        const fillerStartOffsetCache = new Map();
         const isFastMode = config.preparedSplitFillDeep === false;
         
         let fillerColOptions = [filler90Cols, filler90Cols - 1, filler90Cols - 2, filler90Cols - 3, filler90Cols - 4].filter(c => c > 0);
@@ -4044,14 +4088,25 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
                   0
                 )
                 : [];
-              const bodyStartOffsetAfterFillerRow = topSampleRowPlacements.length
-                ? this._findBodyStartOffsetAfterFillerRow(
-                  topSampleRowPlacements,
-                  bodyRowPlacements,
-                  config,
-                  step
-                )
-                : 0;
+              
+              let bodyStartOffsetAfterFillerRow;
+              if (filler90TopRows > 0) {
+                const cacheKey = `${filler90ColsChoice}_${topFillerStartX}`;
+                if (bodyStartOffsetCache.has(cacheKey)) {
+                  bodyStartOffsetAfterFillerRow = bodyStartOffsetCache.get(cacheKey);
+                } else {
+                  bodyStartOffsetAfterFillerRow = this._findBodyStartOffsetAfterFillerRow(
+                    topSampleRowPlacements,
+                    bodyRowPlacements,
+                    config,
+                    step
+                  );
+                  bodyStartOffsetCache.set(cacheKey, bodyStartOffsetAfterFillerRow);
+                }
+              } else {
+                bodyStartOffsetAfterFillerRow = 0;
+              }
+
               if (filler90TopRows > 0 && bodyStartOffsetAfterFillerRow == null) continue;
 
               for (const filler90BottomRows of fillerRowCountOptions) {
@@ -4070,18 +4125,28 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
                       0
                     )
                     : [];
-                  const fillerStartOffsetAfterBodyRow = bottomSampleRowPlacements.length
-                    ? this._findBodyStartOffsetAfterFillerRow(
-                      bodyRowPlacements,
-                      bottomSampleRowPlacements,
-                      config,
-                      step
-                    )
-                    : 0;
+                  
+                  let fillerStartOffsetAfterBodyRow;
+                  if (filler90BottomRows > 0) {
+                    const cacheKey = `${filler90ColsChoice}_${bottomFillerStartX}`;
+                    if (fillerStartOffsetCache.has(cacheKey)) {
+                      fillerStartOffsetAfterBodyRow = fillerStartOffsetCache.get(cacheKey);
+                    } else {
+                      fillerStartOffsetAfterBodyRow = this._findBodyStartOffsetAfterFillerRow(
+                        bodyRowPlacements,
+                        bottomSampleRowPlacements,
+                        config,
+                        step
+                      );
+                      fillerStartOffsetCache.set(cacheKey, fillerStartOffsetAfterBodyRow);
+                    }
+                  } else {
+                    fillerStartOffsetAfterBodyRow = 0;
+                  }
+
                   if (filler90BottomRows > 0 && fillerStartOffsetAfterBodyRow == null) continue;
 
                   const isHighQuality = true; // Use high-quality offset search for all sizes
-                  if (filler90BottomRows > 0 && fillerStartOffsetAfterBodyRow == null) continue;
 
                   const lastTopFillerRowY = filler90TopRows > 0
                     ? roundMetric((filler90TopRows - 1) * filler90DyMm)
@@ -4101,6 +4166,11 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
                     bottomFillerBlockHeight
                   ) + 1;
                   if (!bodyCols || !bodyRows) continue;
+
+                  const maxPotentialCount = bodyCols * bodyRows + filler90ColsChoice * (filler90TopRows + filler90BottomRows);
+                  if (bestCandidate && maxPotentialCount < getWholePlacementCount(bestCandidate)) {
+                    continue;
+                  }
 
                   let actualTopFillerDy = filler90DyMm;
                   if (filler90TopRows > 1 && bodyRows > 0) {
