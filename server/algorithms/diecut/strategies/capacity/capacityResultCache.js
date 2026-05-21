@@ -1,11 +1,9 @@
 // In-memory cache for per-size capacity test results.
 // This cache lives only for the current server process and is not persisted.
-// Change CAPACITY_VERSION_TAG in capacityVersion.js when result semantics change.
 
-import { CAPACITY_CACHE_KEY_VERSION } from './capacityVersion.js';
-
-const CACHE_TTL_MS = 15 * 60 * 1000;
-const MAX_CACHE_ENTRIES = 256;
+// Smart, dynamic limits with environment variable overrides and dynamic fallback
+const DEFAULT_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
+const DEFAULT_MAX_CACHE_ENTRIES = 256;
 
 const IGNORED_CONFIG_FIELDS = new Set([
   'maxTimeMs',
@@ -14,6 +12,45 @@ const IGNORED_CONFIG_FIELDS = new Set([
 ]);
 
 const capacityResultCache = new Map();
+
+/**
+ * Gets the configured cache TTL (Time to Live) in milliseconds.
+ */
+function getCacheTtlMs() {
+  if (typeof process !== 'undefined' && process.env?.CACHE_TTL_MS) {
+    const parsed = parseInt(process.env.CACHE_TTL_MS, 10);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+  return DEFAULT_CACHE_TTL_MS;
+}
+
+/**
+ * Dynamically gets the maximum allowed cache entries based on memory usage
+ * to prevent Out Of Memory (OOM) crashes.
+ */
+function getDynamicMaxEntries() {
+  if (typeof process !== 'undefined' && process.env?.MAX_CACHE_ENTRIES) {
+    const envVal = parseInt(process.env.MAX_CACHE_ENTRIES, 10);
+    if (!isNaN(envVal) && envVal > 0) return envVal;
+  }
+
+  // Adaptive memory management: Scale down cache limits if memory is low
+  if (typeof process !== 'undefined' && typeof process.memoryUsage === 'function') {
+    try {
+      const { heapUsed } = process.memoryUsage();
+      if (heapUsed > 1200 * 1024 * 1024) {
+        return Math.max(20, Math.floor(DEFAULT_MAX_CACHE_ENTRIES * 0.2));
+      }
+      if (heapUsed > 800 * 1024 * 1024) {
+        return Math.max(50, Math.floor(DEFAULT_MAX_CACHE_ENTRIES * 0.5));
+      }
+    } catch (e) {
+      // Graceful fallback
+    }
+  }
+
+  return DEFAULT_MAX_CACHE_ENTRIES;
+}
 
 function cloneCacheValue(value) {
   if (typeof structuredClone === 'function') {
@@ -69,16 +106,20 @@ function pruneExpiredEntries(now) {
 }
 
 function enforceCacheLimit() {
-  while (capacityResultCache.size > MAX_CACHE_ENTRIES) {
+  const limit = getDynamicMaxEntries();
+  while (capacityResultCache.size > limit) {
     const oldestKey = capacityResultCache.keys().next().value;
     if (oldestKey == null) break;
     capacityResultCache.delete(oldestKey);
   }
 }
 
+/**
+ * Builds a stable, unique cache key for a specific strategy, size, and config.
+ * Removed version dependency to avoid arbitrary invalidations.
+ */
 export function buildCapacityResultCacheKey(strategyKey, size, config) {
   return JSON.stringify({
-    version: CAPACITY_CACHE_KEY_VERSION,
     strategyKey,
     sizeName: size?.sizeName ?? null,
     sizeValue: normalizeNumber(size?.sizeValue),
@@ -87,19 +128,50 @@ export function buildCapacityResultCacheKey(strategyKey, size, config) {
   });
 }
 
+/**
+ * Retrieves a cached capacity test result if it exists and has not expired.
+ * Also refreshes the entry's access order to implement Least Recently Used (LRU) behavior.
+ */
 export function getCachedCapacityResult(cacheKey) {
-  // Always return null during development to bypass caching and force recalculation of nesting results
+  // Support bypassing cache via environment variables if needed
+  if (typeof process !== 'undefined' && process.env?.BYPASS_CAPACITY_CACHE === 'true') {
+    return null;
+  }
+
+  const entry = capacityResultCache.get(cacheKey);
+  if (entry) {
+    const now = Date.now();
+    if (entry.expiresAt > now) {
+      // Refresh position in Map to mark it as most recently accessed (LRU)
+      touchCacheEntry(cacheKey, entry);
+      return cloneCacheValue(entry.value);
+    } else {
+      capacityResultCache.delete(cacheKey);
+    }
+  }
   return null;
 }
 
-export function setCachedCapacityResult(cacheKey, value, ttlMs = CACHE_TTL_MS) {
+/**
+ * Stores a capacity test result in the cache with the given TTL.
+ */
+export function setCachedCapacityResult(cacheKey, value, ttlMs = null) {
   const now = Date.now();
   pruneExpiredEntries(now);
 
+  const finalTtl = ttlMs != null ? ttlMs : getCacheTtlMs();
+
   touchCacheEntry(cacheKey, {
     value: cloneCacheValue(value),
-    expiresAt: now + Math.max(1000, ttlMs)
+    expiresAt: now + Math.max(1000, finalTtl)
   });
 
   enforceCacheLimit();
+}
+
+/**
+ * Clears the capacity result cache completely.
+ */
+export function clearCapacityResultCache() {
+  capacityResultCache.clear();
 }
