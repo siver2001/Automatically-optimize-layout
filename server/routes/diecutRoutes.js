@@ -86,7 +86,7 @@ function enforceMonotonicity(summary, sheetsBySize) {
 
 import { generateDieCutDxf } from '../utils/diecutDxfGenerator.js';
 import { generateDieCutCyc } from '../utils/diecutCycGenerator.js';
-import { sanitizeExportFileName } from '../utils/diecutExportUtils.js';
+import { sanitizeExportFileName, getExportBaseName } from '../utils/diecutExportUtils.js';
 import {
   getDieCutNestingResult,
   getDieCutNestingSheetDetail,
@@ -772,6 +772,7 @@ router.post('/export-dxf', (req, res) => {
       fileNameBase,
       resultId,
       labelMode,
+      toolCodeMap,
       includeSizeInFileName = false
     } = req.body;
 
@@ -789,30 +790,23 @@ router.post('/export-dxf', (req, res) => {
     const sheetCount = sheets.length;
     const resolvedSheetWidth = sheetWidth || sheets[0]?.sheetWidth;
     const resolvedSheetHeight = sheetHeight || sheets[0]?.sheetHeight;
-    const sizeStr = `${resolvedSheetWidth}x${resolvedSheetHeight}`;
-    const sizePart = includeSizeInFileName ? buildDieCutExportSizePart(sheets, sizeList) : null;
-    let baseName = fileNameBase;
-    
-    if (!baseName) {
-      if (sheetCount === 1 && sheets[0].sheetIndex !== undefined) {
-        baseName = `nesting-diecut-${sizePart ? `${sizePart}-` : ''}${sizeStr}-sheet${sheets[0].sheetIndex + 1}`;
-      } else {
-        baseName = `nesting-diecut-${sizePart ? `${sizePart}-` : ''}${sizeStr}-${sheetCount}sheets`;
-      }
-    } else {
-      // Append info even if fileNameBase exists to ensure uniqueness as requested
-      if (sizePart && !baseName.includes('size')) baseName += `-${sizePart}`;
-      if (!baseName.includes(sizeStr)) baseName += `-${sizeStr}`;
-      if (!baseName.includes('sheet')) baseName += `-${sheetCount}sheets`;
-    }
+    const baseName = getExportBaseName({
+      fileNameBase,
+      sizeList,
+      sheetWidth: resolvedSheetWidth,
+      sheetHeight: resolvedSheetHeight,
+      sheetIndex: sheets[0]?.sheetIndex ?? 0,
+      sheetCount
+    });
 
-    const safeFileName = `${sanitizeExportFileName(baseName, 'nesting-diecut')}.dxf`;
+    const safeFileName = `${sanitizeExportFileName(baseName, 'nesting-diecut')}.DXF`;
     const dxfContent = generateDieCutDxf({
       sheets,
       sheetWidth,
       sheetHeight,
       sizeList,
       labelMode,
+      toolCodeMap,
       title,
       subtitle
     });
@@ -857,23 +851,18 @@ router.post('/export-cyc', (req, res) => {
     }
 
 
-    const sizeStr = `${sheetWidth}x${sheetHeight}`;
-    let baseName = fileNameBase;
+    const resolvedSheetWidth = sheetWidth || sheets[0]?.sheetWidth;
+    const resolvedSheetHeight = sheetHeight || sheets[0]?.sheetHeight;
+    const baseName = getExportBaseName({
+      fileNameBase,
+      sizeList,
+      sheetWidth: resolvedSheetWidth,
+      sheetHeight: resolvedSheetHeight,
+      sheetIndex: sheets[0]?.sheetIndex ?? 0,
+      sheetCount: 1
+    });
 
-    if (!baseName) {
-      if (sheets[0].sheetIndex !== undefined) {
-        baseName = `nesting-diecut-cyc-${sizeStr}-sheet${sheets[0].sheetIndex + 1}`;
-      } else {
-        baseName = `nesting-diecut-cyc-${sizeStr}`;
-      }
-    } else {
-      if (!baseName.includes(sizeStr)) baseName += `-${sizeStr}`;
-      if (!baseName.includes('sheet') && sheets[0].sheetIndex !== undefined) {
-        baseName += `-sheet${sheets[0].sheetIndex + 1}`;
-      }
-    }
-
-    const safeFileName = `${sanitizeExportFileName(baseName, 'nesting-diecut-cyc')}.CYC`;
+    const safeFileName = `${sanitizeExportFileName(baseName, 'nesting-diecut')}.CYC`;
     const cycContent = generateDieCutCyc({
       sheets,
       sheetWidth,

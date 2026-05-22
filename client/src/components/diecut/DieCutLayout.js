@@ -380,13 +380,19 @@ const DieCutLayout = () => {
 
           for (const item of selectedItems) {
             const activeSizes = item.sizeName ? [{ sizeName: item.sizeName }] : activeShapes;
-            const filename = `${sanitizeFilename(item.label || `Size_${item.sizeName}`)}.dxf`;
+            const fileNameBase = buildExportFileBase({
+              orderNames: exportOrderNames,
+              mode: 'diecut',
+              activeSizes: item.sizeName ? [item.sizeName] : []
+            });
+            const filename = `${sanitizeFilename(fileNameBase)}.dxf`;
             const payload = {
               sheets: [item.sheet],
               sheetWidth: item.sheet?.sheetWidth || config.sheetWidth,
               sheetHeight: item.sheet?.sheetHeight || config.sheetHeight,
               sizeList: activeSizes,
               labelMode,
+              toolCodeMap,
               includeSizeInFileName: true,
               title: item.sizeName ? `Capacity Test - Size ${item.sizeName}` : 'Capacity Test Result',
               subtitle: buildExportSubtitle(config, `${item.totalPieces ?? item.sheet?.placed?.length ?? 0} pieces | 1 sheet`)
@@ -398,15 +404,20 @@ const DieCutLayout = () => {
           if (!selectedSheets.length) throw new Error('Không lấy được dữ liệu chi tiết của các tấm đã chọn.');
 
           for (const [index, sheet] of selectedSheets.entries()) {
-            const item = exportPicker.items[selectedSheetIndexes[index]];
-            const label = item?.label || `Tấm ${selectedSheetIndexes[index] + 1}`;
-            const filename = `${sanitizeFilename(label)}.dxf`;
+            const sheetActiveSizes = [...new Set((sheet?.placed || []).map((placedItem) => placedItem?.sizeName).filter(Boolean))];
+            const fileNameBase = buildExportFileBase({
+              orderNames: exportOrderNames,
+              mode: 'diecut',
+              activeSizes: sheetActiveSizes
+            }) + `-sheet${selectedSheetIndexes[index] + 1}`;
+            const filename = `${sanitizeFilename(fileNameBase)}.dxf`;
             const payload = {
               sheets: [sheet],
               sheetWidth: sheet?.sheetWidth || config.sheetWidth,
               sheetHeight: sheet?.sheetHeight || config.sheetHeight,
               sizeList,
               labelMode,
+              toolCodeMap,
               title: `Die-Cut Nesting Result - Sheet ${selectedSheetIndexes[index] + 1}`,
               subtitle: buildExportSubtitle(config, `${sheet?.placedCount || sheet?.placed?.length || 0} pieces | 1 sheet`)
             };
@@ -435,7 +446,7 @@ const DieCutLayout = () => {
             const activeSizes = item.sizeName ? [item.sizeName] : [];
             const fileNameBase = buildExportFileBase({
               orderNames: exportOrderNames,
-              mode: 'cyc',
+              mode: 'diecut',
               activeSizes
             });
             const filename = `${sanitizeFilename(fileNameBase)}.CYC`;
@@ -456,7 +467,7 @@ const DieCutLayout = () => {
           if (!selectedSheets.length) throw new Error('Không lấy được dữ liệu chi tiết của các tấm đã chọn.');
 
           for (const [index, sheet] of selectedSheets.entries()) {
-            const sheetActiveSizes = [...new Set((sheet?.placed || []).map((item) => item?.sizeName).filter(Boolean))]
+            const sheetActiveSizes = [...new Set((sheet?.placed || []).map((placedItem) => placedItem?.sizeName).filter(Boolean))]
               .filter((sizeName) => hasToolCode(sizeName));
 
             if (sheetActiveSizes.length === 0) {
@@ -464,11 +475,12 @@ const DieCutLayout = () => {
               continue;
             }
 
+            const allSheetActiveSizes = [...new Set((sheet?.placed || []).map((placedItem) => placedItem?.sizeName).filter(Boolean))];
             const fileNameBase = buildExportFileBase({
               orderNames: exportOrderNames,
-              mode: 'cyc',
-              activeSizes: sheetActiveSizes
-            });
+              mode: 'diecut',
+              activeSizes: allSheetActiveSizes
+            }) + `-sheet${selectedSheetIndexes[index] + 1}`;
             const filename = `${sanitizeFilename(fileNameBase)}.CYC`;
             const payload = {
               sheets: [sheet],

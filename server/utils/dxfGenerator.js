@@ -115,14 +115,24 @@ function getEmptyExtents() {
 }
 
 export class DxfWriter {
-  constructor() {
+  constructor(options = {}) {
     this.entityLines = [];
     this.layers = new Map([['0', 7]]);
     this.extents = null;
+    this.isLuxin = !!options.isLuxin;
   }
 
   push(lines, code, value) {
-    lines.push(String(code));
+    let codeStr = String(code);
+    if (this.isLuxin) {
+      const codeNum = Number(code);
+      if (codeNum < 10) {
+        codeStr = `  ${codeNum}`;
+      } else if (codeNum < 100) {
+        codeStr = ` ${codeNum}`;
+      }
+    }
+    lines.push(codeStr);
     lines.push(String(value));
   }
 
@@ -157,39 +167,55 @@ export class DxfWriter {
   addPolyline(points, aciColor = 7, _trueColor = null, layer = '0', isClosed = true) {
     if (!Array.isArray(points) || points.length < 2) return;
 
-    const layerName = this.registerLayer(layer, aciColor);
+    const layerName = this.isLuxin ? '1' : this.registerLayer(layer, aciColor);
     const entityColor = clampAci(aciColor);
 
     points.forEach((point) => this.trackPoint(point.x, point.y));
 
-    this.push(this.entityLines, 0, 'POLYLINE');
-    this.push(this.entityLines, 8, layerName);
-    this.push(this.entityLines, 6, 'CONTINUOUS');
-    this.push(this.entityLines, 62, entityColor);
-    this.push(this.entityLines, 66, 1);
-    this.push(this.entityLines, 70, isClosed ? 1 : 0);
-    this.push(this.entityLines, 10, 0.0);
-    this.push(this.entityLines, 20, 0.0);
-    this.push(this.entityLines, 30, 0.0);
+    if (this.isLuxin) {
+      this.push(this.entityLines, 0, 'POLYLINE');
+      this.push(this.entityLines, 8, '1');
+      this.push(this.entityLines, 66, 1);
+      this.push(this.entityLines, 70, isClosed ? 1 : 0);
 
-    points.forEach((point) => {
-      this.push(this.entityLines, 0, 'VERTEX');
+      points.forEach((point) => {
+        this.push(this.entityLines, 0, 'VERTEX');
+        this.push(this.entityLines, 8, '1');
+        this.push(this.entityLines, 10, Number(point.x).toFixed(4));
+        this.push(this.entityLines, 20, Number(point.y).toFixed(4));
+      });
+
+      this.push(this.entityLines, 0, 'SEQEND');
+    } else {
+      this.push(this.entityLines, 0, 'POLYLINE');
       this.push(this.entityLines, 8, layerName);
       this.push(this.entityLines, 6, 'CONTINUOUS');
       this.push(this.entityLines, 62, entityColor);
-      this.push(this.entityLines, 10, formatDxfNumber(point.x));
-      this.push(this.entityLines, 20, formatDxfNumber(point.y));
+      this.push(this.entityLines, 66, 1);
+      this.push(this.entityLines, 70, isClosed ? 1 : 0);
+      this.push(this.entityLines, 10, 0.0);
+      this.push(this.entityLines, 20, 0.0);
       this.push(this.entityLines, 30, 0.0);
-    });
 
-    this.push(this.entityLines, 0, 'SEQEND');
+      points.forEach((point) => {
+        this.push(this.entityLines, 0, 'VERTEX');
+        this.push(this.entityLines, 8, layerName);
+        this.push(this.entityLines, 6, 'CONTINUOUS');
+        this.push(this.entityLines, 62, entityColor);
+        this.push(this.entityLines, 10, formatDxfNumber(point.x));
+        this.push(this.entityLines, 20, formatDxfNumber(point.y));
+        this.push(this.entityLines, 30, 0.0);
+      });
+
+      this.push(this.entityLines, 0, 'SEQEND');
+    }
   }
 
   addText(text, x, y, height, aciColor = 7, layer = 'TEXT', rotation = 0) {
     const content = sanitizeTextValue(text);
     if (!content) return;
 
-    const layerName = this.registerLayer(layer, aciColor);
+    const layerName = this.isLuxin ? '1' : this.registerLayer(layer, aciColor);
     const textX = Number.isFinite(Number(x)) ? Number(x) : 0;
     const textY = Number.isFinite(Number(y)) ? Number(y) : 0;
     const textHeight = Math.max(0.1, Number.isFinite(Number(height)) ? Number(height) : 1);
@@ -197,26 +223,47 @@ export class DxfWriter {
     this.trackPoint(textX, textY);
     this.trackPoint(textX, textY + textHeight);
 
-    this.push(this.entityLines, 0, 'TEXT');
-    this.push(this.entityLines, 8, layerName);
-    this.push(this.entityLines, 62, clampAci(aciColor));
-    this.push(this.entityLines, 10, formatDxfNumber(textX));
-    this.push(this.entityLines, 20, formatDxfNumber(textY));
-    this.push(this.entityLines, 30, 0.0);
-    this.push(this.entityLines, 11, formatDxfNumber(textX));
-    this.push(this.entityLines, 21, formatDxfNumber(textY));
-    this.push(this.entityLines, 31, 0.0);
-    this.push(this.entityLines, 40, formatDxfNumber(textHeight));
-    this.push(this.entityLines, 1, content);
-    this.push(this.entityLines, 7, 'STANDARD');
-    if (rotation) {
-      this.push(this.entityLines, 50, formatDxfNumber(rotation));
+    if (this.isLuxin) {
+      this.push(this.entityLines, 0, 'TEXT');
+      this.push(this.entityLines, 8, '1');
+      this.push(this.entityLines, 10, textX.toFixed(6));
+      this.push(this.entityLines, 20, textY.toFixed(6));
+      this.push(this.entityLines, 40, textHeight.toFixed(6));
+      this.push(this.entityLines, 1, content);
+      this.push(this.entityLines, 7, 'STANDARD');
+    } else {
+      this.push(this.entityLines, 0, 'TEXT');
+      this.push(this.entityLines, 8, layerName);
+      this.push(this.entityLines, 62, clampAci(aciColor));
+      this.push(this.entityLines, 10, formatDxfNumber(textX));
+      this.push(this.entityLines, 20, formatDxfNumber(textY));
+      this.push(this.entityLines, 30, 0.0);
+      this.push(this.entityLines, 11, formatDxfNumber(textX));
+      this.push(this.entityLines, 21, formatDxfNumber(textY));
+      this.push(this.entityLines, 31, 0.0);
+      this.push(this.entityLines, 40, formatDxfNumber(textHeight));
+      this.push(this.entityLines, 1, content);
+      this.push(this.entityLines, 7, 'STANDARD');
+      if (rotation) {
+        this.push(this.entityLines, 50, formatDxfNumber(rotation));
+      }
+      this.push(this.entityLines, 72, 0);
+      this.push(this.entityLines, 73, 0);
     }
-    this.push(this.entityLines, 72, 0);
-    this.push(this.entityLines, 73, 0);
   }
 
   writeHeader(lines) {
+    if (this.isLuxin) {
+      this.push(lines, 0, 'SECTION');
+      this.push(lines, 2, 'HEADER');
+      this.push(lines, 9, '$ACADVER');
+      this.push(lines, 1, 'AC1009');
+      this.push(lines, 9, '$INSUNITS');
+      this.push(lines, 70, 1);
+      this.push(lines, 0, 'ENDSEC');
+      return;
+    }
+
     const extents = this.extents || getEmptyExtents();
 
     this.push(lines, 0, 'SECTION');
@@ -316,8 +363,10 @@ export class DxfWriter {
   endFile() {
     const lines = [];
     this.writeHeader(lines);
-    this.writeTables(lines);
-    this.writeBlocks(lines);
+    if (!this.isLuxin) {
+      this.writeTables(lines);
+      this.writeBlocks(lines);
+    }
     this.writeEntities(lines);
     this.push(lines, 0, 'EOF');
     return lines.join('\r\n') + '\r\n';

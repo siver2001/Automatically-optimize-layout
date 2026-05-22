@@ -33,6 +33,19 @@ function averagePolygonPoint(points) {
   };
 }
 
+export function boundingBoxCenter(points) {
+  if (!points?.length) return { x: 0, y: 0 };
+  let minX = Infinity, maxX = -Infinity;
+  let minY = Infinity, maxY = -Infinity;
+  for (const p of points) {
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+  }
+  return { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+}
+
 function polygonArea(points = []) {
   if (!points.length) return 0;
   let sum = 0;
@@ -231,7 +244,7 @@ export function normalizeDieCutExportData(payload = {}) {
         throw new Error(`Khong the tai tao polygon cho item ${item?.id || itemIndex}.`);
       }
 
-      const centroid = averagePolygonPoint(polygon);
+      const centroid = boundingBoxCenter(item?.cycPolygon || polygon);
       const color = sizeNameToColor(item?.sizeName, sizeColorMap);
       return {
         ...item,
@@ -261,6 +274,40 @@ export function normalizeDieCutExportData(payload = {}) {
     subtitle,
     sheets: normalizedSheets
   };
+}
+
+export function getExportBaseName({ fileNameBase, sizeList, sheetWidth, sheetHeight, sheetIndex, sheetCount }) {
+  const sizeStr = `${sheetWidth}x${sheetHeight}`;
+  let baseName = fileNameBase ? String(fileNameBase).trim() : '';
+
+  const sizeListForName = Array.isArray(sizeList) ? sizeList : [];
+  const sizePart = sizeListForName
+    .map((s) => s?.sizeName)
+    .filter(Boolean)
+    .slice(0, 3)
+    .join('-');
+
+  if (!baseName) {
+    baseName = `nesting-diecut-${sizePart ? `${sizePart}-` : ''}${sizeStr}`;
+    if (sheetCount === 1 && sheetIndex !== undefined) {
+      baseName += `-sheet${sheetIndex + 1}`;
+    } else if (sheetCount > 1) {
+      baseName += `-${sheetCount}sheets`;
+    }
+  } else {
+    if (sizePart && !baseName.toLowerCase().includes('size') && !baseName.includes(sizePart)) {
+      baseName += `-${sizePart}`;
+    }
+    if (!baseName.includes(sizeStr)) {
+      baseName += `-${sizeStr}`;
+    }
+    if (sheetCount === 1 && sheetIndex !== undefined && !baseName.toLowerCase().includes('sheet')) {
+      baseName += `-sheet${sheetIndex + 1}`;
+    } else if (sheetCount > 1 && !baseName.toLowerCase().includes('sheet')) {
+      baseName += `-${sheetCount}sheets`;
+    }
+  }
+  return baseName;
 }
 
 export {

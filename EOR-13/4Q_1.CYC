@@ -1,0 +1,450 @@
+<CycleFile>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="118.252"/>
+	<Field Name="Y" Value="11.733"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="1"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="356.752"/>
+	<Field Name="Y" Value="11.733"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="2"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="595.252"/>
+	<Field Name="Y" Value="11.733"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="3"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="833.752"/>
+	<Field Name="Y" Value="11.733"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="4"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="1072.252"/>
+	<Field Name="Y" Value="-1.767"/>
+	<Field Name="C" Value="180.000"/>
+	<Field Name="N" Value="5"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="1310.752"/>
+	<Field Name="Y" Value="-1.767"/>
+	<Field Name="C" Value="180.000"/>
+	<Field Name="N" Value="6"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="1549.252"/>
+	<Field Name="Y" Value="-1.767"/>
+	<Field Name="C" Value="180.000"/>
+	<Field Name="N" Value="7"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="1787.752"/>
+	<Field Name="Y" Value="-1.767"/>
+	<Field Name="C" Value="180.000"/>
+	<Field Name="N" Value="8"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="1787.252"/>
+	<Field Name="Y" Value="153.233"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="9"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="1548.752"/>
+	<Field Name="Y" Value="153.233"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="10"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="1310.252"/>
+	<Field Name="Y" Value="153.233"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="11"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="1071.752"/>
+	<Field Name="Y" Value="153.233"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="12"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="833.252"/>
+	<Field Name="Y" Value="153.233"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="13"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="594.752"/>
+	<Field Name="Y" Value="153.233"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="14"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="356.252"/>
+	<Field Name="Y" Value="153.233"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="15"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="117.752"/>
+	<Field Name="Y" Value="153.233"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="16"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="117.752"/>
+	<Field Name="Y" Value="293.733"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="17"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="356.252"/>
+	<Field Name="Y" Value="293.733"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="18"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="594.752"/>
+	<Field Name="Y" Value="293.733"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="19"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="833.252"/>
+	<Field Name="Y" Value="293.733"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="20"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="1071.752"/>
+	<Field Name="Y" Value="293.733"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="21"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="1310.252"/>
+	<Field Name="Y" Value="293.733"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="22"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="1548.752"/>
+	<Field Name="Y" Value="293.733"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="23"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="1787.252"/>
+	<Field Name="Y" Value="293.733"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="24"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="1787.252"/>
+	<Field Name="Y" Value="436.233"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="25"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="1548.752"/>
+	<Field Name="Y" Value="436.233"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="26"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="1310.252"/>
+	<Field Name="Y" Value="436.233"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="27"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="1071.752"/>
+	<Field Name="Y" Value="436.233"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="28"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="833.252"/>
+	<Field Name="Y" Value="436.233"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="29"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="594.752"/>
+	<Field Name="Y" Value="436.233"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="30"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="356.252"/>
+	<Field Name="Y" Value="436.233"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="31"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="117.752"/>
+	<Field Name="Y" Value="436.233"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="32"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="117.752"/>
+	<Field Name="Y" Value="577.733"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="33"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="356.252"/>
+	<Field Name="Y" Value="577.733"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="34"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="594.752"/>
+	<Field Name="Y" Value="577.733"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="35"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="833.252"/>
+	<Field Name="Y" Value="577.733"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="36"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="1071.752"/>
+	<Field Name="Y" Value="577.733"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="37"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="1310.252"/>
+	<Field Name="Y" Value="577.733"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="38"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="1548.752"/>
+	<Field Name="Y" Value="577.733"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="39"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="1787.252"/>
+	<Field Name="Y" Value="577.733"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="40"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="1787.252"/>
+	<Field Name="Y" Value="719.233"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="41"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="1548.752"/>
+	<Field Name="Y" Value="719.233"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="42"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="1310.252"/>
+	<Field Name="Y" Value="719.233"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="43"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="1071.752"/>
+	<Field Name="Y" Value="719.233"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="44"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="833.252"/>
+	<Field Name="Y" Value="719.233"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="45"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="594.752"/>
+	<Field Name="Y" Value="719.233"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="46"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="356.252"/>
+	<Field Name="Y" Value="719.233"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="47"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="117.752"/>
+	<Field Name="Y" Value="719.233"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="48"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="117.752"/>
+	<Field Name="Y" Value="862.733"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="49"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="356.252"/>
+	<Field Name="Y" Value="862.733"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="50"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="594.752"/>
+	<Field Name="Y" Value="862.733"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="51"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="833.252"/>
+	<Field Name="Y" Value="862.733"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="52"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="1071.752"/>
+	<Field Name="Y" Value="862.733"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="53"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="1310.252"/>
+	<Field Name="Y" Value="862.733"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="54"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="1548.752"/>
+	<Field Name="Y" Value="862.733"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="55"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="1787.252"/>
+	<Field Name="Y" Value="862.733"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="56"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="1787.407"/>
+	<Field Name="Y" Value="1008.238"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="57"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="1548.907"/>
+	<Field Name="Y" Value="1008.238"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="58"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="1310.407"/>
+	<Field Name="Y" Value="1008.238"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="59"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="1071.907"/>
+	<Field Name="Y" Value="1008.238"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="60"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="833.407"/>
+	<Field Name="Y" Value="1008.238"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="61"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="594.907"/>
+	<Field Name="Y" Value="1008.238"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="62"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="356.407"/>
+	<Field Name="Y" Value="1008.238"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="63"/>
+</Cycle>
+<Cycle Name="DXFData">
+	<Field Name="T" Value="9"/>
+	<Field Name="X" Value="117.907"/>
+	<Field Name="Y" Value="1008.238"/>
+	<Field Name="C" Value="0.000"/>
+	<Field Name="N" Value="64"/>
+</Cycle>
+</CycleFile>

@@ -30,7 +30,7 @@ const SheetConfigPanel = ({ config, onChange, isTestMode, importAnalysis }) => {
               value={config.sheetWidth}
               onChange={(e) => onChange({ ...config, sheetWidth: Number(e.target.value) })}
               className="w-full bg-black/20 border border-white/10 text-white rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500 transition-colors"
-              placeholder="Rộng (X)"
+              placeholder="Dài (X)"
             />
             <span className="text-white/30 text-xs">×</span>
             <input
@@ -38,7 +38,7 @@ const SheetConfigPanel = ({ config, onChange, isTestMode, importAnalysis }) => {
               value={config.sheetHeight}
               onChange={(e) => onChange({ ...config, sheetHeight: Number(e.target.value) })}
               className="w-full bg-black/20 border border-white/10 text-white rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500 transition-colors"
-              placeholder="Cao (Y)"
+              placeholder="Rộng (Y)"
             />
           </div>
         </div>
