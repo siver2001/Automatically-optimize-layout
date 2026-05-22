@@ -68,7 +68,5 @@ parentPort.on('message', async (task) => {
       index,
       error: error?.message || String(error)
     });
-  } finally {
-    clearPatternCapacityCaches();
   }
 });

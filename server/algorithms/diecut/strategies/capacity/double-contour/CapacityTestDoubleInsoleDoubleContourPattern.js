@@ -7,7 +7,8 @@ import {
   normalizeToOrigin,
   area as polygonArea,
   rotatePolygon,
-  translate
+  translate,
+  simplifyPolygon
 } from '../../../core/polygonUtils.js';
 import {
   cachedPolygonsOverlap,
@@ -3469,7 +3470,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     const currentPlacements = [...basePlacements];
     const self = this;
     
-    function search(clusterIndex) {
+    function search(clusterIndex, spatialIndex) {
       const splits = currentPlacements.slice(basePlacements.length);
       const allSplits = currentPlacements.filter(p => self._isSplitFillPlacement(p));
       const numL = allSplits.filter(p => p.orient?.foot === 'split-left' || p.foot === 'split-left').length;
@@ -3554,11 +3555,9 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       const cluster = clusters[clusterIndex];
       
       // Option 1: Place nothing in this cluster
-      search(clusterIndex + 1);
+      search(clusterIndex + 1, spatialIndex);
       
       // Option 2 & 3: Try to place each orientVariant
-      const spatialIndex = self._buildSpatialIndex(currentPlacements, workWidth, workHeight, spacing);
-      
       for (const orient of orientVariants) {
         const bb = orient.bb || getBoundingBox(orient.polygon);
         
@@ -3617,13 +3616,21 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
             isSplit: true
           };
           currentPlacements.push(placement);
-          search(clusterIndex + 1);
+          const nextSpatialIndex = self._buildSpatialIndex(
+            currentPlacements,
+            workWidth,
+            workHeight,
+            spacing,
+            spatialIndex
+          );
+          search(clusterIndex + 1, nextSpatialIndex);
           currentPlacements.pop();
         }
       }
     }
     
-    search(0);
+    const initialSpatialIndex = self._buildSpatialIndex(basePlacements, workWidth, workHeight, spacing);
+    search(0, initialSpatialIndex);
     return bestState.placements.slice(basePlacements.length);
   }
 
@@ -4933,7 +4940,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       : explicitDeepSplitFill === true;
     const normalizedSizeList = sizeList.map((size) => ({
       ...size,
-      polygon: normalizeToOrigin(size.polygon)
+      polygon: simplifyPolygon(normalizeToOrigin(size.polygon), overrideConfig.polygonSimplificationTolerance ?? this.config.polygonSimplificationTolerance ?? 0.25)
     }));
 
     const config = {

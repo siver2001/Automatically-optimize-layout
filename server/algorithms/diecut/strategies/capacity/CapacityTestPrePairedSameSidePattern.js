@@ -1,5 +1,5 @@
 import { Worker, isMainThread } from 'worker_threads';
-import { normalizeToOrigin, area as polygonArea } from '../../core/polygonUtils.js';
+import { normalizeToOrigin, area as polygonArea, simplifyPolygon } from '../../core/polygonUtils.js';
 import { CapacityTestSameSidePattern } from './CapacityTestSameSidePattern.js';
 import {
   buildCapacityResultCacheKey,
@@ -398,7 +398,7 @@ export class CapacityTestPrePairedSameSidePattern extends CapacityTestSameSidePa
 
     const normalizedSizeList = sizeList.map((size) => ({
       ...size,
-      polygon: normalizeToOrigin(size.polygon)
+      polygon: simplifyPolygon(normalizeToOrigin(size.polygon), config.polygonSimplificationTolerance ?? 0.25)
     }));
 
     if (shouldUseParallelPrePairedCapacity(normalizedSizeList, config)) {

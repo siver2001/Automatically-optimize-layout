@@ -9,12 +9,14 @@ export const MAX_LOCAL_VALIDATION_CACHE_ENTRIES = DEFAULT_MAX_LOCAL_VALIDATION_C
 
 const objectIdCache = new WeakMap();
 const overlapCache = new Map();
+let overlapCacheSize = 0;
 const localValidationCache = new Map();
 let nextObjectId = 1;
 
 export function clearPatternCapacityCaches() {
   overlapCache.clear();
   localValidationCache.clear();
+  overlapCacheSize = 0;
   // We keep objectIdCache as it's a WeakMap and safe from leaks
 }
 
@@ -165,15 +167,77 @@ export function cachedPolygonsOverlap(polyA, polyB, offsetA = { x: 0, y: 0 }, of
     return false;
   }
 
-  const cacheKey = buildOverlapCacheKey(polyA, polyB, offsetA, offsetB, spacing);
-  const cachedVal = getLruCacheEntry(overlapCache, cacheKey);
-  if (cachedVal !== undefined) {
-    return cachedVal;
+  const idA = getObjectId(polyA);
+  const idB = getObjectId(polyB);
+  const dx = formatCacheMetric((offsetB?.x ?? 0) - (offsetA?.x ?? 0));
+  const dy = formatCacheMetric((offsetB?.y ?? 0) - (offsetA?.y ?? 0));
+  const s = formatCacheMetric(spacing ?? 0);
+
+  let firstId = idA;
+  let secondId = idB;
+  let finalDx = dx;
+  let finalDy = dy;
+  if (idA > idB) {
+    firstId = idB;
+    secondId = idA;
+    finalDx = -dx;
+    finalDy = -dy;
+  }
+
+  // Lookup in nested Map
+  const map2 = overlapCache.get(firstId);
+  if (map2) {
+    const map3 = map2.get(secondId);
+    if (map3) {
+      const map4 = map3.get(s);
+      if (map4) {
+        const map5 = map4.get(finalDx);
+        if (map5) {
+          const cachedVal = map5.get(finalDy);
+          if (cachedVal !== undefined) {
+            return cachedVal;
+          }
+        }
+      }
+    }
   }
 
   const result = rawPolygonsOverlap(polyA, polyB, offsetA, offsetB, spacing, boxA, boxB);
+  
+  // Store in nested Map
   const dynamicMax = getDynamicMaxEntries(DEFAULT_MAX_OVERLAP_CACHE_ENTRIES, 'MAX_OVERLAP_CACHE_ENTRIES');
-  return setBoundedCacheEntry(overlapCache, cacheKey, result, dynamicMax);
+  if (overlapCacheSize >= dynamicMax) {
+    overlapCache.clear();
+    overlapCacheSize = 0;
+  }
+
+  let map2Write = overlapCache.get(firstId);
+  if (!map2Write) {
+    map2Write = new Map();
+    overlapCache.set(firstId, map2Write);
+  }
+  let map3Write = map2Write.get(secondId);
+  if (!map3Write) {
+    map3Write = new Map();
+    map2Write.set(secondId, map3Write);
+  }
+  let map4Write = map3Write.get(s);
+  if (!map4Write) {
+    map4Write = new Map();
+    map3Write.set(s, map4Write);
+  }
+  let map5Write = map4Write.get(finalDx);
+  if (!map5Write) {
+    map5Write = new Map();
+    map4Write.set(finalDx, map5Write);
+  }
+  
+  if (!map5Write.has(finalDy)) {
+    map5Write.set(finalDy, result);
+    overlapCacheSize++;
+  }
+
+  return result;
 }
 
 export function roundMetric(value, decimals = 2) {
