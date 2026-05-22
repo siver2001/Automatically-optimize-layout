@@ -14,8 +14,8 @@ async function run() {
   const shapes = await parseCadBufferToSizedShapes(buffer, dxfFile);
   
   const config = {
-    sheetWidth: 1100,
-    sheetHeight: 2000,
+    sheetWidth: 1070,
+    sheetHeight: 1970,
     marginX: 5,
     marginY: 20,
     spacing: 4,

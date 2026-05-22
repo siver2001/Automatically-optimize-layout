@@ -8,6 +8,7 @@ import RectangleContextMenu from './RectangleContextMenu.js';
 import HelpModal from './HelpModal.js';
 import ExportSheetPickerModal from './diecut/ExportSheetPickerModal.js';
 import { packingService } from '../services/packingService.js';
+import JSZip from 'jszip';
 
 
 // (Component này dùng để hiển thị các item vừa mới xóa, chưa lưu)
@@ -1055,24 +1056,6 @@ const PackingResult = () => {
     const selectedSheetIndexes = [...exportPicker.selectedSheetIndexes].sort((left, right) => left - right);
     if (!selectedSheetIndexes.length) return;
 
-    let dirHandle = null;
-    let useFallback = false;
-
-    if (typeof window.showDirectoryPicker === 'function') {
-      try {
-        dirHandle = await window.showDirectoryPicker();
-      } catch (error) {
-        if (error.name === 'AbortError') {
-          console.log('[DXF Export] User cancelled directory selection.');
-          return;
-        }
-        console.error('[DXF Export] showDirectoryPicker error, falling back to browser download:', error);
-        useFallback = true;
-      }
-    } else {
-      useFallback = true;
-    }
-
     setIsExporting(true);
     setExportError(null);
     setExportPicker((current) => ({ ...current, isSubmitting: true }));
@@ -1084,55 +1067,50 @@ const PackingResult = () => {
         return name.replace(/[\\/:*?"<>|]/g, '_');
       };
 
-      let dirWriteSuccess = false;
-      if (!useFallback && dirHandle) {
-        try {
-          // Sử dụng File System Access API để lưu trực tiếp vào thư mục
-          for (const index of selectedSheetIndexes) {
-            const item = exportPicker.items[index];
-            if (!item || !item.sheet) continue;
+      const filesToExport = [];
+      for (const index of selectedSheetIndexes) {
+        const item = exportPicker.items[index];
+        if (!item || !item.sheet) continue;
 
-            const [plateToExport] = preparePlatesForDxfExport([item.sheet]);
-            const dxfBlob = await packingService.getDxfBlob(container, [plateToExport]);
+        const [plateToExport] = preparePlatesForDxfExport([item.sheet]);
+        const name = item.label || `Tam_${index + 1}`;
+        const filename = `${sanitizeFilename(name)}.dxf`;
 
-            const name = item.label || `Tam_${index + 1}`;
-            const filename = `${sanitizeFilename(name)}.dxf`;
-
-            const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
-            const writable = await fileHandle.createWritable();
-            await writable.write(dxfBlob);
-            await writable.close();
-          }
-          dirWriteSuccess = true;
-        } catch (writeError) {
-          console.error('[DXF Export] Directory write failed, falling back to browser download:', writeError);
-          useFallback = true;
-        }
+        filesToExport.push({ filename, plateToExport });
       }
 
-      if (useFallback || !dirHandle || !dirWriteSuccess) {
-        // Fallback: Tải xuống từng file với tên tấm tùy chỉnh qua trình duyệt
-        for (const index of selectedSheetIndexes) {
-          const item = exportPicker.items[index];
-          if (!item || !item.sheet) continue;
+      if (filesToExport.length === 0) {
+        throw new Error('Không có tấm nào để xuất.');
+      }
 
-          const [plateToExport] = preparePlatesForDxfExport([item.sheet]);
-          const name = item.label || `Tam_${index + 1}`;
-          const filename = `${sanitizeFilename(name)}.dxf`;
-
-          const response = await packingService.exportDxf(container, [plateToExport], filename);
-          if (!response.success) {
-            setExportError(response.error || 'Lỗi không xác định khi xuất file DXF.');
-            setExportPicker((current) => ({ ...current, isSubmitting: false }));
-            return;
-          }
+      if (filesToExport.length === 1) {
+        const { filename, plateToExport } = filesToExport[0];
+        const response = await packingService.exportDxf(container, [plateToExport], filename);
+        if (!response.success) {
+          throw new Error(response.error || 'Lỗi không xác định khi xuất file DXF.');
         }
+      } else {
+        const zip = new JSZip();
+        for (const { filename, plateToExport } of filesToExport) {
+          const dxfBlob = await packingService.getDxfBlob(container, [plateToExport]);
+          zip.file(filename, dxfBlob);
+        }
+        const zipBlob = await zip.generateAsync({ type: 'blob' });
+        const url = window.URL.createObjectURL(zipBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        const zipName = `blocker_exports_DXF_${new Date().toISOString().slice(0, 10)}.zip`;
+        link.setAttribute('download', zipName);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
       }
 
       closeExportPicker();
     } catch (error) {
       console.error('Lỗi handleConfirmExportDxf:', error);
-      setExportError('Lỗi nghiêm trọng: ' + error.message);
+      setExportError(error.message || 'Lỗi nghiêm trọng khi xuất DXF.');
       setExportPicker((current) => ({ ...current, isSubmitting: false }));
     } finally {
       setIsExporting(false);

@@ -486,10 +486,16 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         const originalY = p.y;
         
         // Align left edge of split to alignedLeftX, perfect straight alignment and 100% border-safe
-        const alignedX = roundMetric(alignedLeftX - bb.minX, 3);
+        let alignedX = roundMetric(alignedLeftX - bb.minX, 3);
+        if (alignedX + bb.maxX > workWidth) {
+          alignedX = Math.floor((alignedLeftX - bb.minX) * 1000) / 1000;
+        }
+        if (alignedX + bb.minX < 0) {
+          alignedX = Math.ceil((alignedLeftX - bb.minX) * 1000) / 1000;
+        }
         
         // Squeeze Y downwards (towards 0)
-        let lowY = config.marginY || 0;
+        let lowY = Math.min(config.marginY || 0, originalY);
         let highY = originalY;
         let lastValidY = originalY;
         let foundValid = false;
@@ -542,10 +548,16 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         const originalY = p.y;
         
         // Align top edge of split to alignedTopY, perfect straight alignment and 100% border-safe
-        const alignedY = roundMetric(alignedTopY - bb.minY, 3);
+        let alignedY = roundMetric(alignedTopY - bb.minY, 3);
+        if (alignedY + bb.maxY > workHeight) {
+          alignedY = Math.floor((alignedTopY - bb.minY) * 1000) / 1000;
+        }
+        if (alignedY + bb.minY < 0) {
+          alignedY = Math.ceil((alignedTopY - bb.minY) * 1000) / 1000;
+        }
         
         // Squeeze X leftwards (towards 0)
-        let lowX = config.marginX || 0;
+        let lowX = Math.min(config.marginX || 0, originalX);
         let highX = originalX;
         let lastValidX = originalX;
         let foundValid = false;
@@ -1292,7 +1304,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
 
             if (entry.maxX < minX2 || entry.minX > maxX2 || entry.maxY < minY2 || entry.minY > maxY2) continue;
 
-            if (cachedPolygonsOverlap(
+             if (cachedPolygonsOverlap(
               entry.p.orient.polygon,
               orient.polygon,
               { x: entry.p.x, y: entry.p.y },
@@ -3345,6 +3357,15 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     const spacing = config.spacing || 0;
     const isYBased = (marginType === 'right' || marginType === 'left');
     
+    const wholePlacements = basePlacements.filter(p => !this._isSplitFillPlacement(p));
+    const wholeCenters = wholePlacements.map(p => {
+      const pbb = p.orient?.bb || getBoundingBox(p.orient?.polygon || []);
+      return {
+        x: p.x + (pbb.minX + pbb.maxX) / 2,
+        y: p.y + (pbb.minY + pbb.maxY) / 2
+      };
+    });
+
     // Step 1: Generate candidates and cluster them
     const clusters = [];
     const allCandVals = [];
@@ -3477,6 +3498,35 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         } else if (marginType === 'bottom') {
           sumCoord = splits.reduce((sum, p) => sum + p.y + p.x * 0.05, 0);
         }
+        
+        let alignmentPenalty = 0;
+        if (wholeCenters.length > 0) {
+          for (const p of splits) {
+            const bb = p.orient?.bb || getBoundingBox(p.orient?.polygon || []);
+            if (isYBased) {
+              const splitCenterY = p.y + (bb.minY + bb.maxY) / 2;
+              let minDiff = Infinity;
+              for (const wc of wholeCenters) {
+                const diff = Math.abs(splitCenterY - wc.y);
+                if (diff < minDiff) minDiff = diff;
+              }
+              if (minDiff > 0.01) {
+                alignmentPenalty += minDiff * 1000;
+              }
+            } else {
+              const splitCenterX = p.x + (bb.minX + bb.maxX) / 2;
+              let minDiff = Infinity;
+              for (const wc of wholeCenters) {
+                const diff = Math.abs(splitCenterX - wc.x);
+                if (diff < minDiff) minDiff = diff;
+              }
+              if (minDiff > 0.01) {
+                alignmentPenalty += minDiff * 1000;
+              }
+            }
+          }
+        }
+        sumCoord += alignmentPenalty;
         
         const sorted = [...splits].sort((a, b) => {
           return isYBased ? a.y - b.y : a.x - b.x;

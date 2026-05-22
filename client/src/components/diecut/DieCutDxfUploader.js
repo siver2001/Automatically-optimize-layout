@@ -202,24 +202,56 @@ const ZoomModal = ({ shape, index, onClose }) => {
   );
 };
 
-const ShapePreviewCard = ({ shape, index, onClick }) => {
+const ShapePreviewCard = ({ shape, index, onClick, onToggleSelect }) => {
   const color = COLORS[index % COLORS.length];
   const polygon = shape.polygon;
   if (!polygon || polygon.length < 2) return null;
 
   const { vx, vy, vw, vh } = getViewBox(polygon, 0.05);
   const d = toPathD(polygon);
+  const isSelected = shape.selected !== false;
 
   return (
     <div
-      className="flex flex-col items-center bg-black/20 border border-white/15 rounded-xl p-2 cursor-zoom-in
-                 hover:border-white/50 hover:bg-white/5 hover:scale-105 transition-all duration-200 group"
-      onClick={onClick}
+      className={`relative flex flex-col items-center bg-black/25 border rounded-xl p-3 cursor-pointer
+                 hover:border-white/40 hover:bg-white/5 hover:scale-[1.02] transition-all duration-200 group select-none
+                 ${isSelected ? 'border-white/15 shadow-lg shadow-blue-500/5' : 'border-white/5 opacity-45 hover:opacity-75'}`}
+      onClick={onToggleSelect}
     >
-      <div className="w-full flex items-center justify-center overflow-hidden" style={{ maxHeight: '160px' }}>
+      {/* Top Action Row */}
+      <div className="w-full flex justify-between items-center mb-2.5 z-10">
+        <div className="flex items-center gap-1.5 pointer-events-none">
+          <input
+            type="checkbox"
+            checked={isSelected}
+            readOnly
+            className="w-4 h-4 rounded border-white/20 bg-black/45 text-blue-500 focus:ring-blue-500 focus:ring-offset-black cursor-pointer"
+          />
+          <span className={`text-[11px] font-semibold tracking-wide ${isSelected ? 'text-blue-400' : 'text-white/40'}`}>
+            {isSelected ? 'ĐANG CHỌN' : 'ĐÃ BỎ'}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onClick();
+          }}
+          className="px-2 py-0.5 rounded bg-white/5 hover:bg-white/15 border border-white/10 text-[10px] text-white/70 hover:text-white flex items-center gap-1 transition-all"
+          title="Xem chi tiết biên dạng"
+        >
+          🔍 Xem
+        </button>
+      </div>
+
+      {/* SVG Container - Click triggers parent onToggleSelect */}
+      <div
+        className="w-full flex items-center justify-center overflow-hidden relative rounded-lg bg-black/10"
+        style={{ height: '140px' }}
+      >
         <svg
           viewBox={`${vx} ${vy} ${vw} ${vh}`}
-          style={{ width: '100%', height: '100%', maxHeight: '160px', display: 'block' }}
+          style={{ width: '100%', height: '100%', maxHeight: '140px', display: 'block' }}
           preserveAspectRatio="xMidYMid meet"
         >
           <path d={d} fill={color} fillOpacity={0.15} />
@@ -245,12 +277,13 @@ const ShapePreviewCard = ({ shape, index, onClick }) => {
         </svg>
       </div>
 
-      <div className="mt-2 text-center w-full px-1">
-        <div className="text-white font-bold text-sm">Size {shape.sizeName}</div>
+      <div className="mt-2.5 text-center w-full px-1">
+        <div className={`text-white font-bold text-sm transition-all ${isSelected ? '' : 'line-through text-white/40'}`}>
+          Size {shape.sizeName}
+        </div>
         <div className="text-white/60 text-xs mt-0.5">
           {shape.boundingBox.width.toFixed(1)} × {shape.boundingBox.height.toFixed(1)} mm
         </div>
-        <div className="text-white/20 text-xs mt-1 group-hover:text-blue-400/70">🔍 Nhấn để phóng to</div>
       </div>
     </div>
   );
@@ -265,6 +298,9 @@ const DieCutDxfUploader = ({ onShapesLoaded, initialShapes, initialImportAnalysi
   const [preview, setPreview] = useState(initialShapes || null);
   const [previewImportAnalysis, setPreviewImportAnalysis] = useState(initialImportAnalysis);
   const [zoomShape, setZoomShape] = useState(null);
+
+  const allSelected = preview && preview.length > 0 && preview.every(s => s.selected !== false);
+  const allDeselected = preview && preview.length > 0 && preview.every(s => s.selected === false);
 
   const handleFileChange = (e) => {
     setFiles(Array.from(e.target.files));
@@ -295,10 +331,11 @@ const DieCutDxfUploader = ({ onShapesLoaded, initialShapes, initialImportAnalysi
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Lỗi server');
 
-      setPreview(data.shapes);
+      const shapesWithSelected = (data.shapes || []).map(s => ({ ...s, selected: true }));
+      setPreview(shapesWithSelected);
       setPreviewImportAnalysis(data.importAnalysis || null);
       onShapesLoaded({
-        shapes: data.shapes,
+        shapes: shapesWithSelected,
         importAnalysis: data.importAnalysis || null
       });
     } catch (err) {
@@ -306,6 +343,38 @@ const DieCutDxfUploader = ({ onShapesLoaded, initialShapes, initialImportAnalysi
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleToggleSelect = (index) => {
+    if (!preview) return;
+    const updated = preview.map((s, idx) =>
+      idx === index ? { ...s, selected: s.selected !== false ? false : true } : s
+    );
+    setPreview(updated);
+    onShapesLoaded({
+      shapes: updated,
+      importAnalysis: previewImportAnalysis
+    });
+  };
+
+  const handleSelectAll = () => {
+    if (!preview) return;
+    const updated = preview.map(s => ({ ...s, selected: true }));
+    setPreview(updated);
+    onShapesLoaded({
+      shapes: updated,
+      importAnalysis: previewImportAnalysis
+    });
+  };
+
+  const handleDeselectAll = () => {
+    if (!preview) return;
+    const updated = preview.map(s => ({ ...s, selected: false }));
+    setPreview(updated);
+    onShapesLoaded({
+      shapes: updated,
+      importAnalysis: previewImportAnalysis
+    });
   };
 
   return (
@@ -399,8 +468,32 @@ const DieCutDxfUploader = ({ onShapesLoaded, initialShapes, initialImportAnalysi
         {preview && preview.length > 0 && (
           <div className="space-y-3 border-t border-white/10 pt-3">
             <div className="flex items-center justify-between flex-wrap gap-2">
-              <p className="text-white/80 text-sm font-semibold">Biên dạng nhận diện được ({preview.length} size)</p>
-              <span className="text-blue-300/60 text-xs">🔍 Nhấn để xem chi tiết</span>
+              <div>
+                <p className="text-white/80 text-sm font-semibold">Biên dạng nhận diện được ({preview.length} size)</p>
+                <p className="text-white/40 text-[11px] mt-0.5">Click vào ô bất kỳ để chọn/bỏ chọn size. Nhấn "Xem" để phóng to.</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleSelectAll}
+                  className={`px-2.5 py-1 text-xs border rounded-lg transition-colors font-medium flex items-center gap-1.5
+                    ${allSelected 
+                      ? 'bg-blue-500/25 border-blue-400 text-blue-300 shadow-md shadow-blue-500/10' 
+                      : 'bg-white/5 border-white/10 text-white/80 hover:bg-white/15 hover:text-white'}`}
+                >
+                  <span className="text-sm">{allSelected ? '☑' : '☐'}</span> Chọn tất cả
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeselectAll}
+                  className={`px-2.5 py-1 text-xs border rounded-lg transition-colors font-medium flex items-center gap-1.5
+                    ${allDeselected 
+                      ? 'bg-red-500/25 border-red-400/50 text-red-300 shadow-md shadow-red-500/10' 
+                      : 'bg-white/5 border-white/10 text-white/80 hover:bg-white/15 hover:text-white'}`}
+                >
+                  <span className="text-sm">{allDeselected ? '☑' : '☐'}</span> Bỏ chọn tất cả
+                </button>
+              </div>
             </div>
 
             <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${Math.min(preview.length, 5)}, minmax(120px, 1fr))` }}>
@@ -410,6 +503,7 @@ const DieCutDxfUploader = ({ onShapesLoaded, initialShapes, initialImportAnalysi
                   shape={shape}
                   index={i}
                   onClick={() => setZoomShape({ shape, index: i })}
+                  onToggleSelect={() => handleToggleSelect(i)}
                 />
               ))}
             </div>
