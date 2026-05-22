@@ -356,7 +356,9 @@ export class DxfWriter {
   writeEntities(lines) {
     this.push(lines, 0, 'SECTION');
     this.push(lines, 2, 'ENTITIES');
-    lines.push(...this.entityLines);
+    for (let i = 0; i < this.entityLines.length; i++) {
+      lines.push(this.entityLines[i]);
+    }
     this.push(lines, 0, 'ENDSEC');
   }
 
