@@ -1,4 +1,4 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, session } = require('electron');
 const path = require('path');
 const { fork } = require('child_process');
 const isDev = !app.isPackaged;
@@ -85,6 +85,15 @@ app.on('ready', async () => { // Thêm 'async'
       return;
     }
   }
+  // Cấu hình lưu file: Luôn hiển thị hộp thoại "Save As" khi tải file
+  session.defaultSession.on('will-download', (event, item, webContents) => {
+    item.setSaveDialogOptions({
+      title: 'Chọn vị trí lưu file',
+      defaultPath: item.getFilename(),
+      buttonLabel: 'Lưu'
+    });
+  });
+
   // Chỉ gọi createWindow SAU KHI server đã sẵn sàng (hoặc ở chế độ dev)
   createWindow(port);
 });
