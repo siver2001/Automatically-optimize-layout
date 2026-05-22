@@ -168,34 +168,79 @@ function buildPreparedSequenceKey(item, fallbackIndex) {
 
 function applyPreparedSequenceLabels(items = []) {
   const maxAreaBySize = buildMaxAreaBySize(items);
+  
+  // Classify and assign keys initially
   const keyedItems = items.map((item, index) => ({
     item,
-    key: buildPreparedSequenceKey(item, index)
+    key: buildPreparedSequenceKey(item, index),
+    splitRank: Number(isPreparedSequenceSplitHalfItem(item, maxAreaBySize))
   }));
 
-  const sequenceByKey = new Map(
-    [...keyedItems]
-      .sort((left, right) => {
-        const splitRank = Number(isPreparedSequenceSplitHalfItem(left.item, maxAreaBySize))
-          - Number(isPreparedSequenceSplitHalfItem(right.item, maxAreaBySize));
-        if (splitRank !== 0) return splitRank;
+  // Group items by splitRank
+  const groups = new Map();
+  for (const keyed of keyedItems) {
+    const rank = keyed.splitRank;
+    if (!groups.has(rank)) {
+      groups.set(rank, []);
+    }
+    groups.get(rank).push(keyed);
+  }
 
-        const deltaY = getFiniteSortValue(left.item?.centroid?.y) - getFiniteSortValue(right.item?.centroid?.y);
-        if (Math.abs(deltaY) > 0.001) return deltaY;
+  // Sort splitRanks ascending (regular pieces first, split pieces second)
+  const sortedRanks = [...groups.keys()].sort((a, b) => a - b);
+  const finalSortedKeyed = [];
 
-        const deltaX = getFiniteSortValue(left.item?.centroid?.x) - getFiniteSortValue(right.item?.centroid?.x);
-        if (Math.abs(deltaX) > 0.001) return deltaX;
+  for (const rank of sortedRanks) {
+    const rankItems = groups.get(rank);
+    
+    // Pre-sort by Y ascending to group them into horizontal rows
+    const sortedByY = [...rankItems].sort((a, b) => 
+      getFiniteSortValue(a.item?.centroid?.y) - getFiniteSortValue(b.item?.centroid?.y)
+    );
 
-        return left.key.localeCompare(right.key);
-      })
-      .map(({ key }, index) => [key, index + 1])
-  );
+    const rows = [];
+    const Y_THRESHOLD = 50.0; // 50mm vertical grouping threshold for rows
+
+    for (const keyed of sortedByY) {
+      if (rows.length === 0) {
+        rows.push([keyed]);
+      } else {
+        const lastRow = rows[rows.length - 1];
+        const avgY = lastRow.reduce((sum, k) => sum + getFiniteSortValue(k.item?.centroid?.y), 0) / lastRow.length;
+        if (Math.abs(getFiniteSortValue(keyed.item?.centroid?.y) - avgY) < Y_THRESHOLD) {
+          lastRow.push(keyed);
+        } else {
+          rows.push([keyed]);
+        }
+      }
+    }
+
+    // For each row, sort by X and reverse alternate rows (Snake path)
+    rows.forEach((row, rIdx) => {
+      const sortedRow = [...row].sort((a, b) => 
+        getFiniteSortValue(a.item?.centroid?.x) - getFiniteSortValue(b.item?.centroid?.x)
+      );
+      
+      // Alternate direction for odd rows to achieve Snake path (0-indexed)
+      if (rIdx % 2 === 1) {
+        sortedRow.reverse();
+      }
+      finalSortedKeyed.push(...sortedRow);
+    });
+  }
+
+  // Map each unique key to its Snake index sequence (1-indexed)
+  const sequenceByKey = new Map();
+  finalSortedKeyed.forEach((keyed, index) => {
+    sequenceByKey.set(keyed.key, index + 1);
+  });
 
   return keyedItems.map(({ item, key }) => ({
     ...item,
     label: `N=${sequenceByKey.get(key) || 1}`
   }));
 }
+
 
 export function buildSizeColorMap(sizeList = []) {
   const colorMap = new Map();
@@ -231,6 +276,17 @@ export function normalizeDieCutExportData(payload = {}) {
       throw new Error('Thieu kich thuoc sheet cho du lieu die-cut.');
     }
 
+    const resolvedWidthBeforeSwap = resolvedWidth;
+    let finalWidth = resolvedWidth;
+    let finalHeight = resolvedHeight;
+    let shouldRotate = false;
+
+    if (resolvedHeight > resolvedWidth) {
+      finalWidth = resolvedHeight;
+      finalHeight = resolvedWidth;
+      shouldRotate = true;
+    }
+
     const renderTemplates = sheet?.renderTemplates || {};
     const normalizedItems = (sheet?.placed || []).map((item, itemIndex) => {
       let polygon = Array.isArray(item?.polygon) ? item.polygon : null;
@@ -244,13 +300,44 @@ export function normalizeDieCutExportData(payload = {}) {
         throw new Error(`Khong the tai tao polygon cho item ${item?.id || itemIndex}.`);
       }
 
-      const centroid = boundingBoxCenter(item?.cycPolygon || polygon);
+      let finalPolygon = polygon;
+      let finalCycPolygon = item?.cycPolygon;
+      let finalInternals = item?.internals;
+      let finalAngle = item?.angle ?? 0;
+      let finalX = item?.x ?? 0;
+      let finalY = item?.y ?? 0;
+
+      if (shouldRotate) {
+        const rotPoint = (p) => ({
+          x: p.y,
+          y: resolvedWidthBeforeSwap - p.x
+        });
+
+        finalPolygon = polygon.map(rotPoint);
+        if (Array.isArray(finalCycPolygon)) {
+          finalCycPolygon = finalCycPolygon.map(rotPoint);
+        }
+        if (Array.isArray(finalInternals)) {
+          finalInternals = finalInternals.map(path => path.map(rotPoint));
+        }
+
+        finalX = item.y ?? 0;
+        finalY = resolvedWidthBeforeSwap - (item.x ?? 0);
+        finalAngle = (finalAngle - 90 + 360) % 360;
+      }
+
+      const centroid = boundingBoxCenter(finalCycPolygon || finalPolygon);
       const color = sizeNameToColor(item?.sizeName, sizeColorMap);
       return {
         ...item,
-        polygon,
+        polygon: finalPolygon,
+        cycPolygon: finalCycPolygon,
+        internals: finalInternals,
         centroid,
         color,
+        angle: finalAngle,
+        x: finalX,
+        y: finalY,
         layerName: sanitizeLayerName(`SIZE_${item?.sizeName || 'UNK'}`),
         label: getDefaultItemLabel(item)
       };
@@ -262,8 +349,8 @@ export function normalizeDieCutExportData(payload = {}) {
 
     return {
       sheetIndex: sheet?.sheetIndex ?? sheetIndex,
-      sheetWidth: resolvedWidth,
-      sheetHeight: resolvedHeight,
+      sheetWidth: finalWidth,
+      sheetHeight: finalHeight,
       efficiency: sheet?.efficiency ?? null,
       placed: items
     };

@@ -135,5 +135,5 @@ export function generateDieCutCyc(payload = {}) {
   }
   lines.push('</CycleFile>');
 
-  return `${lines.join('\r\n')}\r\n`;
+  return lines.join('\r\n');
 }

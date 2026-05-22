@@ -110,7 +110,8 @@ export function generateDieCutDxf(payload) {
       const rgb = hexToRgb(item.color);
       const aciColor = rgbToAci(rgb);
       const trueColor = rgbToTrueColor(rgb);
-      const shiftedPolygon = item.polygon.map((point) => ({
+      const basePolygon = (isLuxin && Array.isArray(item.cycPolygon)) ? item.cycPolygon : item.polygon;
+      const shiftedPolygon = basePolygon.map((point) => ({
         x: point.x + offsetX,
         y: point.y
       }));

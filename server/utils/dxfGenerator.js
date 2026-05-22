@@ -172,13 +172,24 @@ export class DxfWriter {
 
     points.forEach((point) => this.trackPoint(point.x, point.y));
 
+    // Đảm bảo đa tuyến khép kín (isClosed = true) luôn có đỉnh đầu tiên được lặp lại ở cuối tệp DXF
+    const pointsToUse = [...points];
+    if (isClosed && pointsToUse.length >= 2) {
+      const first = pointsToUse[0];
+      const last = pointsToUse[pointsToUse.length - 1];
+      const dist = Math.hypot(last.x - first.x, last.y - first.y);
+      if (dist > 1e-4) {
+        pointsToUse.push(first);
+      }
+    }
+
     if (this.isLuxin) {
       this.push(this.entityLines, 0, 'POLYLINE');
       this.push(this.entityLines, 8, '1');
       this.push(this.entityLines, 66, 1);
       this.push(this.entityLines, 70, isClosed ? 1 : 0);
 
-      points.forEach((point) => {
+      pointsToUse.forEach((point) => {
         this.push(this.entityLines, 0, 'VERTEX');
         this.push(this.entityLines, 8, '1');
         this.push(this.entityLines, 10, Number(point.x).toFixed(4));
@@ -197,7 +208,7 @@ export class DxfWriter {
       this.push(this.entityLines, 20, 0.0);
       this.push(this.entityLines, 30, 0.0);
 
-      points.forEach((point) => {
+      pointsToUse.forEach((point) => {
         this.push(this.entityLines, 0, 'VERTEX');
         this.push(this.entityLines, 8, layerName);
         this.push(this.entityLines, 6, 'CONTINUOUS');

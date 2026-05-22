@@ -380,12 +380,7 @@ const DieCutLayout = () => {
 
           for (const item of selectedItems) {
             const activeSizes = item.sizeName ? [{ sizeName: item.sizeName }] : activeShapes;
-            const fileNameBase = buildExportFileBase({
-              orderNames: exportOrderNames,
-              mode: 'diecut',
-              activeSizes: item.sizeName ? [item.sizeName] : []
-            });
-            const filename = `${sanitizeFilename(fileNameBase)}.dxf`;
+            const filename = item.sizeName ? `${sanitizeFilename(item.sizeName)}_1.DXF` : `diecut_1.DXF`;
             const payload = {
               sheets: [item.sheet],
               sheetWidth: item.sheet?.sheetWidth || config.sheetWidth,
@@ -404,13 +399,7 @@ const DieCutLayout = () => {
           if (!selectedSheets.length) throw new Error('Không lấy được dữ liệu chi tiết của các tấm đã chọn.');
 
           for (const [index, sheet] of selectedSheets.entries()) {
-            const sheetActiveSizes = [...new Set((sheet?.placed || []).map((placedItem) => placedItem?.sizeName).filter(Boolean))];
-            const fileNameBase = buildExportFileBase({
-              orderNames: exportOrderNames,
-              mode: 'diecut',
-              activeSizes: sheetActiveSizes
-            }) + `-sheet${selectedSheetIndexes[index] + 1}`;
-            const filename = `${sanitizeFilename(fileNameBase)}.dxf`;
+            const filename = `nest_sheet${selectedSheetIndexes[index] + 1}.DXF`;
             const payload = {
               sheets: [sheet],
               sheetWidth: sheet?.sheetWidth || config.sheetWidth,
@@ -444,12 +433,7 @@ const DieCutLayout = () => {
 
           for (const item of itemsWithToolCode) {
             const activeSizes = item.sizeName ? [item.sizeName] : [];
-            const fileNameBase = buildExportFileBase({
-              orderNames: exportOrderNames,
-              mode: 'diecut',
-              activeSizes
-            });
-            const filename = `${sanitizeFilename(fileNameBase)}.CYC`;
+            const filename = item.sizeName ? `${sanitizeFilename(item.sizeName)}_1.CYC` : `diecut_1.CYC`;
             const payload = {
               sheets: [item.sheet],
               sheetWidth: item.sheet?.sheetWidth || config.sheetWidth,
@@ -475,13 +459,7 @@ const DieCutLayout = () => {
               continue;
             }
 
-            const allSheetActiveSizes = [...new Set((sheet?.placed || []).map((placedItem) => placedItem?.sizeName).filter(Boolean))];
-            const fileNameBase = buildExportFileBase({
-              orderNames: exportOrderNames,
-              mode: 'diecut',
-              activeSizes: allSheetActiveSizes
-            }) + `-sheet${selectedSheetIndexes[index] + 1}`;
-            const filename = `${sanitizeFilename(fileNameBase)}.CYC`;
+            const filename = `nest_sheet${selectedSheetIndexes[index] + 1}.CYC`;
             const payload = {
               sheets: [sheet],
               sheetWidth: sheet?.sheetWidth || config.sheetWidth,
