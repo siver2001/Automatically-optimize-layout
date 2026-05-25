@@ -1,17 +1,34 @@
 import React from 'react';
 
 const SheetVisualizerPanel = ({ config }) => {
-  const w = config.sheetWidth || 1000;
-  const h = config.sheetHeight || 1000;
-  const mx = config.marginX || 0;
-  const my = config.marginY || 0;
+  const origW = config.sheetWidth || 1000;
+  const origH = config.sheetHeight || 1000;
+  
+  let w = origW;
+  let h = origH;
+  let mx = config.marginX || 0;
+  let my = config.marginY || 0;
+
+  // Swap to landscape for preview to make it fill the available container space much better
+  let isSwapped = false;
+  if (h > w) {
+    const temp = w;
+    w = h;
+    h = temp;
+    const tempM = mx;
+    mx = my;
+    my = tempM;
+    isSwapped = true;
+  }
+
   const viewBoxW = w + 40;
   const viewBoxH = h + 40;
 
   return (
     <div className="bg-white/10 backdrop-blur-md rounded-xl border border-white/20 p-4 space-y-3 h-full flex flex-col">
       <h3 className="text-white font-semibold text-sm flex items-center gap-2">
-        <span className="text-xl">📐</span> Mô phỏng cấu hình tấm PU ({w} × {h})
+        <span className="text-xl">📐</span> Mô phỏng cấu hình tấm PU ({origW} × {origH})
+        {isSwapped && <span className="text-white/40 text-xs font-normal">(Đo chiều cao đứng lớn nên đã xoay ngang để xem rõ hơn)</span>}
       </h3>
       <div className="flex-1 bg-black/20 rounded-lg border border-white/10 flex items-center justify-center p-2 min-h-[420px]">
         <svg 
@@ -38,9 +55,9 @@ const SheetVisualizerPanel = ({ config }) => {
               <rect x="0" y="0" width={w} height={h} fill="url(#margin-hatch)" />
               {/* Vùng sử dụng thật (khấu trừ lề) */}
               <rect 
-                x={my} y={mx} 
-                width={Math.max(0, w - my * 2)} 
-                height={Math.max(0, h - mx * 2)} 
+                x={mx} y={my} 
+                width={Math.max(0, w - mx * 2)} 
+                height={Math.max(0, h - my * 2)} 
                 fill="rgba(16, 185, 129, 0.1)" 
                 stroke="rgba(16, 185, 129, 0.8)" 
                 strokeWidth={Math.max(w,h)*0.005} 
