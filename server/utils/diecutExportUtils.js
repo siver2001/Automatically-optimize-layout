@@ -167,67 +167,48 @@ function buildPreparedSequenceKey(item, fallbackIndex) {
 }
 
 function applyPreparedSequenceLabels(items = []) {
-  const maxAreaBySize = buildMaxAreaBySize(items);
-  
-  // Classify and assign keys initially
+  // Assign keys initially
   const keyedItems = items.map((item, index) => ({
     item,
-    key: buildPreparedSequenceKey(item, index),
-    splitRank: Number(isPreparedSequenceSplitHalfItem(item, maxAreaBySize))
+    key: buildPreparedSequenceKey(item, index)
   }));
 
-  // Group items by splitRank
-  const groups = new Map();
-  for (const keyed of keyedItems) {
-    const rank = keyed.splitRank;
-    if (!groups.has(rank)) {
-      groups.set(rank, []);
-    }
-    groups.get(rank).push(keyed);
-  }
-
-  // Sort splitRanks ascending (regular pieces first, split pieces second)
-  const sortedRanks = [...groups.keys()].sort((a, b) => a - b);
   const finalSortedKeyed = [];
 
-  for (const rank of sortedRanks) {
-    const rankItems = groups.get(rank);
-    
-    // Pre-sort by Y ascending to group them into horizontal rows
-    const sortedByY = [...rankItems].sort((a, b) => 
-      getFiniteSortValue(a.item?.centroid?.y) - getFiniteSortValue(b.item?.centroid?.y)
-    );
+  // Pre-sort all items by Y descending to group them into horizontal rows (from top to bottom)
+  const sortedByY = [...keyedItems].sort((a, b) => 
+    getFiniteSortValue(b.item?.centroid?.y) - getFiniteSortValue(a.item?.centroid?.y)
+  );
 
-    const rows = [];
-    const Y_THRESHOLD = 50.0; // 50mm vertical grouping threshold for rows
+  const rows = [];
+  const Y_THRESHOLD = 50.0; // 50mm vertical grouping threshold for rows
 
-    for (const keyed of sortedByY) {
-      if (rows.length === 0) {
-        rows.push([keyed]);
+  for (const keyed of sortedByY) {
+    if (rows.length === 0) {
+      rows.push([keyed]);
+    } else {
+      const lastRow = rows[rows.length - 1];
+      const avgY = lastRow.reduce((sum, k) => sum + getFiniteSortValue(k.item?.centroid?.y), 0) / lastRow.length;
+      if (Math.abs(getFiniteSortValue(keyed.item?.centroid?.y) - avgY) < Y_THRESHOLD) {
+        lastRow.push(keyed);
       } else {
-        const lastRow = rows[rows.length - 1];
-        const avgY = lastRow.reduce((sum, k) => sum + getFiniteSortValue(k.item?.centroid?.y), 0) / lastRow.length;
-        if (Math.abs(getFiniteSortValue(keyed.item?.centroid?.y) - avgY) < Y_THRESHOLD) {
-          lastRow.push(keyed);
-        } else {
-          rows.push([keyed]);
-        }
+        rows.push([keyed]);
       }
     }
-
-    // For each row, sort by X and reverse alternate rows (Snake path)
-    rows.forEach((row, rIdx) => {
-      const sortedRow = [...row].sort((a, b) => 
-        getFiniteSortValue(a.item?.centroid?.x) - getFiniteSortValue(b.item?.centroid?.x)
-      );
-      
-      // Alternate direction for odd rows to achieve Snake path (0-indexed)
-      if (rIdx % 2 === 1) {
-        sortedRow.reverse();
-      }
-      finalSortedKeyed.push(...sortedRow);
-    });
   }
+
+  // For each row, sort by X and reverse alternate rows (Snake path)
+  rows.forEach((row, rIdx) => {
+    const sortedRow = [...row].sort((a, b) => 
+      getFiniteSortValue(a.item?.centroid?.x) - getFiniteSortValue(b.item?.centroid?.x)
+    );
+    
+    // Alternate direction for odd rows to achieve Snake path (0-indexed)
+    if (rIdx % 2 === 1) {
+      sortedRow.reverse();
+    }
+    finalSortedKeyed.push(...sortedRow);
+  });
 
   // Map each unique key to its Snake index sequence (1-indexed)
   const sequenceByKey = new Map();

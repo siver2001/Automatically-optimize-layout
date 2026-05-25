@@ -845,7 +845,7 @@ const SheetCanvas = React.memo(function SheetCanvas({
                       <text
                         x={center.x}
                         y={center.y}
-                        fontSize={7}
+                        fontSize={14}
                         fill="white"
                         fillOpacity={0.9}
                         textAnchor="middle"
@@ -879,7 +879,7 @@ const SheetCanvas = React.memo(function SheetCanvas({
                   <text
                     x={previewLabel.x}
                     y={previewLabel.y}
-                    fontSize={7}
+                    fontSize={14}
                     fill="rgba(255,255,255,0.95)"
                     textAnchor="middle"
                     dominantBaseline="middle"
