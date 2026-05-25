@@ -35,10 +35,13 @@ async function run() {
   })).sort((a, b) => parseFloat(a.sizeName) - parseFloat(b.sizeName));
 
   console.log(`Running full test for ${testSizes.length} sizes...`);
+  const startTime = performance.now();
   const res = await engine.testCapacity(testSizes, config);
+  const endTime = performance.now();
+  const durationSec = ((endTime - startTime) / 1000).toFixed(2);
   
   console.log("\n=== ALL SIZES CAPACITY RESULTS ===");
-  let fileOutput = "=== ALL SIZES CAPACITY RESULTS ===\n";
+  let fileOutput = `=== ALL SIZES CAPACITY RESULTS (Calculated in ${durationSec}s) ===\n`;
   for (const item of (res.summary || [])) {
     const line = `Size: ${item.sizeName.padEnd(5)} | Pairs: ${String(item.pairs).padEnd(5)} | Efficiency: ${item.efficiency.toFixed(1)}%`;
     console.log(line);

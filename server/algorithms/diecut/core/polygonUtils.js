@@ -347,32 +347,35 @@ export function polygonsOverlap(polyA, polyB, offsetA = { x: 0, y: 0 }, offsetB 
     return false;
   }
   
-  // 2. Precise SAT-like intersection check with spacing
+  // 2. Precise SAT-like intersection check with spacing using cached Float64Array segments
   const nA = polyA.length;
   const nB = polyB.length;
   const sqSpacing = spacing * spacing;
 
-  for (let i = 0; i < nA; i++) {
-    const pAi = polyA[i];
-    const pAiNext = polyA[(i + 1) % nA];
-    const a1x = pAi.x + ax, a1y = pAi.y + ay;
-    const a2x = pAiNext.x + ax, a2y = pAiNext.y + ay;
+  const dataA = getSegmentData(polyA);
+  const dataB = getSegmentData(polyB);
 
-    const minAx = a1x < a2x ? a1x : a2x;
-    const maxAx = a1x > a2x ? a1x : a2x;
-    const minAy = a1y < a2y ? a1y : a2y;
-    const maxAy = a1y > a2y ? a1y : a2y;
+  for (let i = 0; i < nA; i++) {
+    const idxA = i * 8;
+    const a1x = dataA[idxA] + ax;
+    const a1y = dataA[idxA + 1] + ay;
+    const a2x = dataA[idxA + 2] + ax;
+    const a2y = dataA[idxA + 3] + ay;
+    const minAx = dataA[idxA + 4] + ax;
+    const maxAx = dataA[idxA + 5] + ax;
+    const minAy = dataA[idxA + 6] + ay;
+    const maxAy = dataA[idxA + 7] + ay;
 
     for (let j = 0; j < nB; j++) {
-      const pBj = polyB[j];
-      const pBjNext = polyB[(j + 1) % nB];
-      const b1x = pBj.x + bx, b1y = pBj.y + by;
-      const b2x = pBjNext.x + bx, b2y = pBjNext.y + by;
-
-      const minBx = b1x < b2x ? b1x : b2x;
-      const maxBx = b1x > b2x ? b1x : b2x;
-      const minBy = b1y < b2y ? b1y : b2y;
-      const maxBy = b1y > b2y ? b1y : b2y;
+      const idxB = j * 8;
+      const b1x = dataB[idxB] + bx;
+      const b1y = dataB[idxB + 1] + by;
+      const b2x = dataB[idxB + 2] + bx;
+      const b2y = dataB[idxB + 3] + by;
+      const minBx = dataB[idxB + 4] + bx;
+      const maxBx = dataB[idxB + 5] + bx;
+      const minBy = dataB[idxB + 6] + by;
+      const maxBy = dataB[idxB + 7] + by;
 
       // Edge-level bounding box early exit
       if (
