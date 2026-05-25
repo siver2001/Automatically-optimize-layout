@@ -285,7 +285,8 @@ export function normalizeDieCutExportData(payload = {}) {
       let finalPolygon = polygon;
       let finalCycPolygon = item?.cycPolygon;
       let finalInternals = item?.internals;
-      let finalAngle = item?.angle ?? 0;
+      let finalAngle = (360 - (item?.angle ?? 0)) % 360;
+      finalAngle = (finalAngle + 90) % 360;
       let finalX = item?.x ?? 0;
       let finalY = item?.y ?? 0;
 

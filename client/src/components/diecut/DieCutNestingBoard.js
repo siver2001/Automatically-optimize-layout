@@ -826,7 +826,7 @@ const SheetCanvas = React.memo(function SheetCanvas({
                   <path
                     d={item.svgPath}
                     transform={item.pathTransform}
-                    fill={item.fillColor}
+                    fill={isInvalid ? "#EF4444" : item.fillColor}
                     fillOpacity={isInvalid ? 0.9 : isHovered ? 0.85 : 0.62}
                     stroke={
                       isInvalid
@@ -1727,10 +1727,10 @@ export default function DieCutNestingBoard({
     )
       return;
     if (validation.invalidCount > 0) {
-      const accepted = window.confirm(
-        `Hiện có ${validation.invalidCount} chi tiết đang vi phạm khoảng cách ${resolvedSpacing} mm, chồng lấn hoặc ra ngoài tấm.\n\nBạn có muốn chấp nhận các vị trí này và lưu lại không?`,
+      alert(
+        `Không thể lưu: Hiện có ${validation.invalidCount} chi tiết đang vi phạm khoảng cách ${resolvedSpacing} mm, chồng lấn hoặc ra ngoài tấm. Vui lòng căn chỉnh lại trước khi lưu.`
       );
-      if (!accepted) return;
+      return;
     }
     const nextSheets = resolvedSheets.map((sheet, i) =>
       i === selectedSheet ? cloneSheet(currentSheet) : sheet,
@@ -1834,7 +1834,9 @@ export default function DieCutNestingBoard({
   const selectedItem = selectedItemId
     ? currentSheet?.placed?.find((item) => item.id === selectedItemId) || null
     : null;
-  const saveDisabled = !currentDirty && currentLibraryItems.length === 0;
+  const saveDisabled =
+    (!currentDirty && currentLibraryItems.length === 0) ||
+    validation.invalidCount > 0;
   const toolbar = (
     <div className="flex flex-wrap items-center gap-2">
       <button

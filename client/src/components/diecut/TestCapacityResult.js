@@ -8,7 +8,9 @@ const TestCapacityResult = ({
   onExportPdf,
   onExportDxf,
   onExportCyc,
-  showCycExport = false
+  showCycExport = false,
+  sizeList,
+  onResultChange
 }) => {
   const summary = useMemo(() => {
     const rawSummary = result?.summary || [];
@@ -66,6 +68,71 @@ const TestCapacityResult = ({
   const totalPieces = selectedSheet?.placedCount ?? selectedSummary?.totalPieces ?? selectedSheet?.placed?.length ?? 0;
   const totalPairs = selectedSummary?.pairs ?? Math.floor(totalPieces / 2);
   const selectedEfficiency = selectedSummary?.efficiency ?? efficiency ?? 0;
+
+  const handleBoardResultChange = (updater) => {
+    if (!selectedSheet || !selectedSize) return;
+
+    const mockPrev = {
+      sheets: [selectedSheet],
+      totalSheets: 1,
+      placedCount: selectedSheet.placedCount ?? selectedSheet.placed?.length ?? 0,
+      unplacedCount: 0,
+      efficiency: selectedSheet.efficiency ?? selectedEfficiency,
+      timeMs: result.timeMs,
+      sheetWidth: config.sheetWidth,
+      sheetHeight: config.sheetHeight,
+      spacing: config.spacing,
+      gridStep: config.gridStep
+    };
+
+    const mockNext = typeof updater === 'function' ? updater(mockPrev) : updater;
+    const updatedSheet = mockNext?.sheets?.[0];
+    if (!updatedSheet) return;
+
+    if (onResultChange) {
+      onResultChange((prevResult) => {
+        if (!prevResult) return prevResult;
+
+        // 1. Cập nhật sheetsBySize cho size đang chọn
+        const nextSheetsBySize = {
+          ...prevResult.sheetsBySize,
+          [selectedSize]: updatedSheet
+        };
+
+        // Tính toán các thông số mới cho tấm PU đã chỉnh sửa
+        const newPieces = updatedSheet.placedCount ?? updatedSheet.placed?.length ?? 0;
+        const newPairs = Math.floor(newPieces / 2);
+        const newEfficiency = updatedSheet.efficiency ?? 0;
+
+        // 2. Cập nhật mảng summary cho size tương ứng
+        const nextSummary = (prevResult.summary || []).map((entry) => {
+          if (entry.sizeName === selectedSize) {
+            return {
+              ...entry,
+              placedCount: newPieces,
+              totalPieces: newPieces,
+              pairs: newPairs,
+              efficiency: newEfficiency
+            };
+          }
+          return entry;
+        });
+
+        // 3. Nếu size đang chỉnh sửa là size mặc định, cập nhật cả thông số top level
+        const firstSize = prevResult.defaultSizeName || prevResult.summary?.[0]?.sizeName;
+        const isDefault = selectedSize === firstSize;
+
+        return {
+          ...prevResult,
+          sheetsBySize: nextSheetsBySize,
+          summary: nextSummary,
+          sheet: isDefault ? updatedSheet : prevResult.sheet,
+          totalPlaced: isDefault ? newPieces : prevResult.totalPlaced,
+          efficiency: isDefault ? newEfficiency : prevResult.efficiency
+        };
+      });
+    }
+  };
 
   return (
     <div className="flex flex-col gap-2">
@@ -217,8 +284,10 @@ const TestCapacityResult = ({
                 gridStep: config.gridStep
               }}
               editConfig={config}
-              sizeList={summary.map(s => ({ sizeName: s.sizeName }))}
+              sizeList={sizeList}
               compactMode
+              allowEdit={typeof onResultChange === "function"}
+              onResultChange={handleBoardResultChange}
             />
           )}
         </div>

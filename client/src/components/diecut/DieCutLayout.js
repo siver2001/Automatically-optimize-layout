@@ -832,6 +832,8 @@ const DieCutLayout = () => {
         <TestCapacityResult
           result={testResult}
           config={config}
+          sizeList={sizeList}
+          onResultChange={setTestResult}
           onExportPdf={() => openExportPicker('pdf', 'test', buildTestExportItems())}
           onExportDxf={() => openExportPicker('dxf', 'test', buildTestExportItems())}
           onExportCyc={() => openExportPicker('cyc', 'test', buildTestExportItems().filter(item => hasToolCode(item.sizeName)))}
