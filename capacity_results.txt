@@ -1,16 +1,16 @@
-=== ALL SIZES CAPACITY RESULTS (Calculated in 142.30s) ===
+=== ALL SIZES CAPACITY RESULTS (Calculated in 135.98s) ===
 Size: 3.5   | Pairs: 62    | Efficiency: 82.9%
-Size: 4     | Pairs: 59.5  | Efficiency: 82.1%
+Size: 4     | Pairs: 61    | Efficiency: 84.1%
 Size: 4.5   | Pairs: 58    | Efficiency: 82.6%
 Size: 5     | Pairs: 56    | Efficiency: 82.4%
 Size: 5.5   | Pairs: 56    | Efficiency: 84.9%
 Size: 6     | Pairs: 52    | Efficiency: 81.2%
 Size: 6.5   | Pairs: 52    | Efficiency: 83.7%
 Size: 7     | Pairs: 50    | Efficiency: 82.7%
-Size: 7.5   | Pairs: 47    | Efficiency: 79.9%
-Size: 8     | Pairs: 46    | Efficiency: 80.5%
+Size: 7.5   | Pairs: 47    | Efficiency: 80.0%
+Size: 8     | Pairs: 46    | Efficiency: 78.8%
 Size: 8.5   | Pairs: 45.5  | Efficiency: 81.9%
-Size: 9     | Pairs: 45.5  | Efficiency: 84.1%
+Size: 9     | Pairs: 45.5  | Efficiency: 84.2%
 Size: 9.5   | Pairs: 44    | Efficiency: 83.6%
 Size: 10    | Pairs: 42    | Efficiency: 82.1%
 Size: 10.5  | Pairs: 39    | Efficiency: 78.2%

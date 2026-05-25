@@ -3640,24 +3640,41 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         }
         
         if (bestCoord !== null) {
-          const placement = {
-            id: `dfs_${marginType}_${clusterIndex}_${orient.foot}`,
+          const rawPlacement = {
             orient,
             x: isYBased ? bestCoord : bestSweepVal,
             y: isYBased ? bestSweepVal : bestCoord,
             effectiveArea: orient.areaMm2,
             isSplit: true
           };
-          currentPlacements.push(placement);
-          const nextSpatialIndex = self._buildSpatialIndex(
+          const compacted = self._compactSplitFillCandidatePlacement(
+            rawPlacement,
+            orient,
             currentPlacements,
+            config,
             workWidth,
             workHeight,
-            spacing,
             spatialIndex
           );
-          search(clusterIndex + 1, nextSpatialIndex);
-          currentPlacements.pop();
+          if (compacted) {
+            const placement = {
+              ...compacted,
+              id: `dfs_${marginType}_${clusterIndex}_${orient.foot}`,
+              orient,
+              effectiveArea: orient.areaMm2,
+              isSplit: true
+            };
+            currentPlacements.push(placement);
+            const nextSpatialIndex = self._buildSpatialIndex(
+              currentPlacements,
+              workWidth,
+              workHeight,
+              spacing,
+              spatialIndex
+            );
+            search(clusterIndex + 1, nextSpatialIndex);
+            currentPlacements.pop();
+          }
         }
       }
     }
