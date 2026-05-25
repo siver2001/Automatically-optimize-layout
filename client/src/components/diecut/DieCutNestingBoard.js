@@ -493,25 +493,29 @@ const polygonToSVGPath = (p) =>
   !p || p.length < 2
     ? ""
     : `${p.map((pt, i) => `${i === 0 ? "M" : "L"}${pt.x.toFixed(2)},${pt.y.toFixed(2)}`).join(" ")} Z`;
-function getCentroid(p) {
-  if (!p || !p.length) return { x: 0, y: 0 };
-  let x = 0,
-    y = 0;
-  for (const pt of p) {
-    x += pt.x;
-    y += pt.y;
-  }
-  return { x: x / p.length, y: y / p.length };
-}
+
 const getItemRenderPath = (item, templates) => {
   const t = item.renderKey ? templates?.[item.renderKey] : null;
   return t?.path || item.renderPath || polygonToSVGPath(item.polygon);
 };
 const getItemLabelPos = (item, templates) => {
   const t = item.renderKey ? templates?.[item.renderKey] : null;
-  return t?.labelOffset
-    ? { x: item.x + t.labelOffset.x, y: item.y + t.labelOffset.y }
-    : item.labelPos || getCentroid(item.polygon);
+  if (t?.path) {
+    const pts = parseRelativeSvgPath(t.path);
+    if (pts && pts.length > 0) {
+      const translated = pts.map(p => ({
+        x: p.x + (item.x || 0),
+        y: p.y + (item.y || 0)
+      }));
+      const b = getPolygonBounds(translated);
+      return { x: (b.minX + b.maxX) / 2, y: (b.minY + b.maxY) / 2 };
+    }
+  }
+  if (t?.labelOffset) {
+    return { x: item.x + t.labelOffset.x, y: item.y + t.labelOffset.y };
+  }
+  const b = getPolygonBounds(item.polygon || []);
+  return { x: (b.minX + b.maxX) / 2, y: (b.minY + b.maxY) / 2 };
 };
 const getItemPathTransform = (item, templates) =>
   item.renderKey && templates?.[item.renderKey]
@@ -781,6 +785,17 @@ const SheetCanvas = React.memo(function SheetCanvas({
                 center = showLabels
                   ? getItemLabelPos(item, renderTemplates)
                   : null;
+
+              // Calculate if the shape is vertical to rotate its label
+              let textTransform = undefined;
+              if (showLabels && center) {
+                const isSplit = String(item.foot || "").includes("left") || String(item.foot || "").includes("right") || String(item.id || "").includes("split");
+                const angle = isSplit ? 0 : (isRotated ? 90 : 0);
+                if (angle !== 0) {
+                  textTransform = `rotate(${angle}, ${center.x}, ${center.y})`;
+                }
+              }
+
               return (
                 <g
                   key={`${sheet?.sheetIndex ?? "sheet"}:${item.id}`}
@@ -835,17 +850,11 @@ const SheetCanvas = React.memo(function SheetCanvas({
                     strokeDasharray={isInvalid ? "10 6" : undefined}
                   />
                   {showLabels && center ? (
-                    <g
-                      transform={
-                        isRotated
-                          ? `rotate(90, ${center.x}, ${center.y})`
-                          : undefined
-                      }
-                    >
+                    <g transform={textTransform}>
                       <text
                         x={center.x}
                         y={center.y}
-                        fontSize={14}
+                        fontSize={23}
                         fill="white"
                         fillOpacity={0.9}
                         textAnchor="middle"
@@ -858,39 +867,45 @@ const SheetCanvas = React.memo(function SheetCanvas({
                         }}
                       >
                         {item.sizeName}
-                        {item.foot}
+                        {String(item.foot || "").replace("split-", "")}
                       </text>
                     </g>
                   ) : null}
                 </g>
               );
             })}
-            {pickedPreviewItem ? (
-              <g opacity={0.92} pointerEvents="none">
-                <path
-                  d={previewPath}
-                  transform={previewTransform}
-                  fill="rgba(255,255,255,0.18)"
-                  stroke="rgba(96,165,250,0.95)"
-                  strokeWidth={3}
-                  strokeDasharray="10 6"
-                />
-                {previewLabel ? (
-                  <text
-                    x={previewLabel.x}
-                    y={previewLabel.y}
-                    fontSize={14}
-                    fill="rgba(255,255,255,0.95)"
-                    textAnchor="middle"
-                    dominantBaseline="middle"
-                    style={{ fontFamily: "Roboto", userSelect: "none" }}
-                  >
-                    {pickedPreviewItem.sizeName}
-                    {pickedPreviewItem.foot}
-                  </text>
-                ) : null}
-              </g>
-            ) : null}
+            {pickedPreviewItem ? (() => {
+              const isSplit = String(pickedPreviewItem.foot || "").includes("left") || String(pickedPreviewItem.foot || "").includes("right") || String(pickedPreviewItem.id || "").includes("split");
+              const previewAngle = isSplit ? 0 : (isRotated ? 90 : 0);
+              return (
+                <g opacity={0.92} pointerEvents="none">
+                  <path
+                    d={previewPath}
+                    transform={previewTransform}
+                    fill="rgba(255,255,255,0.18)"
+                    stroke="rgba(96,165,250,0.95)"
+                    strokeWidth={3}
+                    strokeDasharray="10 6"
+                  />
+                  {previewLabel ? (
+                    <g transform={previewAngle !== 0 ? `rotate(${previewAngle}, ${previewLabel.x}, ${previewLabel.y})` : undefined}>
+                      <text
+                        x={previewLabel.x}
+                        y={previewLabel.y}
+                        fontSize={18}
+                        fill="rgba(255,255,255,0.95)"
+                        textAnchor="middle"
+                        dominantBaseline="middle"
+                        style={{ fontFamily: "Roboto", userSelect: "none" }}
+                      >
+                        {pickedPreviewItem.sizeName}
+                        {String(pickedPreviewItem.foot || "").replace("split-", "")}
+                      </text>
+                    </g>
+                  ) : null}
+                </g>
+              );
+            })() : null}
           </g>
         </svg>
       </div>

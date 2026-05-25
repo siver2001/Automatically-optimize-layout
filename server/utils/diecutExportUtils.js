@@ -118,7 +118,8 @@ function rgbToTrueColor([r, g, b]) {
 }
 
 function getDefaultItemLabel(item) {
-  return `${item?.sizeName || ''}${item?.foot || ''}`;
+  const foot = String(item?.foot || "").replace("split-", "");
+  return `${item?.sizeName || ''}${foot}`;
 }
 
 function getFiniteSortValue(value) {
