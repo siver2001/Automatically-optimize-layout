@@ -643,6 +643,17 @@ const DieCutLayout = () => {
           setShapes(nS);
           setImportAnalysis(nIA || null);
           setConfig((curr) => applyRecommendedMode(curr, nIA));
+          
+          if (Array.isArray(nS)) {
+            const initialMap = {};
+            nS.forEach((shape) => {
+              const name = shape.sizeName || shape.name;
+              if (name) {
+                initialMap[name] = 1;
+              }
+            });
+            setToolCodeMap(initialMap);
+          }
         }}
         initialShapes={shapes.length > 0 ? shapes : null}
         initialImportAnalysis={importAnalysis}
