@@ -1744,6 +1744,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         const pbb = bestP.orient.bb || getBoundingBox(bestP.orient.polygon);
         const pCenterX = bestP.x + (pbb.minX + pbb.maxX) / 2;
         const snappedX = roundMetric(pCenterX - (bb.minX + bb.maxX) / 2, 3);
+        // Only snap X (column alignment), keep original Y
         return { ...candidate, x: snappedX };
       }
     } else if (preferredSide === 'left' || preferredSide === 'right') {
@@ -1768,49 +1769,15 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         snappedY = roundMetric(pCenterY - (bb.minY + bb.maxY) / 2, 3);
       }
 
-      // Snap X coordinate to the column of the whole piece closest to the margin
-      let snappedX = candidate.x;
-      if (preferredSide === 'right') {
-        let rightmostWhole = wholePlacements[0];
-        let maxRightX = -Infinity;
-        for (const p of wholePlacements) {
-          const pbb = p.orient.bb || getBoundingBox(p.orient.polygon);
-          const pRight = p.x + pbb.maxX;
-          if (pRight > maxRightX) {
-            maxRightX = pRight;
-            rightmostWhole = p;
-          }
-        }
-        if (rightmostWhole) {
-          const pbb = rightmostWhole.orient.bb || getBoundingBox(rightmostWhole.orient.polygon);
-          const pRight = rightmostWhole.x + pbb.maxX;
-          snappedX = roundMetric(pRight - bb.maxX, 3);
-        }
-      } else if (preferredSide === 'left') {
-        let leftmostWhole = wholePlacements[0];
-        let minLeftX = Infinity;
-        for (const p of wholePlacements) {
-          const pbb = p.orient.bb || getBoundingBox(p.orient.polygon);
-          const pLeft = p.x + pbb.minX;
-          if (pLeft < minLeftX) {
-            minLeftX = pLeft;
-            leftmostWhole = p;
-          }
-        }
-        if (leftmostWhole) {
-          const pbb = leftmostWhole.orient.bb || getBoundingBox(leftmostWhole.orient.polygon);
-          const pLeft = leftmostWhole.x + pbb.minX;
-          snappedX = roundMetric(pLeft - bb.minX, 3);
-        }
-      }
-
-      return { ...candidate, x: snappedX, y: snappedY };
+      // Only snap Y (row alignment), keep original X to avoid overlap and let compaction push it tight later
+      return { ...candidate, y: snappedY };
     }
     
     return candidate;
   }
 
   _compactSplitFillCandidatePlacement(candidate, orient, occupiedPlacements, config, workWidth, workHeight, providedSpatialIndex = null) {
+    const originalCandidate = { ...candidate };
     // Snap candidate to column/row center of whole pieces before compacting
     candidate = this._alignSplitPlacementWithWholePieces(candidate, orient, occupiedPlacements, config);
     const step = Math.max(0.1, (config.gridStep || 1) / 4);
@@ -1839,7 +1806,64 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       );
     };
 
-    if (!isSafe(currentX, currentY)) return candidate;
+    // If snapped position is not safe, scan along the compaction axis towards the empty margin
+    if (!isSafe(currentX, currentY)) {
+      const preferredSide = orient?.splitOutwardSide;
+      let foundSafe = false;
+
+      if (preferredSide === 'top') {
+        // Scan Y upwards (towards Y=minY, away from whole pieces)
+        let testY = currentY;
+        while (testY >= minY - 1e-6) {
+          if (isSafe(currentX, testY)) {
+            currentY = roundMetric(testY, 3);
+            foundSafe = true;
+            break;
+          }
+          testY -= step;
+        }
+      } else if (preferredSide === 'bottom') {
+        // Scan Y downwards (towards Y=maxY, away from whole pieces)
+        let testY = currentY;
+        while (testY <= maxY + 1e-6) {
+          if (isSafe(currentX, testY)) {
+            currentY = roundMetric(testY, 3);
+            foundSafe = true;
+            break;
+          }
+          testY += step;
+        }
+      } else if (preferredSide === 'right') {
+        // Scan X rightwards (towards X=maxX, away from whole pieces)
+        let testX = currentX;
+        while (testX <= maxX + 1e-6) {
+          if (isSafe(testX, currentY)) {
+            currentX = roundMetric(testX, 3);
+            foundSafe = true;
+            break;
+          }
+          testX += step;
+        }
+      } else if (preferredSide === 'left') {
+        // Scan X leftwards (towards X=minX, away from whole pieces)
+        let testX = currentX;
+        while (testX >= minX - 1e-6) {
+          if (isSafe(testX, currentY)) {
+            currentX = roundMetric(testX, 3);
+            foundSafe = true;
+            break;
+          }
+          testX -= step;
+        }
+      }
+
+      if (!foundSafe) {
+        // Fallback to original unsnapped candidate if no safe position found along the alignment axis
+        if (!isSafe(originalCandidate.x, originalCandidate.y)) return originalCandidate;
+        currentX = originalCandidate.x;
+        currentY = originalCandidate.y;
+      }
+    }
 
     let directions = [
       { axis: 'x', sign: -1, id: 'left' },
@@ -1857,11 +1881,13 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         'bottom': 'top'
       }[preferredSide];
 
-      // Restrict axes of compaction to avoid drifting across columns or rows.
+      // Restrict axes of compaction to maintain perfect alignment:
       // For top/bottom splits (horizontal), only compact in Y to keep column alignment.
-      // For left/right splits (vertical), allow compaction in both X and Y axes to pack them tightly vertically.
+      // For left/right splits (vertical), only compact in X to keep row alignment.
       if (preferredSide === 'top' || preferredSide === 'bottom') {
         directions = directions.filter(d => d.axis === 'y');
+      } else if (preferredSide === 'left' || preferredSide === 'right') {
+        directions = directions.filter(d => d.axis === 'x');
       }
 
       directions.sort((a, b) => {
@@ -2704,7 +2730,6 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
   _buildSplitPairGroupOrigins(template, occupiedPlacements, workWidth, workHeight, step, providedFreeRects = null) {
     if (!template || template.width > workWidth + 1e-6 || template.height > workHeight + 1e-6) return [];
 
-    const safeStep = Math.max(1, (step || 1) * 2);
     const maxX = workWidth - template.width;
     const maxY = workHeight - template.height;
     const origins = [];
@@ -2718,55 +2743,43 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       origins.push({ x: originX, y: originY });
     };
 
-    const xs = buildDenseAxisCandidates(0, maxX, safeStep, 24);
-    const ys = buildDenseAxisCandidates(0, maxY, safeStep, 24);
-    for (const x of xs) {
-      addOrigin(x, 0);
-      addOrigin(x, maxY);
-    }
-    for (const y of ys) {
-      addOrigin(0, y);
-      addOrigin(maxX, y);
-    }
-
     const freeRects = providedFreeRects || this._buildPreparedSplitFreeRects(occupiedPlacements, workWidth, workHeight, 0);
     
-    const intersectsFreeSpace = (minX, minY, maxX, maxY) => {
-      for (const rect of freeRects) {
-        if (maxX > rect.x && minX < rect.x + rect.width &&
-            maxY > rect.y && minY < rect.y + rect.height) {
-          return true;
-        }
-      }
-      return false;
-    };
+    // Filter rects that can actually fit the template
+    const compatibleRects = freeRects.filter(rect => 
+      rect.width + 1e-6 >= template.width && 
+      rect.height + 1e-6 >= template.height
+    );
 
-    for (const placement of occupiedPlacements) {
-      const bounds = this._getPlacementBounds(placement);
-      
-      if (!intersectsFreeSpace(bounds.minX, bounds.minY, bounds.maxX, bounds.maxY)) {
-        continue;
-      }
+    for (const rect of compatibleRects) {
+      const rxMin = rect.x;
+      const rxMax = rect.x + rect.width - template.width;
+      const ryMin = rect.y;
+      const ryMax = rect.y + rect.height - template.height;
 
-      const candidateOrigins = [
-        { x: bounds.minX - template.width, y: bounds.minY },
-        { x: bounds.maxX, y: bounds.minY },
-        { x: bounds.minX, y: bounds.minY - template.height },
-        { x: bounds.minX, y: bounds.maxY }
-      ];
-      for (const origin of candidateOrigins) {
-        for (const dx of [-safeStep, 0, safeStep]) {
-          for (const dy of [-safeStep, 0, safeStep]) {
-            const ox = origin.x + dx;
-            const oy = origin.y + dy;
-            
-            if (intersectsFreeSpace(ox, oy, ox + template.width, oy + template.height)) {
-              addOrigin(ox, oy);
-            }
-          }
-        }
+      // Add corners of the valid range inside this free rect
+      addOrigin(rxMin, ryMin);
+      addOrigin(rxMax, ryMin);
+      addOrigin(rxMin, ryMax);
+      addOrigin(rxMax, ryMax);
+
+      // If the free rect is wide/tall, add center/grid steps to find interlocking fits
+      const gridStep = Math.max(1, step || 1);
+      if (rxMax - rxMin > gridStep) {
+        addOrigin((rxMin + rxMax) / 2, ryMin);
+        addOrigin((rxMin + rxMax) / 2, ryMax);
+      }
+      if (ryMax - ryMin > gridStep) {
+        addOrigin(rxMin, (ryMin + ryMax) / 2);
+        addOrigin(rxMax, (ryMin + ryMax) / 2);
       }
     }
+
+    // Also include absolute sheet corners as fallbacks
+    addOrigin(0, 0);
+    addOrigin(maxX, 0);
+    addOrigin(0, maxY);
+    addOrigin(maxX, maxY);
 
     return origins.sort((left, right) => {
       const leftEdge = Math.min(left.x, maxX - left.x, left.y, maxY - left.y);
@@ -3210,52 +3223,42 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
   }
 
   _findMaxValidYForTopMargin(orient, x, minY, maxY, allPlacements, config, workWidth, workHeight, spatialIndex) {
-    let lastValidY = null;
     const step = Math.max(0.5, config.gridStep || 1);
     
-    // We scan Y from minY (top edge) downwards.
-    // Restrict scan depth to avoid checking too deep in the sheet (margin is thin)
-    const scanDepthLimit = 80;
-    const limitY = Math.min(maxY, minY + scanDepthLimit);
-
-    for (let y = minY; y <= limitY + 1e-6; y += step) {
+    // Scan inside-outwards: start from the deepest possible top margin coordinate (cap at 350mm from top edge)
+    const startY = Math.min(maxY, minY + 350);
+    for (let y = startY; y >= minY - 1e-6; y -= step) {
       if (this._canPlaceSplitOrient(allPlacements, orient, x, y, config, workWidth, workHeight, spatialIndex, true)) {
-        lastValidY = y;
+        return y;
       }
     }
-    return lastValidY;
+    return null;
   }
 
   _findMinValidXForRightMargin(orient, y, minX, maxX, allPlacements, config, workWidth, workHeight, spatialIndex) {
-    let lastValidX = null;
     const step = Math.max(0.5, config.gridStep || 1);
     
-    // We scan X from maxX (right edge) leftwards (decreasing X).
-    // Restrict scan depth to avoid checking too deep in the sheet (margin is thin)
-    const scanDepthLimit = 80;
-    const limitX = Math.max(minX, maxX - scanDepthLimit);
-
-    for (let x = maxX; x >= limitX - 1e-6; x -= step) {
+    // Scan inside-outwards: start from the deepest possible right margin coordinate (cap at 350mm from right edge)
+    const startX = Math.max(minX, maxX - 350);
+    for (let x = startX; x <= maxX + 1e-6; x += step) {
       if (this._canPlaceSplitOrient(allPlacements, orient, x, y, config, workWidth, workHeight, spatialIndex, true)) {
-        lastValidX = x;
+        return x;
       }
     }
-    return lastValidX;
+    return null;
   }
 
   _findMinValidYForBottomMargin(orient, x, minY, maxY, allPlacements, config, workWidth, workHeight, spatialIndex) {
-    let lastValidY = null;
     const step = Math.max(0.5, config.gridStep || 1);
-    const scanDepthLimit = 80;
-    const limitY = Math.max(minY, maxY - scanDepthLimit);
-
-    // Scan upwards from the bottom edge of the sheet (maxY) towards the center (decreasing Y)
-    for (let y = maxY; y >= limitY - 1e-6; y -= step) {
+    
+    // Scan inside-outwards: start from the deepest possible bottom margin coordinate (cap at 350mm from bottom edge)
+    const startY = Math.max(minY, maxY - 350);
+    for (let y = startY; y <= maxY + 1e-6; y += step) {
       if (this._canPlaceSplitOrient(allPlacements, orient, x, y, config, workWidth, workHeight, spatialIndex, true)) {
-        lastValidY = y;
+        return y;
       }
     }
-    return lastValidY;
+    return null;
   }
 
 
@@ -3285,6 +3288,35 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
 
     let allPlacements = [...candidate.placements];
     let marginPlacementsCount = 0;
+
+    // --- PRE-PHASE: PLACE TIGHT PAIRS IN REMAINING SPACE ---
+    const pairTemplates = this._buildSplitPairTemplates(orientVariants, config, step);
+    if (pairTemplates.length) {
+      let pairsPlaced = true;
+      while (pairsPlaced) {
+        pairsPlaced = false;
+        const groupOptions = this._findSplitPairGroupPlacementOptions(
+          pairTemplates,
+          allPlacements,
+          config,
+          workWidth,
+          workHeight,
+          step,
+          10,
+          null
+        );
+        if (groupOptions && groupOptions.length > 0) {
+          const bestGroup = groupOptions[0];
+          const nextGroupPlacements = bestGroup.placements.map((placement, idx) => ({
+            ...placement,
+            id: `margin_pair_fill_${marginPlacementsCount++}`,
+            isSplit: true
+          }));
+          allPlacements.push(...nextGroupPlacements);
+          pairsPlaced = true;
+        }
+      }
+    }
 
     // --- PHASE 1: TOP MARGIN ---
     const topOrients = orientVariants.filter(o => o.splitOutwardSide === 'top');
@@ -3322,11 +3354,14 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       });
     }
 
-    if (marginPlacementsCount === 0) return candidate;
+    const actualMarginPlacements = allPlacements.filter(p => p.id?.startsWith('margin_'));
+    marginPlacementsCount = actualMarginPlacements.length;
+
+    if (marginPlacementsCount === 0 && allPlacements.length === candidate.placements.length) return candidate;
 
     const usedAreaMm2 = allPlacements.reduce((sum, p) => sum + (p.effectiveArea || p.orient?.areaMm2 || 0), 0);
     const pairStats = this._getSplitPlacementPairStats(
-      allPlacements.filter(p => p.id?.startsWith('margin_fill_') || p.isSplit)
+      allPlacements.filter(p => p.id?.startsWith('margin_') || p.isSplit)
     );
 
     const augmented = this._buildCandidate(
@@ -3423,16 +3458,14 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       }
       
       for (const baseVal of snappedVals) {
-        for (const offset of [0, -3, 3, -6, 6]) {
-          const rounded = roundMetric(baseVal + offset, 3);
-          if (isYBased) {
-            if (rounded + bb.minY >= -1e-6 && rounded + bb.maxY <= workHeight + 1e-6) {
-              allCandVals.push(rounded);
-            }
-          } else {
-            if (rounded + bb.minX >= -1e-6 && rounded + bb.maxX <= workWidth + 1e-6) {
-              allCandVals.push(rounded);
-            }
+        const rounded = roundMetric(baseVal, 3);
+        if (isYBased) {
+          if (rounded + bb.minY >= -1e-6 && rounded + bb.maxY <= workHeight + 1e-6) {
+            allCandVals.push(rounded);
+          }
+        } else {
+          if (rounded + bb.minX >= -1e-6 && rounded + bb.maxX <= workWidth + 1e-6) {
+            allCandVals.push(rounded);
           }
         }
       }
