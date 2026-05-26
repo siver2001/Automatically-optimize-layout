@@ -22,6 +22,7 @@ async function run() {
     staggerSpacing: 3,
     gridStep: 0.5,
     preparedSplitFillEnabled: true,
+    preparedSplitFillDeep: true,
     capacityLayoutMode: 'same-side-double-contour',
     allowRotate180: true,
     parallelSizes: false
@@ -32,17 +33,17 @@ async function run() {
   const testSizes = shapes.map(shape => ({
     ...shape,
     sizeName: shape.sizeName || shape.name || 'Unknown'
-  })).filter(shape => shape.sizeName === '7');
+  })).filter(shape => shape.sizeName === '7.5');
 
   if (testSizes.length === 0) {
-    console.error("Size 7 not found!");
+    console.error("Size 7.5 not found!");
     process.exit(1);
   }
 
-  console.log(`Running single test for Size 7...`);
+  console.log(`Running single test for Size 7.5...`);
   const res = await engine.testCapacity(testSizes, config);
   
-  console.log("\n=== SINGLE SIZE 7  CAPACITY RESULT ===");
+  console.log("\n=== SINGLE SIZE 7.5 CAPACITY RESULT ===");
   for (const item of (res.summary || [])) {
     console.log(`Size: ${item.sizeName} | Pairs: ${item.pairs} | Efficiency: ${item.efficiency.toFixed(1)}%`);
     const sheet = res.sheetsBySize[item.sizeName];

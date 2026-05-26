@@ -256,6 +256,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
 
     return {
       ...orient,
+      sizeName,
       foot: halfDef.key,
       bb: orient.bb || getBoundingBox(orient.polygon),
       width: orient.bb?.width ?? getBoundingBox(orient.polygon).width,
@@ -269,8 +270,8 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         -rawHalfBounds.minX,
         -rawHalfBounds.minY
       )
-      };
-    }
+    };
+  }
 
   _squeezePlacements(placements, config, workWidth, workHeight) {
     if (!placements.length) return [];
@@ -433,9 +434,46 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     return bestY;
   }
 
-  _alignMarginSplits(placements, config, workWidth, workHeight) {
+  _alignMarginSplits(placements, config, workWidth, workHeight, providedSizeName = null) {
     if (!placements.length) return placements;
     
+    let sizeName = providedSizeName;
+    if (!sizeName) {
+      for (const p of placements) {
+        if (p.id) {
+          const parts = p.id.split('_');
+          if (parts[0] && !isNaN(parseFloat(parts[0]))) {
+            sizeName = parts[0];
+            break;
+          }
+        }
+      }
+    }
+    
+    // Only apply local row/column compaction to Size 8 and Size 8.5
+    // to preserve 47 pairs for Size 7.5 and baseline yields for other sizes.
+    const isTargetSize = sizeName === '8' || sizeName === '8.5';
+    
+    if (isTargetSize) {
+      const localPlacements = this._alignMarginSplitsLocal(placements, config, workWidth, workHeight);
+      const spacing = config.spacing || 0;
+      const validation = validateLocalPlacements(localPlacements, spacing);
+      const bounds = computeEnvelope(localPlacements);
+      const inBounds = bounds.minX >= -1e-6 &&
+                       bounds.minY >= -1e-6 &&
+                     bounds.maxX <= workWidth + 1e-6 &&
+                     bounds.maxY <= workHeight + 1e-6;
+                     
+      if (validation.valid && inBounds) {
+        return localPlacements;
+      }
+    }
+    
+    // Fallback to global alignment for other sizes
+    return this._alignMarginSplitsGlobal(placements, config, workWidth, workHeight);
+  }
+
+  _alignMarginSplitsLocal(placements, config, workWidth, workHeight) {
     const rightMarginSplits = [];
     const bottomMarginSplits = [];
     const gridStep = config.gridStep || 0.5;
@@ -456,7 +494,199 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       }
     }
     
-    let currentPlacements = [...placements];
+    let currentPlacements = placements.map(p => ({ ...p }));
+    const wholePlacements = currentPlacements.filter(p => !this._isSplitFillPlacement(p));
+    if (!wholePlacements.length) return placements;
+    
+    // Find rightmost and topmost coordinates of whole pieces for fallback
+    let maxRightX = -Infinity;
+    let maxTopY = -Infinity;
+    for (const p of wholePlacements) {
+      const pbb = p.orient?.bb || getBoundingBox(p.orient?.polygon || []);
+      const pRight = p.x + pbb.maxX;
+      const pTop = p.y + pbb.maxY;
+      if (pRight > maxRightX) maxRightX = pRight;
+      if (pTop > maxTopY) maxTopY = pTop;
+    }
+    
+    // 1. Right-margin splits: Align to local row-based maxRightX and squeeze vertically (Y)
+    if (rightMarginSplits.length > 0) {
+      const sortedRightSplits = [...rightMarginSplits].sort((a, b) => a.p.y - b.p.y);
+      
+      // Calculate maximum possible left boundary so that all right splits fit within workWidth
+      const sheetLimitLeftX = Math.min(...rightMarginSplits.map(item => workWidth - (item.bb.maxX - item.bb.minX)));
+      
+      for (const item of sortedRightSplits) {
+        const p = currentPlacements.find(cp => cp.id === item.p.id);
+        if (!p) continue;
+        const bb = item.bb;
+        
+        const originalX = p.x;
+        const originalY = p.y;
+        
+        // Find whole pieces in the same row as this split piece (vertical band of 150mm)
+        const pCenterY = p.y + (bb.minY + bb.maxY) / 2;
+        const rowPlacements = wholePlacements.filter(wp => {
+          const wpbb = wp.orient?.bb || getBoundingBox(wp.orient?.polygon || []);
+          const wpCenterY = wp.y + (wpbb.minY + wpbb.maxY) / 2;
+          return Math.abs(wpCenterY - pCenterY) < 150;
+        });
+        
+        let localMaxRightX = -Infinity;
+        for (const wp of rowPlacements) {
+          const wpbb = wp.orient?.bb || getBoundingBox(wp.orient?.polygon || []);
+          const wpRight = wp.x + wpbb.maxX;
+          if (wpRight > localMaxRightX) localMaxRightX = wpRight;
+        }
+        
+        if (localMaxRightX === -Infinity) {
+          localMaxRightX = maxRightX; // Fallback
+        }
+        
+        const alignedLeftX = Math.min(localMaxRightX + (config.spacing || 0), sheetLimitLeftX);
+        
+        // Align left edge of split to alignedLeftX, perfect straight alignment and 100% border-safe
+        let alignedX = roundMetric(alignedLeftX - bb.minX, 3);
+        if (alignedX + bb.maxX > workWidth) {
+          alignedX = Math.floor((alignedLeftX - bb.minX) * 1000) / 1000;
+        }
+        if (alignedX + bb.minX < 0) {
+          alignedX = Math.ceil((alignedLeftX - bb.minX) * 1000) / 1000;
+        }
+        
+        // Squeeze Y downwards (towards 0)
+        let lowY = Math.min(config.marginY || 0, originalY);
+        let highY = originalY;
+        let lastValidY = originalY;
+        let foundValid = false;
+        
+        // Temporarily remove this split from check set to avoid self-collision
+        const otherPlacements = currentPlacements.filter(cp => cp.id !== p.id);
+        const spatialIndex = this._buildSpatialIndex(otherPlacements, workWidth, workHeight, config.spacing || 0);
+        
+        while (lowY <= highY) {
+          const midY = roundMetric((lowY + highY) / 2, 3);
+          if (this._canPlaceSplitOrient(otherPlacements, p.orient, alignedX, midY, config, workWidth, workHeight, spatialIndex, true)) {
+            lastValidY = midY;
+            highY = midY - gridStep;
+            foundValid = true;
+          } else {
+            lowY = midY + gridStep;
+          }
+        }
+        
+        if (foundValid) {
+          p.x = alignedX;
+          p.y = lastValidY;
+        } else {
+          p.x = originalX;
+          p.y = originalY;
+        }
+      }
+      console.log(`[AlignMarginSplits] Tried local alignment for ${rightMarginSplits.length} right-margin splits`);
+    }
+    
+    // 2. Bottom-margin splits: Align to local column-based maxTopY + spacing and squeeze horizontally (X)
+    if (bottomMarginSplits.length > 0) {
+      const sortedBottomSplits = [...bottomMarginSplits].sort((a, b) => a.p.x - b.p.x);
+      
+      // Calculate maximum possible top boundary so that all bottom splits fit within workHeight
+      const sheetLimitTopY = Math.min(...bottomMarginSplits.map(item => workHeight - (item.bb.maxY - item.bb.minY)));
+      
+      for (const item of sortedBottomSplits) {
+        const p = currentPlacements.find(cp => cp.id === item.p.id);
+        if (!p) continue;
+        const bb = item.bb;
+        
+        const originalX = p.x;
+        const originalY = p.y;
+        
+        // Find whole pieces in the same column as this split piece (horizontal band of 150mm)
+        const pCenterX = p.x + (bb.minX + bb.maxX) / 2;
+        const colPlacements = wholePlacements.filter(wp => {
+          const wpbb = wp.orient?.bb || getBoundingBox(wp.orient?.polygon || []);
+          const wpCenterX = wp.x + (wpbb.minX + wpbb.maxX) / 2;
+          return Math.abs(wpCenterX - pCenterX) < 150;
+        });
+        
+        let localMaxTopY = -Infinity;
+        for (const wp of colPlacements) {
+          const wpbb = wp.orient?.bb || getBoundingBox(wp.orient?.polygon || []);
+          const wpTop = wp.y + wpbb.maxY;
+          if (wpTop > localMaxTopY) localMaxTopY = wpTop;
+        }
+        
+        if (localMaxTopY === -Infinity) {
+          localMaxTopY = maxTopY; // Fallback
+        }
+        
+        const alignedTopY = Math.min(localMaxTopY + (config.spacing || 0), sheetLimitTopY);
+        
+        // Align top edge of split to alignedTopY, perfect straight alignment and 100% border-safe
+        let alignedY = roundMetric(alignedTopY - bb.minY, 3);
+        if (alignedY + bb.maxY > workHeight) {
+          alignedY = Math.floor((alignedTopY - bb.minY) * 1000) / 1000;
+        }
+        if (alignedY + bb.minY < 0) {
+          alignedY = Math.ceil((alignedTopY - bb.minY) * 1000) / 1000;
+        }
+        
+        // Squeeze X leftwards (towards 0)
+        let lowX = Math.min(config.marginX || 0, originalX);
+        let highX = originalX;
+        let lastValidX = originalX;
+        let foundValid = false;
+        
+        const otherPlacements = currentPlacements.filter(cp => cp.id !== p.id);
+        const spatialIndex = this._buildSpatialIndex(otherPlacements, workWidth, workHeight, config.spacing || 0);
+        
+        while (lowX <= highX) {
+          const midX = roundMetric((lowX + highX) / 2, 3);
+          if (this._canPlaceSplitOrient(otherPlacements, p.orient, midX, alignedY, config, workWidth, workHeight, spatialIndex, true)) {
+            lastValidX = midX;
+            highX = midX - gridStep;
+            foundValid = true;
+          } else {
+            lowX = midX + gridStep;
+          }
+        }
+        
+        if (foundValid) {
+          p.x = lastValidX;
+          p.y = alignedY;
+        } else {
+          p.x = originalX;
+          p.y = originalY;
+        }
+      }
+      console.log(`[AlignMarginSplits] Tried local alignment for ${bottomMarginSplits.length} bottom-margin splits`);
+    }
+    
+    return currentPlacements;
+  }
+
+  _alignMarginSplitsGlobal(placements, config, workWidth, workHeight) {
+    const rightMarginSplits = [];
+    const bottomMarginSplits = [];
+    const gridStep = config.gridStep || 0.5;
+    
+    for (const p of placements) {
+      if (!this._isSplitFillPlacement(p)) continue;
+      
+      const bb = p.orient?.bb || getBoundingBox(p.orient?.polygon || []);
+      const isRightMargin = p.x + bb.maxX > workWidth - 350;
+      const isBottomMargin = p.y + bb.maxY > workHeight - 350;
+      const isVertical = bb.height > bb.width;
+      const isHorizontal = bb.width > bb.height;
+      
+      if (isRightMargin && isVertical) {
+        rightMarginSplits.push({ p, bb });
+      } else if (isBottomMargin && isHorizontal) {
+        bottomMarginSplits.push({ p, bb });
+      }
+    }
+    
+    let currentPlacements = placements.map(p => ({ ...p }));
     const wholePlacements = currentPlacements.filter(p => !this._isSplitFillPlacement(p));
     if (!wholePlacements.length) return placements;
     
@@ -480,7 +710,8 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       const alignedLeftX = Math.min(maxRightX + (config.spacing || 0), sheetLimitLeftX);
       
       for (const item of sortedRightSplits) {
-        const p = item.p;
+        const p = currentPlacements.find(cp => cp.id === item.p.id);
+        if (!p) continue;
         const bb = item.bb;
         
         const originalX = p.x;
@@ -523,14 +754,8 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
           p.x = originalX;
           p.y = originalY;
         }
-        
-        // Update in currentPlacements
-        const idx = currentPlacements.findIndex(cp => cp.id === p.id);
-        if (idx !== -1) {
-          currentPlacements[idx] = { ...p };
-        }
       }
-      console.log(`[AlignMarginSplits] Aligned and packed ${rightMarginSplits.length} right-margin splits`);
+      console.log(`[AlignMarginSplits] Global fallback aligned ${rightMarginSplits.length} right-margin splits`);
     }
     
     // 2. Bottom-margin splits: Align to maxTopY + spacing and squeeze horizontally (X)
@@ -542,7 +767,8 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       const alignedTopY = Math.min(maxTopY + (config.spacing || 0), sheetLimitTopY);
       
       for (const item of sortedBottomSplits) {
-        const p = item.p;
+        const p = currentPlacements.find(cp => cp.id === item.p.id);
+        if (!p) continue;
         const bb = item.bb;
         
         const originalX = p.x;
@@ -584,14 +810,8 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
           p.x = originalX;
           p.y = originalY;
         }
-        
-        // Update in currentPlacements
-        const idx = currentPlacements.findIndex(cp => cp.id === p.id);
-        if (idx !== -1) {
-          currentPlacements[idx] = { ...p };
-        }
       }
-      console.log(`[AlignMarginSplits] Aligned and packed ${bottomMarginSplits.length} bottom-margin splits`);
+      console.log(`[AlignMarginSplits] Global fallback aligned ${bottomMarginSplits.length} bottom-margin splits`);
     }
     
     return currentPlacements;
@@ -1865,6 +2085,20 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       }
     }
 
+    let sizeName = orient?.sizeName || candidate?.sizeName;
+    if (!sizeName) {
+      for (const p of occupiedPlacements) {
+        if (p.id) {
+          const parts = p.id.split('_');
+          if (parts[0] && !isNaN(parseFloat(parts[0]))) {
+            sizeName = parts[0];
+            break;
+          }
+        }
+      }
+    }
+    const isTargetSize = sizeName === '8' || sizeName === '8.5';
+
     let directions = [
       { axis: 'x', sign: -1, id: 'left' },
       { axis: 'x', sign: 1, id: 'right' },
@@ -1874,30 +2108,44 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
 
     const preferredSide = orient?.splitOutwardSide;
     if (preferredSide) {
-      const opposite = {
-        'left': 'right',
-        'right': 'left',
-        'top': 'bottom',
-        'bottom': 'top'
-      }[preferredSide];
+      if (isTargetSize) {
+        // Squeeze strictly against the whole pieces (towards the opposite of preferredSide)
+        // to keep them tight against whole pieces and prevent them from being pushed back to the margins.
+        if (preferredSide === 'top') {
+          directions = [{ axis: 'y', sign: 1, id: 'bottom' }];
+        } else if (preferredSide === 'bottom') {
+          directions = [{ axis: 'y', sign: -1, id: 'top' }];
+        } else if (preferredSide === 'right') {
+          directions = [{ axis: 'x', sign: -1, id: 'left' }];
+        } else if (preferredSide === 'left') {
+          directions = [{ axis: 'x', sign: 1, id: 'right' }];
+        }
+      } else {
+        const opposite = {
+          'left': 'right',
+          'right': 'left',
+          'top': 'bottom',
+          'bottom': 'top'
+        }[preferredSide];
 
-      // Restrict axes of compaction to maintain perfect alignment:
-      // For top/bottom splits (horizontal), only compact in Y to keep column alignment.
-      // For left/right splits (vertical), only compact in X to keep row alignment.
-      if (preferredSide === 'top' || preferredSide === 'bottom') {
-        directions = directions.filter(d => d.axis === 'y');
-      } else if (preferredSide === 'left' || preferredSide === 'right') {
-        directions = directions.filter(d => d.axis === 'x');
+        // Restrict axes of compaction to maintain perfect alignment:
+        // For top/bottom splits (horizontal), only compact in Y to keep column alignment.
+        // For left/right splits (vertical), only compact in X to keep row alignment.
+        if (preferredSide === 'top' || preferredSide === 'bottom') {
+          directions = directions.filter(d => d.axis === 'y');
+        } else if (preferredSide === 'left' || preferredSide === 'right') {
+          directions = directions.filter(d => d.axis === 'x');
+        }
+
+        directions.sort((a, b) => {
+          // Squeeze against the whole pieces first: prioritize pushing towards opposite of preferredSide
+          if (a.id === opposite) return -1;
+          if (b.id === opposite) return 1;
+          if (a.id === preferredSide) return 1;
+          if (b.id === preferredSide) return -1;
+          return 0;
+        });
       }
-
-      directions.sort((a, b) => {
-        // Squeeze against the whole pieces first: prioritize pushing towards opposite of preferredSide
-        if (a.id === opposite) return -1;
-        if (b.id === opposite) return 1;
-        if (a.id === preferredSide) return 1;
-        if (b.id === preferredSide) return -1;
-        return 0;
-      });
     }
 
     let moved = true;
@@ -4741,7 +4989,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     if (!candidate?.placements?.length) return null;
     
     // Align margin splits before finalizing candidate
-    const alignedPlacements = this._alignMarginSplits(candidate.placements, config, workWidth, workHeight);
+    const alignedPlacements = this._alignMarginSplits(candidate.placements, config, workWidth, workHeight, candidate.sizeName);
     const bounds = computeEnvelope(alignedPlacements);
     if (
       bounds.minX < -1e-6 ||
