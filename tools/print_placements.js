@@ -47,14 +47,19 @@ async function run() {
   const sheet = res.sheetsBySize && res.sheetsBySize['11'];
   if (sheet && sheet.placed) {
     // Simulate what the export does
-    import('../server/utils/diecutExportUtils.js').then(({ normalizeDieCutExportData }) => {
+    Promise.all([
+      import('../server/utils/diecutExportUtils.js'),
+      import('../server/utils/diecutCycGenerator.js')
+    ]).then(([{ normalizeDieCutExportData }, { generateDieCutCyc }]) => {
       const payload = {
         sheets: [sheet],
         sheetWidth: config.sheetWidth,
         sheetHeight: config.sheetHeight,
         labelMode: 'prepared-sequence',
-        title: 'ASICS Test'
+        title: 'ASICS Test',
+        toolCodeMap: { '11': '12' } // Tool Code 12 for Size 11
       };
+      
       const normalized = normalizeDieCutExportData(payload);
       const placedWithLabels = normalized.sheets[0].placed;
       console.log(`Total normalized: ${placedWithLabels.length}`);
@@ -67,9 +72,20 @@ async function run() {
       
       const sortedByN = [...placedWithLabels].sort((a, b) => parseN(a.label) - parseN(b.label));
       
+      console.log("\n--- DXF Placements (Y Inverted to match screen) ---");
       for (const p of sortedByN) {
-        console.log(` - ${p.label} | ID: ${p.id} | Centroid: (${p.centroid.x.toFixed(1)}, ${p.centroid.y.toFixed(1)}) | x: ${p.x.toFixed(1)}, y: ${p.y.toFixed(1)}`);
+        const dxfY = normalized.sheets[0].sheetHeight - p.centroid.y;
+        console.log(` - ${p.label} | ID: ${p.id} | SVG Centroid Y: ${p.centroid.y.toFixed(1)} | DXF Centroid Y: ${dxfY.toFixed(1)} | x: ${p.x.toFixed(1)}, y: ${p.y.toFixed(1)}`);
       }
+      
+      console.log("\n--- CYC File Generation check ---");
+      const cyc = generateDieCutCyc(payload);
+      console.log("CYC File contains the following entries:");
+      const cycLines = cyc.split('\r\n').filter(l => l.includes('<Cycle ') || l.includes('Field '));
+      // Print first few cycle entries
+      console.log(cycLines.slice(0, 14).join('\n'));
+      console.log("...");
+      console.log(cycLines.slice(-14).join('\n'));
     });
   }
 }

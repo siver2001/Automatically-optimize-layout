@@ -60,7 +60,7 @@ export function generateDieCutDxf(payload) {
       writer.addText(
         `${exportData.title} - Sheet ${sheetIndex + 1}`,
         offsetX,
-        -20,
+        sheet.sheetHeight + 20, // Move title to top of sheet in AutoCAD (H + 20mm)
         10,
         7,
         'TEXT'
@@ -113,14 +113,14 @@ export function generateDieCutDxf(payload) {
       const basePolygon = (isLuxin && Array.isArray(item.cycPolygon)) ? item.cycPolygon : item.polygon;
       const shiftedPolygon = basePolygon.map((point) => ({
         x: point.x + offsetX,
-        y: point.y
+        y: sheet.sheetHeight - point.y // Invert Y coordinate
       }));
 
       if (item.label) {
         writer.addText(
           item.label,
           item.centroid.x + offsetX,
-          item.centroid.y,
+          sheet.sheetHeight - item.centroid.y, // Invert Y coordinate
           usePreparedSequenceLabels ? 5 : 6,
           7,
           isLuxin ? '1' : 'TEXT_LABELS'
@@ -139,7 +139,7 @@ export function generateDieCutDxf(payload) {
         item.internals.forEach(path => {
           const shiftedPath = path.map(p => ({
             x: p.x + offsetX,
-            y: p.y
+            y: sheet.sheetHeight - p.y // Invert Y coordinate
           }));
           writer.addPolyline(
             shiftedPath,

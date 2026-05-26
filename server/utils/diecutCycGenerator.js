@@ -97,7 +97,7 @@ export function generateDieCutCyc(payload = {}) {
     return {
       toolCode,
       x: center.x,
-      y: center.y,
+      y: sheet.sheetHeight - center.y, // Invert Y to match the DXF
       angle: normalizeAngle(item?.angle),
       splitRank: isSplitHalfItem(item) ? 1 : 0,
       preparedSequenceNumber: parsePreparedSequenceLabel(item?.label),
