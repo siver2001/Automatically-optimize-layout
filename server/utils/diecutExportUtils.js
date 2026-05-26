@@ -167,24 +167,24 @@ function buildPreparedSequenceKey(item, fallbackIndex) {
   return `${centroidY}:${centroidX}:${pointCount}:${fallbackIndex}`;
 }
 
-function sortItemsLeftToRightTopToBottom(keyedItems) {
+function sortItemsRowByRowLeftToRight(keyedItems) {
   const finalSortedKeyed = [];
 
-  // Pre-sort all items by X descending to group them into horizontal rows of the screen (from top to bottom)
-  const sortedByX = [...keyedItems].sort((a, b) => 
-    getFiniteSortValue(b.item?.centroid?.x) - getFiniteSortValue(a.item?.centroid?.x)
+  // Group items into horizontal rows along the horizontal sheet's vertical Y axis, from top to bottom
+  const sortedByY = [...keyedItems].sort((a, b) => 
+    getFiniteSortValue(a.item?.centroid?.y) - getFiniteSortValue(b.item?.centroid?.y)
   );
 
   const rows = [];
-  const X_THRESHOLD = 120.0; // 120mm grouping threshold along the X-axis to group staggered rows
+  const Y_THRESHOLD = 75.0; // Cleanly separates staggered rows vertically
 
-  for (const keyed of sortedByX) {
+  for (const keyed of sortedByY) {
     if (rows.length === 0) {
       rows.push([keyed]);
     } else {
       const lastRow = rows[rows.length - 1];
-      const avgX = lastRow.reduce((sum, k) => sum + getFiniteSortValue(k.item?.centroid?.x), 0) / lastRow.length;
-      if (Math.abs(getFiniteSortValue(keyed.item?.centroid?.x) - avgX) < X_THRESHOLD) {
+      const avgY = lastRow.reduce((sum, k) => sum + getFiniteSortValue(k.item?.centroid?.y), 0) / lastRow.length;
+      if (Math.abs(getFiniteSortValue(keyed.item?.centroid?.y) - avgY) < Y_THRESHOLD) {
         lastRow.push(keyed);
       } else {
         rows.push([keyed]);
@@ -192,12 +192,10 @@ function sortItemsLeftToRightTopToBottom(keyedItems) {
     }
   }
 
-  // For each row of the screen, sort by Y (even rows left-to-right, odd rows right-to-left)
-  rows.forEach((row, rowIndex) => {
-    const isOddRow = rowIndex % 2 === 1;
+  // For each horizontal row, sort by X ascending (from left to right)
+  rows.forEach((row) => {
     const sortedRow = [...row].sort((a, b) => {
-      const diffY = getFiniteSortValue(a.item?.centroid?.y) - getFiniteSortValue(b.item?.centroid?.y);
-      return isOddRow ? -diffY : diffY;
+      return getFiniteSortValue(a.item?.centroid?.x) - getFiniteSortValue(b.item?.centroid?.x);
     });
     finalSortedKeyed.push(...sortedRow);
   });
@@ -212,8 +210,8 @@ function applyPreparedSequenceLabels(items = []) {
     key: buildPreparedSequenceKey(item, index)
   }));
 
-  // Sắp xếp thống nhất cho tất cả các chi tiết từ trái qua phải, từ trên xuống dưới
-  const finalSortedKeyed = sortItemsLeftToRightTopToBottom(keyedItems);
+  // Sắp xếp thống nhất cho tất cả các chi tiết hàng-bằng-hàng từ trái qua phải
+  const finalSortedKeyed = sortItemsRowByRowLeftToRight(keyedItems);
 
   // Ánh xạ mỗi key duy nhất tới số thứ tự N tương ứng (bắt đầu từ 1)
   const sequenceByKey = new Map();
