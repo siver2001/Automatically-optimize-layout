@@ -3999,7 +3999,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     }
     
     if (isYBased) {
-      clusters.sort((a, b) => b[0] - a[0]); // bottom-to-top (descending Y)
+      clusters.sort((a, b) => a[0] - b[0]); // top-to-bottom (ascending Y -> left-to-right on screen)
     } else {
       clusters.sort((a, b) => a[0] - b[0]); // left-to-right (ascending X)
     }
@@ -5197,18 +5197,51 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
   _materializePlacedItems(sizeName, placements, config) {
     const renderTemplates = {};
     const items = placements.map((placement, index) => {
-      const worldX = config.marginX + placement.x;
-      const worldY = config.marginY + placement.y;
-      const polygon = placement.orient.polygon;
-      const internals = placement.orient.internals || [];
+      let worldX = config.marginX + placement.x;
+      let worldY = config.marginY + placement.y;
+      let polygon = translate(placement.orient.polygon, worldX, worldY);
+      let internals = (placement.orient.internals || []).map(path => translate(path, worldX, worldY));
+      let cycPolygon = translate(placement.orient.cycPolygon || placement.orient.polygon, worldX, worldY);
+      let angle = placement.orient.angle;
+      let foot = placement.orient.foot || 'X';
+
+      // Mirror absolute coordinates horizontally on the sheet
+      const mirrorPointX = (pt) => ({
+        x: roundMetric(config.sheetWidth - pt.x, 3),
+        y: pt.y
+      });
+
+      polygon = polygon.map(mirrorPointX);
+      cycPolygon = cycPolygon.map(mirrorPointX);
+      internals = internals.map(path => path.map(mirrorPointX));
+
+      // Calculate the new worldX as the minX of the mirrored polygon
+      const newBb = getBoundingBox(polygon);
+      worldX = newBb.minX;
+
+      // Translate the mirrored polygon, cycPolygon, and internals back to relative to new worldX
+      // so that they can be used to build the render templates!
+      const relPolygon = translate(polygon, -worldX, -worldY);
+      const relCycPolygon = translate(cycPolygon, -worldX, -worldY);
+      const relInternals = internals.map(path => translate(path, -worldX, -worldY));
+
+      // Mirror the angle
+      angle = (180 - angle + 360) % 360;
+
+      // Mirror the foot type (Left becomes Right, Right becomes Left)
+      if (foot === 'L') foot = 'R';
+      else if (foot === 'R') foot = 'L';
+      else if (foot === 'split-left') foot = 'split-right';
+      else if (foot === 'split-right') foot = 'split-left';
+
       // Robust renderKey including angle and isAlternate
-      const renderKey = `${placement.orient.foot || 'X'}_${placement.orient.angle}_${placement.orient.isAlternate ? 'alt' : 'main'}`;
+      const renderKey = `${foot}_${angle}_${placement.orient.isAlternate ? 'alt' : 'main'}`;
 
       if (!renderTemplates[renderKey]) {
         // Build path including holes (M...Z M...Z)
-        let svgPath = polygon.map((pt, i) => `${i === 0 ? 'M' : 'L'}${pt.x.toFixed(2)},${pt.y.toFixed(2)}`).join(' ') + ' Z';
-        if (internals.length > 0) {
-          internals.forEach(path => {
+        let svgPath = relPolygon.map((pt, i) => `${i === 0 ? 'M' : 'L'}${pt.x.toFixed(2)},${pt.y.toFixed(2)}`).join(' ') + ' Z';
+        if (relInternals.length > 0) {
+          relInternals.forEach(path => {
             if (path.length > 1) {
               svgPath += ' ' + path.map((pt, i) => `${i === 0 ? 'M' : 'L'}${pt.x.toFixed(2)},${pt.y.toFixed(2)}`).join(' ') + ' Z';
             }
@@ -5218,13 +5251,12 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         renderTemplates[renderKey] = {
           path: svgPath,
           labelOffset: {
-            x: roundMetric(polygon.reduce((sum, point) => sum + point.x, 0) / polygon.length),
-            y: roundMetric(polygon.reduce((sum, point) => sum + point.y, 0) / polygon.length)
+            x: roundMetric(relPolygon.reduce((sum, point) => sum + point.x, 0) / relPolygon.length),
+            y: roundMetric(relPolygon.reduce((sum, point) => sum + point.y, 0) / relPolygon.length)
           }
         };
       }
 
-      const foot = placement.orient.foot || 'X';
       const isHalf = foot.startsWith('split-') || foot === 'L' || foot === 'R';
 
       return {
@@ -5234,14 +5266,14 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         pieceCount: isHalf ? 1 : 2,
         x: roundMetric(worldX, 3),
         y: roundMetric(worldY, 3),
-        angle: placement.orient.angle,
-        polygon: translate(polygon, worldX, worldY),
-        cycPolygon: translate(placement.orient.cycPolygon || polygon, worldX, worldY),
-        internals: internals.map(path => translate(path, worldX, worldY)),
+        angle: angle,
+        polygon,
+        cycPolygon,
+        internals,
         renderKey,
         areaMm2: placement.effectiveArea
           ?? placement.orient.areaMm2
-          ?? polygonArea(polygon)
+          ?? polygonArea(placement.orient.polygon)
       };
     });
 

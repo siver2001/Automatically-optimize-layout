@@ -20,7 +20,7 @@ async function run() {
     spacing: 4,
     staggerSpacing: 4,
     gridStep: 0.5,
-    preparedSplitFillEnabled: false, // Turn OFF margin filling to see initial placements
+    preparedSplitFillEnabled: true, // Turn ON margin filling to see placements
     capacityLayoutMode: 'same-side-double-contour',
     allowRotate180: true,
     parallelSizes: false
