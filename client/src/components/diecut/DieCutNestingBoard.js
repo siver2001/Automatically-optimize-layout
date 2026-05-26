@@ -789,8 +789,7 @@ const SheetCanvas = React.memo(function SheetCanvas({
               // Calculate if the shape is vertical to rotate its label
               let textTransform = undefined;
               if (showLabels && center) {
-                const isSplit = String(item.foot || "").includes("left") || String(item.foot || "").includes("right") || String(item.id || "").includes("split");
-                const angle = isSplit ? 0 : (isRotated ? 90 : 0);
+                const angle = isRotated ? 90 : 0;
                 if (angle !== 0) {
                   textTransform = `rotate(${angle}, ${center.x}, ${center.y})`;
                 }
@@ -875,8 +874,7 @@ const SheetCanvas = React.memo(function SheetCanvas({
               );
             })}
             {pickedPreviewItem ? (() => {
-              const isSplit = String(pickedPreviewItem.foot || "").includes("left") || String(pickedPreviewItem.foot || "").includes("right") || String(pickedPreviewItem.id || "").includes("split");
-              const previewAngle = isSplit ? 0 : (isRotated ? 90 : 0);
+              const previewAngle = isRotated ? 90 : 0;
               return (
                 <g opacity={0.92} pointerEvents="none">
                   <path

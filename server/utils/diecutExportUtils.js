@@ -176,13 +176,13 @@ function applyPreparedSequenceLabels(items = []) {
 
   const finalSortedKeyed = [];
 
-  // Pre-sort all items by Y descending to group them into horizontal rows (from top to bottom)
+  // Pre-sort all items by Y ascending to group them into horizontal rows (from top to bottom)
   const sortedByY = [...keyedItems].sort((a, b) => 
-    getFiniteSortValue(b.item?.centroid?.y) - getFiniteSortValue(a.item?.centroid?.y)
+    getFiniteSortValue(a.item?.centroid?.y) - getFiniteSortValue(b.item?.centroid?.y)
   );
 
   const rows = [];
-  const Y_THRESHOLD = 50.0; // 50mm vertical grouping threshold for rows
+  const Y_THRESHOLD = 120.0; // 120mm vertical grouping threshold for rows to robustly group staggered items
 
   for (const keyed of sortedByY) {
     if (rows.length === 0) {
@@ -198,20 +198,15 @@ function applyPreparedSequenceLabels(items = []) {
     }
   }
 
-  // For each row, sort by X and reverse alternate rows (Snake path)
-  rows.forEach((row, rIdx) => {
+  // For each row, sort by X ascending (from left to right)
+  rows.forEach((row) => {
     const sortedRow = [...row].sort((a, b) => 
       getFiniteSortValue(a.item?.centroid?.x) - getFiniteSortValue(b.item?.centroid?.x)
     );
-    
-    // Alternate direction for odd rows to achieve Snake path (0-indexed)
-    if (rIdx % 2 === 1) {
-      sortedRow.reverse();
-    }
     finalSortedKeyed.push(...sortedRow);
   });
 
-  // Map each unique key to its Snake index sequence (1-indexed)
+  // Map each unique key to its sequence index (1-indexed)
   const sequenceByKey = new Map();
   finalSortedKeyed.forEach((keyed, index) => {
     sequenceByKey.set(keyed.key, index + 1);

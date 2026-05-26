@@ -43,13 +43,34 @@ async function run() {
     console.log(`sheetsBySize keys: ${Object.keys(res.sheetsBySize)}`);
   }
   
-  console.log("\n=== PLACEMENTS LIST ===");
+  console.log("\n=== PLACEMENTS LIST WITH SEQUENCE LABELS ===");
   const sheet = res.sheetsBySize && res.sheetsBySize['11'];
   if (sheet && sheet.placed) {
-    console.log(`Total: ${sheet.placed.length}`);
-    for (const p of sheet.placed) {
-      console.log(` - ID: ${p.id} | x: ${p.x.toFixed(1)}, y: ${p.y.toFixed(1)} | foot: ${p.foot} | pieceCount: ${p.pieceCount}`);
-    }
+    // Simulate what the export does
+    import('../server/utils/diecutExportUtils.js').then(({ normalizeDieCutExportData }) => {
+      const payload = {
+        sheets: [sheet],
+        sheetWidth: config.sheetWidth,
+        sheetHeight: config.sheetHeight,
+        labelMode: 'prepared-sequence',
+        title: 'ASICS Test'
+      };
+      const normalized = normalizeDieCutExportData(payload);
+      const placedWithLabels = normalized.sheets[0].placed;
+      console.log(`Total normalized: ${placedWithLabels.length}`);
+      
+      // Let's also sort them by the N value to see the traversal order!
+      const parseN = (lbl) => {
+        const m = String(lbl || '').match(/\bN=(\d+)\b/);
+        return m ? parseInt(m[1], 10) : 999;
+      };
+      
+      const sortedByN = [...placedWithLabels].sort((a, b) => parseN(a.label) - parseN(b.label));
+      
+      for (const p of sortedByN) {
+        console.log(` - ${p.label} | ID: ${p.id} | Centroid: (${p.centroid.x.toFixed(1)}, ${p.centroid.y.toFixed(1)}) | x: ${p.x.toFixed(1)}, y: ${p.y.toFixed(1)}`);
+      }
+    });
   }
 }
 
