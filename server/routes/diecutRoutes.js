@@ -503,7 +503,7 @@ router.post('/test-capacity', async (req, res) => {
       ...configFromUi,
       parallelSizes: true,
       preparedSplitFillEnabled: true,
-      preparedSplitFillDeep: configFromUi.gridStep <= 1.0
+      preparedSplitFillDeep: true
     };
 
 

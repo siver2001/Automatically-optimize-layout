@@ -1,6 +1,7 @@
 const { app, BrowserWindow, session } = require('electron');
 const path = require('path');
 const { fork } = require('child_process');
+const fs = require('fs');
 const isDev = !app.isPackaged;
 let serverProcess;
 
@@ -104,12 +105,22 @@ app.on('window-all-closed', () => {
   }
 });
 
-// Quan trọng: Tắt server khi app Electron tắt
+// Quan trọng: Tắt server và dọn dẹp cache khi app Electron tắt để tránh tích tụ làm nặng máy và phục vụ đo lường thời gian thực tế
 app.on('before-quit', () => {
   if (serverProcess) {
     console.log('[Electron] Killing server process...');
     serverProcess.kill();
     serverProcess = null;
+  }
+
+  try {
+    const cachePath = path.join(__dirname, '.codex', 'capacity_cache.json');
+    if (fs.existsSync(cachePath)) {
+      console.log('[Electron] Cleaning up persistent capacity cache...');
+      fs.unlinkSync(cachePath);
+    }
+  } catch (e) {
+    // Graceful fallback
   }
 });
 

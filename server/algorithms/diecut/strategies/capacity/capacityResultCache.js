@@ -1,9 +1,9 @@
-// In-memory cache for per-size capacity test results.
-// This cache lives only for the current server process and is not persisted.
+import fs from 'fs';
+import path from 'path';
 
 // Smart, dynamic limits with environment variable overrides and dynamic fallback
-const DEFAULT_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
-const DEFAULT_MAX_CACHE_ENTRIES = 256;
+const DEFAULT_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days (persisted indefinitely for deterministic layout calculations)
+const DEFAULT_MAX_CACHE_ENTRIES = 512;
 
 const IGNORED_CONFIG_FIELDS = new Set([
   'maxTimeMs',
@@ -12,6 +12,51 @@ const IGNORED_CONFIG_FIELDS = new Set([
 ]);
 
 const capacityResultCache = new Map();
+let isCacheLoaded = false;
+
+function ensureCacheLoaded() {
+  if (isCacheLoaded) return;
+  isCacheLoaded = true;
+
+  try {
+    const dir = path.join(process.cwd(), '.codex');
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+
+    const cacheFilePath = path.join(dir, 'capacity_cache.json');
+    if (fs.existsSync(cacheFilePath)) {
+      const data = fs.readFileSync(cacheFilePath, 'utf8');
+      const parsed = JSON.parse(data);
+      if (Array.isArray(parsed)) {
+        capacityResultCache.clear();
+        const now = Date.now();
+        for (const [key, entry] of parsed) {
+          if (entry && entry.expiresAt > now) {
+            capacityResultCache.set(key, entry);
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.error('[Cache] Failed to load on-disk cache:', e);
+  }
+}
+
+function saveCacheToDisk() {
+  try {
+    const dir = path.join(process.cwd(), '.codex');
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+
+    const cacheFilePath = path.join(dir, 'capacity_cache.json');
+    const entries = Array.from(capacityResultCache.entries());
+    fs.writeFileSync(cacheFilePath, JSON.stringify(entries, null, 2), 'utf8');
+  } catch (e) {
+    console.error('[Cache] Failed to save on-disk cache:', e);
+  }
+}
 
 /**
  * Gets the configured cache TTL (Time to Live) in milliseconds.
@@ -116,7 +161,6 @@ function enforceCacheLimit() {
 
 /**
  * Builds a stable, unique cache key for a specific strategy, size, and config.
- * Removed version dependency to avoid arbitrary invalidations.
  */
 export function buildCapacityResultCacheKey(strategyKey, size, config) {
   return JSON.stringify({
@@ -130,10 +174,10 @@ export function buildCapacityResultCacheKey(strategyKey, size, config) {
 
 /**
  * Retrieves a cached capacity test result if it exists and has not expired.
- * Also refreshes the entry's access order to implement Least Recently Used (LRU) behavior.
  */
 export function getCachedCapacityResult(cacheKey) {
-  // Support bypassing cache via environment variables if needed
+  ensureCacheLoaded();
+
   if (typeof process !== 'undefined' && process.env?.BYPASS_CAPACITY_CACHE === 'true') {
     return null;
   }
@@ -142,11 +186,11 @@ export function getCachedCapacityResult(cacheKey) {
   if (entry) {
     const now = Date.now();
     if (entry.expiresAt > now) {
-      // Refresh position in Map to mark it as most recently accessed (LRU)
       touchCacheEntry(cacheKey, entry);
       return cloneCacheValue(entry.value);
     } else {
       capacityResultCache.delete(cacheKey);
+      saveCacheToDisk();
     }
   }
   return null;
@@ -156,6 +200,8 @@ export function getCachedCapacityResult(cacheKey) {
  * Stores a capacity test result in the cache with the given TTL.
  */
 export function setCachedCapacityResult(cacheKey, value, ttlMs = null) {
+  ensureCacheLoaded();
+
   const now = Date.now();
   pruneExpiredEntries(now);
 
@@ -167,6 +213,7 @@ export function setCachedCapacityResult(cacheKey, value, ttlMs = null) {
   });
 
   enforceCacheLimit();
+  saveCacheToDisk();
 }
 
 /**
@@ -174,4 +221,10 @@ export function setCachedCapacityResult(cacheKey, value, ttlMs = null) {
  */
 export function clearCapacityResultCache() {
   capacityResultCache.clear();
+  try {
+    const cacheFilePath = path.join(process.cwd(), '.codex', 'capacity_cache.json');
+    if (fs.existsSync(cacheFilePath)) {
+      fs.unlinkSync(cacheFilePath);
+    }
+  } catch (e) {}
 }

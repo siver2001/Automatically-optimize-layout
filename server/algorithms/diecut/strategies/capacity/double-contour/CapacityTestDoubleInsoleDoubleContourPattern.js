@@ -254,6 +254,12 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     const rawHalfBounds = getBoundingBox(rawRotatedHalf);
     const splitOutwardVector = rotateVector(halfDef.splitOutwardVector || { x: 1, y: 0 }, angle);
 
+    const cycPolygon = translate(
+      rotatePolygon(halfDef.cycSourcePolygon, angle * Math.PI / 180),
+      -rawHalfBounds.minX,
+      -rawHalfBounds.minY
+    );
+
     return {
       ...orient,
       sizeName,
@@ -265,11 +271,8 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       splitPairAngleFamily: normalizeAngleDegrees(angle) % 180,
       splitOutwardVector,
       splitOutwardSide: resolveAxisSideFromVector(splitOutwardVector),
-      cycPolygon: translate(
-        rotatePolygon(halfDef.cycSourcePolygon, angle * Math.PI / 180),
-        -rawHalfBounds.minX,
-        -rawHalfBounds.minY
-      )
+      cycPolygon,
+      bbCyc: getBoundingBox(cycPolygon)
     };
   }
 
@@ -1753,12 +1756,13 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
   _canPlaceSplitOrient(occupiedPlacements, orient, x, y, config, workWidth, workHeight, spatialIndex = null, skipOutwardCheck = false) {
     const spacing = config.spacing || 0;
     const bb2 = orient.bb || getBoundingBox(orient.polygon);
-    const minX2 = x + bb2.minX - spacing;
-    const maxX2 = x + bb2.maxX + spacing;
-    const minY2 = y + bb2.minY - spacing;
-    const maxY2 = y + bb2.maxY + spacing;
+    const bbCheck = orient.bbCyc || bb2;
+    const minX2 = x + bbCheck.minX - spacing;
+    const maxX2 = x + bbCheck.maxX + spacing;
+    const minY2 = y + bbCheck.minY - spacing;
+    const maxY2 = y + bbCheck.maxY + spacing;
 
-    // Fast bounds check against sheet
+    // Fast bounds check against sheet using actual 1/2 shape bounds (since full die can extend outside)
     if (
       x + bb2.minX < -1e-6 ||
       y + bb2.minY < -1e-6 ||
@@ -1767,6 +1771,82 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     ) {
       return false;
     }
+
+    const checkPlacementsOverlap = (entryP, entryBB) => {
+      const bbCheckPlaced = entryP.orient.bbCyc || entryBB;
+      const minX1 = entryP.x + bbCheckPlaced.minX - spacing;
+      const maxX1 = entryP.x + bbCheckPlaced.maxX + spacing;
+      const minY1 = entryP.y + bbCheckPlaced.minY - spacing;
+      const maxY1 = entryP.y + bbCheckPlaced.maxY + spacing;
+
+      if (maxX1 < minX2 || minX1 > maxX2 || maxY1 < minY2 || minY1 > maxY2) {
+        return false;
+      }
+
+      // 1. Check actual shapes overlap (material conflict)
+      if (cachedPolygonsOverlap(
+        entryP.orient.polygon,
+        orient.polygon,
+        { x: entryP.x, y: entryP.y },
+        { x, y },
+        spacing,
+        entryBB,
+        bb2
+      )) {
+        return true;
+      }
+
+      // 2. Candidate full die vs Placed actual shape
+      if (orient.cycPolygon) {
+        const bbCyc = orient.bbCyc || getBoundingBox(orient.cycPolygon);
+        if (cachedPolygonsOverlap(
+          entryP.orient.polygon,
+          orient.cycPolygon,
+          { x: entryP.x, y: entryP.y },
+          { x, y },
+          spacing,
+          entryBB,
+          bbCyc
+        )) {
+          return true;
+        }
+      }
+
+      // 3. Placed full die vs Candidate actual shape
+      if (entryP.orient.cycPolygon) {
+        const bbCycPlaced = entryP.orient.bbCyc || getBoundingBox(entryP.orient.cycPolygon);
+        if (cachedPolygonsOverlap(
+          entryP.orient.cycPolygon,
+          orient.polygon,
+          { x: entryP.x, y: entryP.y },
+          { x, y },
+          spacing,
+          bbCycPlaced,
+          bb2
+        )) {
+          return true;
+        }
+      }
+
+      // 4. Placed full die vs Candidate full die (for two split pieces)
+      if (entryP.orient.cycPolygon && orient.cycPolygon) {
+        const bbCycPlaced = entryP.orient.bbCyc || getBoundingBox(entryP.orient.cycPolygon);
+        const bbCycCandidate = orient.bbCyc || getBoundingBox(orient.cycPolygon);
+        if (cachedPolygonsOverlap(
+          entryP.orient.cycPolygon,
+          orient.cycPolygon,
+          { x: entryP.x, y: entryP.y },
+          { x, y },
+          spacing,
+          bbCycPlaced,
+          bbCycCandidate
+        )) {
+          return true;
+        }
+      }
+
+      return false;
+    };
 
     if (spatialIndex && spatialIndex.grid) {
       const { grid, cellSize } = spatialIndex;
@@ -1786,17 +1866,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
             if (entry.lastQueryId === queryId) continue;
             entry.lastQueryId = queryId;
 
-            if (entry.maxX < minX2 || entry.minX > maxX2 || entry.maxY < minY2 || entry.minY > maxY2) continue;
-
-             if (cachedPolygonsOverlap(
-              entry.p.orient.polygon,
-              orient.polygon,
-              { x: entry.p.x, y: entry.p.y },
-              { x, y },
-              spacing,
-              entry.bb,
-              bb2
-            )) {
+            if (checkPlacementsOverlap(entry.p, entry.bb)) {
               return false;
             }
           }
@@ -1806,19 +1876,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       const { sortedByMaxX } = spatialIndex;
       for (let i = sortedByMaxX.length - 1; i >= 0; i--) {
         const entry = sortedByMaxX[i];
-        if (entry.maxX < minX2) break;
-        if (entry.minX > maxX2) continue;
-        if (entry.maxY < minY2 || entry.minY > maxY2) continue;
-
-        if (cachedPolygonsOverlap(
-          entry.p.orient.polygon,
-          orient.polygon,
-          { x: entry.p.x, y: entry.p.y },
-          { x, y },
-          spacing,
-          entry.bb,
-          bb2
-        )) {
+        if (checkPlacementsOverlap(entry.p, entry.bb)) {
           return false;
         }
       }
@@ -1830,25 +1888,18 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       for (let i = occupiedPlacements.length - 1; i >= spatialIndex.indexed.length; i--) {
         const p1 = occupiedPlacements[i];
         const bb1 = p1.orient.bb || getBoundingBox(p1.orient.polygon);
-        
-        if (
-          p1.x + bb1.maxX < minX2 ||
-          p1.x + bb1.minX > maxX2 ||
-          p1.y + bb1.maxY < minY2 ||
-          p1.y + bb1.minY > maxY2
-        ) {
-          continue;
+        if (checkPlacementsOverlap(p1, bb1)) {
+          return false;
         }
+      }
+    }
 
-        if (cachedPolygonsOverlap(
-          p1.orient.polygon,
-          orient.polygon,
-          { x: p1.x, y: p1.y },
-          { x, y },
-          spacing,
-          bb1,
-          bb2
-        )) {
+    // CRITICAL EXTRA SAFE CHECK: Check all split pieces in occupiedPlacements directly
+    // to guarantee we never miss any split-to-split full die overlap regardless of spatial index bounds
+    for (const p of occupiedPlacements) {
+      if (p.orient && p.orient.cycPolygon) {
+        const bb1 = p.orient.bb || getBoundingBox(p.orient.polygon);
+        if (checkPlacementsOverlap(p, bb1)) {
           return false;
         }
       }
