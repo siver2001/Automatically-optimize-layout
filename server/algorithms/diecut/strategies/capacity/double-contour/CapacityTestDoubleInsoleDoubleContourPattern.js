@@ -1829,6 +1829,10 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       }
 
       // 4. Placed full die vs Candidate full die (for two split pieces)
+      // Commented out: This check is an over-correction. If the full die of A overlaps with the full die of B
+      // in their "outward" halves (waste/air), it is physically safe because neither piece has product material there.
+      // Material-to-die overlaps are already guaranteed by checks 2 and 3, and material-to-material by check 1.
+      /*
       if (entryP.orient.cycPolygon && orient.cycPolygon) {
         const bbCycPlaced = entryP.orient.bbCyc || getBoundingBox(entryP.orient.cycPolygon);
         const bbCycCandidate = orient.bbCyc || getBoundingBox(orient.cycPolygon);
@@ -1844,6 +1848,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
           return true;
         }
       }
+      */
 
       return false;
     };
@@ -4841,7 +4846,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         let fillerColOptions = [filler90Cols, filler90Cols - 1, filler90Cols - 2, filler90Cols - 3, filler90Cols - 4].filter(c => c > 0);
         if (fillerColOptions.length === 0 && filler90Cols > 0) fillerColOptions = [filler90Cols];
         if (isFastMode && fillerColOptions.length > 0) {
-          fillerColOptions = [fillerColOptions[0]];
+          fillerColOptions = fillerColOptions.slice(0, Math.min(fillerColOptions.length, 2));
         }
         
         const fillerRowOptions = filler90Cols > 0 ? maxFiller90Rows : 0;
@@ -4865,7 +4870,10 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
             ])]
             : [0];
           if (isFastMode && filler90ColsChoice > 0) {
-            fillerStartXCandidates = [0];
+            fillerStartXCandidates = [...new Set([
+              0,
+              roundMetric(Math.max(0, workWidth - fillerRowWidth))
+            ])];
           }
 
           for (const filler90TopRows of fillerRowCountOptions) {
@@ -5577,17 +5585,8 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     };
   }
 
-  async testCapacity(sizeList, overrideConfig = {}, onProgress) {
-    const explicitDeepSplitFill = overrideConfig.preparedSplitFillDeep ?? this.config.preparedSplitFillDeep;
-    const deepSplitFillEnabled = explicitDeepSplitFill == null
-      ? sizeList.length === 1
-      : explicitDeepSplitFill === true;
-    const normalizedSizeList = sizeList.map((size) => ({
-      ...size,
-      polygon: simplifyPolygon(normalizeToOrigin(size.polygon), overrideConfig.polygonSimplificationTolerance ?? this.config.polygonSimplificationTolerance ?? 0.25)
-    }));
-
-    const config = {
+  _buildConfigForCapacity(sizeList, overrideConfig, deepEnabled) {
+    return {
       ...this.config,
       ...overrideConfig,
       sameSidePreparedVariant: 'double-contour',
@@ -5600,19 +5599,23 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       preparedSplitFillEnabled: overrideConfig.preparedSplitFillEnabled
         ?? this.config.preparedSplitFillEnabled
         ?? true,
+      preparedSplitFillDeep: deepEnabled,
       preparedSplitFillMaxPieces: overrideConfig.preparedSplitFillMaxPieces
         ?? this.config.preparedSplitFillMaxPieces
         ?? 8,
       preparedSplitFillTimeLimitMs: overrideConfig.preparedSplitFillTimeLimitMs
         ?? this.config.preparedSplitFillTimeLimitMs
-        ?? 2500,
+        ?? 10000,
       preparedSplitFillCandidateLimit: overrideConfig.preparedSplitFillCandidateLimit
         ?? this.config.preparedSplitFillCandidateLimit
-        ?? (deepSplitFillEnabled ? 24 : (sizeList.length > 1 ? 16 : 24))
+        ?? (deepEnabled ? 24 : (sizeList.length > 1 ? 16 : 24))
     };
+  }
 
+  async _executeCapacitySearch(sizeList, config, onProgress) {
+    const startTime = Date.now();
     this._doubleContourSourceBySize = new Map(
-      normalizedSizeList.map((size) => [
+      sizeList.map((size) => [
         size.sizeName,
         {
           polygon: size.polygon,
@@ -5621,19 +5624,18 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       ])
     );
 
-    if (shouldUseParallelDoubleContourCapacity(normalizedSizeList, config)) {
-      return this._testCapacityParallel(normalizedSizeList, config, onProgress);
+    if (shouldUseParallelDoubleContourCapacity(sizeList, config)) {
+      return this._testCapacityParallel(sizeList, config, onProgress);
     }
 
     this._orientCache.clear();
-    const startTime = Date.now();
     const totalArea = config.sheetWidth * config.sheetHeight;
     const workWidth = config.sheetWidth - 2 * (config.marginX || 0);
     const workHeight = config.sheetHeight - 2 * (config.marginY || 0);
     const sheetsBySize = {};
     const summary = [];
 
-    for (const size of normalizedSizeList) {
+    for (const size of sizeList) {
       const cacheKey = buildCapacityResultCacheKey('same-side-double-contour', size, config);
       const cachedResult = getCachedCapacityResult(cacheKey);
       if (cachedResult) {
@@ -5679,12 +5681,86 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         efficiency: sheet.efficiency
       };
       summary.push(summaryItem);
-      
-      setCachedCapacityResult(cacheKey, {
-        summaryItem,
-        sheet
-      });
+
+      setCachedCapacityResult(cacheKey, { summaryItem, sheet });
+      if (onProgress) onProgress(size.sizeName, 'done');
     }
+
+    return {
+      success: true,
+      summary,
+      sheetsBySize,
+      timeMs: Date.now() - startTime
+    };
+  }
+
+  async testCapacity(sizeList, overrideConfig = {}, onProgress) {
+    const explicitDeepSplitFill = overrideConfig.preparedSplitFillDeep ?? this.config.preparedSplitFillDeep;
+    const normalizedSizeList = sizeList.map((size) => ({
+      ...size,
+      polygon: simplifyPolygon(normalizeToOrigin(size.polygon), overrideConfig.polygonSimplificationTolerance ?? this.config.polygonSimplificationTolerance ?? 0.25)
+    }));
+
+    // If parallelSizes is true and sizeList.length > 1, we delegate to parallel workers directly.
+    const parallelEnabled = overrideConfig.parallelSizes ?? this.config.parallelSizes ?? true;
+    if (parallelEnabled && normalizedSizeList.length > 1) {
+      console.log(`[Smart Capacity] Delegating parallel capacity search for ${normalizedSizeList.length} sizes...`);
+      const config = this._buildConfigForCapacity(normalizedSizeList, overrideConfig, explicitDeepSplitFill);
+      return this._testCapacityParallel(normalizedSizeList, config, onProgress);
+    }
+
+    // Otherwise, we calculate sequentially for each size (which runs inside the parallel worker or on main thread):
+    const runStartTime = Date.now();
+    const sheetsBySize = {};
+    const summary = [];
+
+    for (const size of normalizedSizeList) {
+      if (onProgress) onProgress(size.sizeName, 'started');
+
+      // Run Pass 1: Fast Search
+      const configFast = this._buildConfigForCapacity([size], overrideConfig, false);
+      const resultFast = await this._executeCapacitySearch([size], configFast);
+      
+      const sheetFast = resultFast.sheetsBySize[size.sizeName];
+      const summaryItemFast = resultFast.summary[0];
+
+      // Check if we need deep search for this size:
+      // - If explicitDeepSplitFill is true, we always do deep search.
+      // - If explicitDeepSplitFill is false, we never do deep search.
+      // - Otherwise (explicitDeepSplitFill is null/undefined), we do deep search if:
+      //   - The yield is fractional (pairs % 1 !== 0)
+      //   - OR the layout used any split pieces
+      const hasSplits = sheetFast && sheetFast.placed && sheetFast.placed.some(p => 
+        p.isSplit || p.id?.includes('split') || p.id?.startsWith('margin_fill_')
+      );
+      const needDeep = explicitDeepSplitFill === true || (
+        explicitDeepSplitFill == null && (summaryItemFast.pairs % 1 !== 0 || hasSplits)
+      );
+
+      if (needDeep) {
+        console.log(`[Smart Capacity] Size ${size.sizeName} uses split pieces or has fractional yield. Running Pass 2 (Deep Search)...`);
+        const configDeep = this._buildConfigForCapacity([size], overrideConfig, true);
+        const resultDeep = await this._executeCapacitySearch([size], configDeep);
+        
+        const sheetDeep = resultDeep.sheetsBySize[size.sizeName];
+        const summaryItemDeep = resultDeep.summary[0];
+
+        // Keep the best result between Fast and Deep search (based on pairs)
+        if (sheetDeep && (!sheetFast || summaryItemDeep.pairs > summaryItemFast.pairs)) {
+          sheetsBySize[size.sizeName] = sheetDeep;
+          summary.push(summaryItemDeep);
+        } else {
+          sheetsBySize[size.sizeName] = sheetFast;
+          summary.push(summaryItemFast);
+        }
+      } else {
+        sheetsBySize[size.sizeName] = sheetFast;
+        summary.push(summaryItemFast);
+      }
+
+      if (onProgress) onProgress(size.sizeName, 'done');
+    }
+
     const defaultSizeName = normalizedSizeList[0]?.sizeName || null;
     const defaultSheet = defaultSizeName ? sheetsBySize[defaultSizeName] : null;
 
@@ -5698,7 +5774,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       defaultSizeName,
       sheet: defaultSheet,
       sheetsBySize,
-      timeMs: Date.now() - startTime
+      timeMs: Date.now() - runStartTime
     };
   }
 
