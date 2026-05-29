@@ -1756,7 +1756,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
   _canPlaceSplitOrient(occupiedPlacements, orient, x, y, config, workWidth, workHeight, spatialIndex = null, skipOutwardCheck = false) {
     const spacing = config.spacing || 0;
     const bb2 = orient.bb || getBoundingBox(orient.polygon);
-    const bbCheck = orient.bbCyc || bb2;
+    const bbCheck = (skipOutwardCheck ? null : orient.bbCyc) || bb2;
     const minX2 = x + bbCheck.minX - spacing;
     const maxX2 = x + bbCheck.maxX + spacing;
     const minY2 = y + bbCheck.minY - spacing;
@@ -1773,7 +1773,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     }
 
     const checkPlacementsOverlap = (entryP, entryBB) => {
-      const bbCheckPlaced = entryP.orient.bbCyc || entryBB;
+      const bbCheckPlaced = (skipOutwardCheck ? null : entryP.orient.bbCyc) || entryBB;
       const minX1 = entryP.x + bbCheckPlaced.minX - spacing;
       const maxX1 = entryP.x + bbCheckPlaced.maxX + spacing;
       const minY1 = entryP.y + bbCheckPlaced.minY - spacing;
@@ -1794,6 +1794,10 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         bb2
       )) {
         return true;
+      }
+
+      if (skipOutwardCheck) {
+        return false;
       }
 
       // 2. Candidate full die vs Placed actual shape
@@ -1827,28 +1831,6 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
           return true;
         }
       }
-
-      // 4. Placed full die vs Candidate full die (for two split pieces)
-      // Commented out: This check is an over-correction. If the full die of A overlaps with the full die of B
-      // in their "outward" halves (waste/air), it is physically safe because neither piece has product material there.
-      // Material-to-die overlaps are already guaranteed by checks 2 and 3, and material-to-material by check 1.
-      /*
-      if (entryP.orient.cycPolygon && orient.cycPolygon) {
-        const bbCycPlaced = entryP.orient.bbCyc || getBoundingBox(entryP.orient.cycPolygon);
-        const bbCycCandidate = orient.bbCyc || getBoundingBox(orient.cycPolygon);
-        if (cachedPolygonsOverlap(
-          entryP.orient.cycPolygon,
-          orient.cycPolygon,
-          { x: entryP.x, y: entryP.y },
-          { x, y },
-          spacing,
-          bbCycPlaced,
-          bbCycCandidate
-        )) {
-          return true;
-        }
-      }
-      */
 
       return false;
     };
@@ -1885,12 +1867,8 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
           return false;
         }
       }
-    }
-
-    // CRITICAL: Check against placements that are NOT in the spatial index yet (newly added in beam search)
-    // These are always at the end of the array because beam search appends them.
-    if (spatialIndex && spatialIndex.indexed && occupiedPlacements.length > spatialIndex.indexed.length) {
-      for (let i = occupiedPlacements.length - 1; i >= spatialIndex.indexed.length; i--) {
+    } else {
+      for (let i = occupiedPlacements.length - 1; i >= 0; i--) {
         const p1 = occupiedPlacements[i];
         const bb1 = p1.orient.bb || getBoundingBox(p1.orient.polygon);
         if (checkPlacementsOverlap(p1, bb1)) {
@@ -1899,13 +1877,15 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       }
     }
 
-    // CRITICAL EXTRA SAFE CHECK: Check all split pieces in occupiedPlacements directly
-    // to guarantee we never miss any split-to-split full die overlap regardless of spatial index bounds
-    for (const p of occupiedPlacements) {
-      if (p.orient && p.orient.cycPolygon) {
-        const bb1 = p.orient.bb || getBoundingBox(p.orient.polygon);
-        if (checkPlacementsOverlap(p, bb1)) {
-          return false;
+    if (!skipOutwardCheck) {
+      // CRITICAL EXTRA SAFE CHECK: Check all split pieces in occupiedPlacements directly
+      // to guarantee we never miss any split-to-split full die overlap regardless of spatial index bounds
+      for (const p of occupiedPlacements) {
+        if (p.orient && p.orient.cycPolygon) {
+          const bb1 = p.orient.bb || getBoundingBox(p.orient.polygon);
+          if (checkPlacementsOverlap(p, bb1)) {
+            return false;
+          }
         }
       }
     }
