@@ -23,6 +23,7 @@ async function run() {
     gridStep: 0.5,
     preparedSplitFillEnabled: true,
     preparedSplitFillDeep: true,
+    doubleContourDeepSearch: true,
     capacityLayoutMode: 'same-side-double-contour',
     allowRotate180: true,
     parallelSizes: false
@@ -43,7 +44,7 @@ async function run() {
   console.log(`Running single test for Size 7.5...`);
   const res = await engine.testCapacity(testSizes, config);
   
-  console.log("\n=== SINGLE SIZE 7.5 CAPACITY RESULT ===");
+  console.log("\n=== SINGLE SIZE 8.5 CAPACITY RESULT ===");
   for (const item of (res.summary || [])) {
     console.log(`Size: ${item.sizeName} | Pairs: ${item.pairs} | Efficiency: ${item.efficiency.toFixed(1)}%`);
     const sheet = res.sheetsBySize[item.sizeName];

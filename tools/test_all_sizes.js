@@ -22,6 +22,7 @@ async function run() {
     staggerSpacing: 3,
     gridStep: 0.5,
     preparedSplitFillEnabled: true,
+    preparedSplitFillDeep: true,
     capacityLayoutMode: 'same-side-double-contour',
     allowRotate180: true,
     parallelSizes: true

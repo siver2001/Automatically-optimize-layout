@@ -462,7 +462,7 @@ export function quantizeWithinBounds(value, step, maxValue) {
   return roundMetric(Math.max(0, Math.min(maxValue, quantized)), 3);
 }
 
-export function buildAxisCandidates(minValue, maxValue, step, pieceDim = 0) {
+export function buildAxisCandidates(minValue, maxValue, step, pieceDim = 0, limit = 15) {
   if (!Number.isFinite(minValue) || !Number.isFinite(maxValue)) return [];
   if (maxValue < minValue - 1e-6) return [];
 
@@ -473,7 +473,7 @@ export function buildAxisCandidates(minValue, maxValue, step, pieceDim = 0) {
 
   // Adaptive sampling: instead of fixed ratios, use steps based on span relative to piece size
   const targetStep = pieceDim > 0 ? Math.max(safeStep, pieceDim / 4) : safeStep * 10;
-  const sampleCount = Math.min(15, Math.ceil(span / targetStep) + 1);
+  const sampleCount = Math.min(limit, Math.ceil(span / targetStep) + 1);
 
   if (sampleCount > 2) {
     for (let i = 1; i < sampleCount; i++) {

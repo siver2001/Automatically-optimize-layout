@@ -170,9 +170,9 @@ function buildPreparedSequenceKey(item, fallbackIndex) {
 function sortItemsRowByRowLeftToRight(keyedItems) {
   const finalSortedKeyed = [];
 
-  // Group items into horizontal rows along the horizontal sheet's vertical Y axis, from top to bottom
+  // Group items into horizontal rows along the horizontal sheet's vertical Y axis, from bottom to top in DXF (Y descending)
   const sortedByY = [...keyedItems].sort((a, b) => 
-    getFiniteSortValue(a.item?.centroid?.y) - getFiniteSortValue(b.item?.centroid?.y)
+    getFiniteSortValue(b.item?.centroid?.y) - getFiniteSortValue(a.item?.centroid?.y)
   );
 
   const rows = [];

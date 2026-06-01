@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { isMainThread } from 'worker_threads';
 
 // Smart, dynamic limits with environment variable overrides and dynamic fallback
 const DEFAULT_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days (persisted indefinitely for deterministic layout calculations)
@@ -44,6 +45,7 @@ function ensureCacheLoaded() {
 }
 
 function saveCacheToDisk() {
+  if (!isMainThread) return;
   try {
     const dir = path.join(process.cwd(), '.codex');
     if (!fs.existsSync(dir)) {
