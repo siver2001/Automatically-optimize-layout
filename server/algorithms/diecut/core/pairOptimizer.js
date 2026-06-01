@@ -119,16 +119,33 @@ export class PairOptimizer {
     const minY = -bbB.height;
     const maxY = bbA.height;
 
+    // Pre-calculate all dy candidates and their lower bound heights
+    const candidates = [];
     for (let dy = minY; dy <= maxY; dy += this.translationStep) {
-      // Early Exit 1: Kiểm tra nhanh nếu hộp bao dọc không giao nhau
+      const minHeight = Math.max(bbA.height, dy + bbB.height) - Math.min(0, dy);
       const hasYOverlap = !(
         dy + bbB.minY - this.spacing >= bbA.maxY ||
         dy + bbB.maxY + this.spacing <= bbA.minY
       );
+      candidates.push({ dy, minHeight, hasYOverlap });
+    }
+
+    // Sort by minHeight in ascending order to test most compact Y shifts first
+    candidates.sort((a, b) => a.minHeight - b.minHeight);
+
+    const minWidthBound = Math.max(bbA.width, bbB.width);
+
+    for (const candidate of candidates) {
+      const { dy, minHeight, hasYOverlap } = candidate;
+
+      // Early break: since candidates are sorted by minHeight, the minimum possible area
+      // will only increase. If it is already larger than the best area found, we can safely stop.
+      const minPossibleArea = minWidthBound * minHeight;
+      if (best && minPossibleArea >= best.area) {
+        break;
+      }
 
       if (!hasYOverlap) {
-        // Nếu không giao nhau theo Y, chúng không bao giờ va chạm với nhau cho dù dx bằng bao nhiêu.
-        // Do đó, dx nhỏ nhất không va chạm chính là giới hạn biên trái: -bbB.width - spacing
         const bestSafeX = -bbB.width - this.spacing;
         const bbox = this._getCombinedBBox(bbA, bbB, bestSafeX, dy);
         const area = bbox.width * bbox.height;
@@ -148,7 +165,6 @@ export class PairOptimizer {
       let bestSafeX = safeX;
 
       for (let i = 0; i < this.binaryIterations; i++) {
-        // Early Exit: Độ chênh < 0.25mm sẽ bị nuốt bởi GridStep >= 1mm, không cần lặp thêm
         if (high - low < 0.25) break;
         
         const mid = (low + high) / 2;
