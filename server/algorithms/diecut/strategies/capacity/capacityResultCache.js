@@ -9,7 +9,9 @@ const DEFAULT_MAX_CACHE_ENTRIES = 512;
 const IGNORED_CONFIG_FIELDS = new Set([
   'maxTimeMs',
   'parallelSizes',
-  'parallelWorkerCount'
+  'parallelWorkerCount',
+  'layers',
+  'nestingStrategy'
 ]);
 
 const capacityResultCache = new Map();

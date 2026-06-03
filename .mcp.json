@@ -3,10 +3,12 @@
     "stgen-dxf-viewer": {
       "command": "node",
       "args": [
-        "c:\\Users\\long.nh\\.antigravity-ide\\extensions\\jeil-structuralengineering-consultants.stgen-0.2.2-universal\\media\\mcp-server.js"
+        "c:\\Users\\long.nh\\.antigravity-ide\\extensions\\jeil-structuralengineering-consultants.stgen-0.3.2-universal\\media\\mcp-server.js"
       ],
       "env": {
-        "STGEN_MCP_PORT": "52789"
+        "STGEN_MCP_PORT": "52789",
+        "STGEN_AI_PRIMITIVE_BUDGET_MODE": "warn",
+        "STGEN_AI_PRIMITIVE_BUDGET_LIMIT": "3"
       }
     }
   }
