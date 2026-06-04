@@ -224,6 +224,11 @@ export class CapacityTestPrePairedSameSidePattern extends CapacityTestSameSidePa
       if (candidate) {
         const splitDefs = buildSplitHalfDefinitions(polygon, config.internalPaths?.[sizeName] || []);
         if (splitDefs.length > 0) {
+          if (config.preparedSplitFillPreference === 'left') {
+            splitDefs.sort((a, b) => a.key === 'split-left' ? -1 : 1);
+          } else if (config.preparedSplitFillPreference === 'right') {
+            splitDefs.sort((a, b) => a.key === 'split-right' ? -1 : 1);
+          }
           this._addSplitFillers(candidate.placements, splitDefs, orient, dxMm, dyMm, workWidth, workHeight, config);
           candidate.placedCount = candidate.placements.length;
           // Prefer candidates with fillers at the bottom if count is same
@@ -393,7 +398,8 @@ export class CapacityTestPrePairedSameSidePattern extends CapacityTestSameSidePa
       allowRotate180: true,
       parallelSizes: overrideConfig.parallelSizes ?? this.config.parallelSizes ?? true,
       sameSideFineRotateOffsets: [0],
-      sameSideAlignedRowShiftRatios: [0]
+      sameSideAlignedRowShiftRatios: [0],
+      preparedSplitFillPreference: overrideConfig.preparedSplitFillPreference ?? this.config.preparedSplitFillPreference ?? 'none'
     };
 
     const normalizedSizeList = sizeList.map((size) => ({

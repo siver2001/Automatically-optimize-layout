@@ -88,7 +88,8 @@ const DieCutLayout = () => {
     gridStep: 0.5,
     capacityLayoutMode: PAIR_CAPACITY_MODE,
     layers: 1,
-    nestingStrategy: 'single-size-per-sheet'
+    nestingStrategy: 'single-size-per-sheet',
+    preparedSplitFillPreference: 'none'
   });
 
   // --- COMPUTED ---

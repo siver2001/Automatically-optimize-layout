@@ -3017,6 +3017,8 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       pairs: pairStats.splitPairCount,
       dcCount: pairStats.dcCount,
       unpaired: pairStats.splitUnpairedCount,
+      splitLeftCount: pairStats.splitLeftCount,
+      splitRightCount: pairStats.splitRightCount,
       imbalancePenalty,
       faceOutwardReward,
       leftoverAreaMm2: leftover.leftoverAreaMm2,
@@ -3075,10 +3077,30 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
   _compareSplitFillStates(left, right) {
     const leftRank = this._rankSplitFillState(left);
     const rightRank = this._rankSplitFillState(right);
+    
+    // Get preference from config
+    const config = left.config || right.config || this.config || {};
+    const pref = config.preparedSplitFillPreference || 'none';
+    let prefDiff = 0;
+    if (pref === 'left') {
+      // Raw splitRightCount becomes materialized Left, splitLeftCount becomes materialized Right.
+      // So Left pref means raw splitRightCount > splitLeftCount.
+      const leftIsPrefLeftover = leftRank.splitRightCount > leftRank.splitLeftCount ? 0 : 1;
+      const rightIsPrefLeftover = rightRank.splitRightCount > rightRank.splitLeftCount ? 0 : 1;
+      prefDiff = leftIsPrefLeftover - rightIsPrefLeftover;
+    } else if (pref === 'right') {
+      // Raw splitLeftCount becomes materialized Right, splitRightCount becomes materialized Left.
+      // So Right pref means raw splitLeftCount > splitRightCount.
+      const leftIsPrefLeftover = leftRank.splitLeftCount > leftRank.splitRightCount ? 0 : 1;
+      const rightIsPrefLeftover = rightRank.splitLeftCount > rightRank.splitRightCount ? 0 : 1;
+      prefDiff = leftIsPrefLeftover - rightIsPrefLeftover;
+    }
+
     return (leftRank.imbalancePenalty - rightRank.imbalancePenalty)
       || rightRank.pairs - leftRank.pairs
       || rightRank.count - leftRank.count
       || rightRank.dcCount - leftRank.dcCount
+      || prefDiff
       || (rightRank.faceOutwardReward - leftRank.faceOutwardReward)
       || rightRank.leftoverAreaMm2 - leftRank.leftoverAreaMm2
       || rightRank.openSheetAreaMm2 - leftRank.openSheetAreaMm2
@@ -3460,7 +3482,8 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     let states = [{
       occupiedPlacements: [...baseCandidate.placements],
       extraPlacements: [],
-        spatialIndex: this._buildSpatialIndex([...baseCandidate.placements], workWidth, workHeight, config.spacing || 0)
+      spatialIndex: this._buildSpatialIndex([...baseCandidate.placements], workWidth, workHeight, config.spacing || 0),
+      config
     }];
     let bestState = states[0];
     const startTime = Date.now();
@@ -3551,7 +3574,8 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
               extraPlacements: [...state.extraPlacements, ...nextGroupPlacements],
               workWidth,
               workHeight,
-              spatialIndex: nextSpatialIndex
+              spatialIndex: nextSpatialIndex,
+              config
             });
             placedGroup = true;
           }
@@ -3668,7 +3692,8 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
             extraPlacements: [...state.extraPlacements, nextPlacement],
             workWidth,
             workHeight,
-            spatialIndex: nextSpatialIndex
+            spatialIndex: nextSpatialIndex,
+            config
           });
         }
       }
@@ -3773,7 +3798,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       const finalized = augmentedCandidate ? this._finalizeCandidate(augmentedCandidate, config, workWidth, workHeight) : null;
       if (finalized) {
         // With 500s budget: purely density-driven, no leftover guard
-        const cmp = compareDoubleInsoleCandidates(finalized, bestAugmentedCandidate);
+        const cmp = compareDoubleInsoleCandidates(finalized, bestAugmentedCandidate, config);
         if (cmp < 0) {
           bestAugmentedCandidate = finalized;
         }
@@ -4140,8 +4165,18 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
             altBonus += 1000;
           }
         }
+
+        const pref = config?.preparedSplitFillPreference || 'none';
+        let prefBonus = 0;
+        if (pref === 'left' && numR > numL) {
+          // Raw numR (split-right) mirrors to materialized Left
+          prefBonus = 50000;
+        } else if (pref === 'right' && numL > numR) {
+          // Raw numL (split-left) mirrors to materialized Right
+          prefBonus = 50000;
+        }
         
-        const score = pairs * 10000000 + totalCount * 100000 + altBonus - sumCoord;
+        const score = pairs * 10000000 + totalCount * 100000 + prefBonus + altBonus - sumCoord;
         
         if (score > bestState.score) {
           bestState = {
@@ -4808,17 +4843,17 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         const finalizedBodyOnlyCandidateUnvalidated = bodyOnlyCandidate ? this._finalizeCandidate(bodyOnlyCandidate, config, workWidth, workHeight, true, false) : null;
         if (finalizedBodyOnlyCandidateUnvalidated) {
           const worstPoolCandidate = candidatePool.length >= config.preparedSplitFillCandidateLimit ? candidatePool[candidatePool.length - 1] : null;
-          const isBetterThanWorst = !worstPoolCandidate || compareDoubleInsoleCandidates(finalizedBodyOnlyCandidateUnvalidated, worstPoolCandidate) < 0;
-          const isBetterThanBest = !bestCandidate || compareDoubleInsoleCandidates(finalizedBodyOnlyCandidateUnvalidated, bestCandidate) < 0;
+          const isBetterThanWorst = !worstPoolCandidate || compareDoubleInsoleCandidates(finalizedBodyOnlyCandidateUnvalidated, worstPoolCandidate, config) < 0;
+          const isBetterThanBest = !bestCandidate || compareDoubleInsoleCandidates(finalizedBodyOnlyCandidateUnvalidated, bestCandidate, config) < 0;
           const isReasonableQuality = !bestCandidate || finalizedBodyOnlyCandidateUnvalidated.actualPairs >= bestCandidate.actualPairs - 3;
 
           if ((isBetterThanWorst && isReasonableQuality) || isBetterThanBest) {
             const finalizedBodyOnlyCandidate = this._finalizeCandidate(bodyOnlyCandidate, config, workWidth, workHeight, true, true);
             if (finalizedBodyOnlyCandidate) {
-              if (compareDoubleInsoleCandidates(finalizedBodyOnlyCandidate, bestCandidate) < 0) {
+              if (compareDoubleInsoleCandidates(finalizedBodyOnlyCandidate, bestCandidate, config) < 0) {
                 bestCandidate = finalizedBodyOnlyCandidate;
               }
-              addRankedCandidate(candidatePool, finalizedBodyOnlyCandidate, config.preparedSplitFillCandidateLimit);
+              addRankedCandidate(candidatePool, finalizedBodyOnlyCandidate, config.preparedSplitFillCandidateLimit, config);
             }
           }
         }
@@ -5116,8 +5151,8 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
                   if (!finalizedVariantUnvalidated) continue;
 
                   const worstPoolCandidate = candidatePool.length >= config.preparedSplitFillCandidateLimit ? candidatePool[candidatePool.length - 1] : null;
-                  const isBetterThanWorst = !worstPoolCandidate || compareDoubleInsoleCandidates(finalizedVariantUnvalidated, worstPoolCandidate) < 0;
-                  const isBetterThanBest = !bestCandidate || compareDoubleInsoleCandidates(finalizedVariantUnvalidated, bestCandidate) < 0;
+                  const isBetterThanWorst = !worstPoolCandidate || compareDoubleInsoleCandidates(finalizedVariantUnvalidated, worstPoolCandidate, config) < 0;
+                  const isBetterThanBest = !bestCandidate || compareDoubleInsoleCandidates(finalizedVariantUnvalidated, bestCandidate, config) < 0;
                   const isReasonableQuality = !bestCandidate || finalizedVariantUnvalidated.actualPairs >= bestCandidate.actualPairs - 3;
 
                   if ((isBetterThanWorst && isReasonableQuality) || isBetterThanBest) {
@@ -5147,7 +5182,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
                     if (!shouldKeepFiller) continue;
 
                     // Intelligent Ranking: Favor variants with more pairs, then higher efficiency
-                    if (!bestCandidate || compareDoubleInsoleCandidates(finalizedVariant, bestCandidate) < 0) {
+                    if (!bestCandidate || compareDoubleInsoleCandidates(finalizedVariant, bestCandidate, config) < 0) {
                       bestCandidate = finalizedVariant;
                     }
                     
@@ -5160,7 +5195,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
                       return finalizedVariant;
                     }
                     
-                    addRankedCandidate(candidatePool, finalizedVariant, config.preparedSplitFillCandidateLimit);
+                    addRankedCandidate(candidatePool, finalizedVariant, config.preparedSplitFillCandidateLimit, config);
                   }
                 }
               }
@@ -5175,7 +5210,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       // SMART PRUNING: Sort and only take the TOP 2 candidates for filler search.
       // 99% of the time, the best filler layout comes from the best base layout.
       // SMART PRUNING: Only take the BEST candidate for filler search.
-      candidatePool.sort(compareDoubleInsoleCandidates);
+      candidatePool.sort((a, b) => compareDoubleInsoleCandidates(a, b, config));
       
       // Smart Skip: Exit early only if target yield is high AND no space for more
       const pieceArea = candidatePool[0].pieceArea || 10000;
@@ -5199,7 +5234,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
           return rightRank.wholeCount - leftRank.wholeCount
             || rightRank.marginScore - leftRank.marginScore
             || rightRank.actualPairs - leftRank.actualPairs
-            || compareDoubleInsoleCandidates(left, right);
+            || compareDoubleInsoleCandidates(left, right, config);
         })
         .slice(0, fastMode ? 16 : 80);
       
@@ -5221,7 +5256,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
           workWidth,
           workHeight
         );
-        if (augmentedCandidate && compareDoubleInsoleCandidates(augmentedCandidate, bestCandidate) < 0) {
+        if (augmentedCandidate && compareDoubleInsoleCandidates(augmentedCandidate, bestCandidate, config) < 0) {
           bestCandidate = augmentedCandidate;
         }
         
@@ -5272,7 +5307,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       fallbackCandidate &&
       (
         !bestCandidate ||
-        compareDoubleInsoleCandidates(fallbackCandidate, bestCandidate) < 0
+        compareDoubleInsoleCandidates(fallbackCandidate, bestCandidate, config) < 0
       )
     ) {
       bestCandidate = fallbackCandidate;
@@ -5506,6 +5541,8 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       dcCount: dc,
       splitPairCount: Math.min(l, r),
       splitUnpairedCount: Math.max(l, r) - Math.min(l, r),
+      splitLeftCount: l,
+      splitRightCount: r,
       bounds
     };
   }
@@ -5694,7 +5731,10 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         ?? (overrideConfig.isParallelWorker || sizeList.length > 1 ? 30000 : 45000),
       preparedSplitFillCandidateLimit: overrideConfig.preparedSplitFillCandidateLimit
         ?? this.config.preparedSplitFillCandidateLimit
-        ?? 24
+        ?? 24,
+      preparedSplitFillPreference: overrideConfig.preparedSplitFillPreference
+        ?? this.config.preparedSplitFillPreference
+        ?? 'none'
     };
   }
 

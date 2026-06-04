@@ -146,63 +146,110 @@ const SheetConfigPanel = ({ config, onChange, isTestMode, importAnalysis }) => {
         </div>
 
         <div className="flex flex-col gap-3">
-          <div className="flex items-center gap-6 flex-wrap">
-            <label className="flex items-center gap-2 cursor-pointer group">
-              <input
-                type="checkbox"
-                checked={config.allowRotate90}
-                onChange={(e) => onChange({ ...config, allowRotate90: e.target.checked })}
-                className="w-4 h-4 rounded border-white/20 bg-black/20 text-purple-500 focus:ring-purple-500/50"
-              />
-              <span className="text-white/80 text-sm group-hover:text-white transition-colors">
-                Tối ưu liệu
-              </span>
-            </label>
-          </div>
+          {!(config.capacityLayoutMode === 'same-side-double-contour-vertical' ||
+            config.capacityLayoutMode === 'same-side-double-contour-horizontal' ||
+            config.capacityLayoutMode === 'same-side-double-contour') && (
+            <div className="flex items-center gap-6 flex-wrap">
+              <label className="flex items-center gap-2 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={config.allowRotate90}
+                  onChange={(e) => onChange({ ...config, allowRotate90: e.target.checked })}
+                  className="w-4 h-4 rounded border-white/20 bg-black/20 text-purple-500 focus:ring-purple-500/50"
+                />
+                <span className="text-white/80 text-sm group-hover:text-white transition-colors">
+                  Tối ưu liệu
+                </span>
+              </label>
+            </div>
+          )}
 
           {(config.capacityLayoutMode === 'same-side-double-contour-vertical' ||
             config.capacityLayoutMode === 'same-side-double-contour-horizontal' ||
             config.capacityLayoutMode === 'same-side-double-contour') && (
-            <div className="bg-white/5 p-3 rounded-xl border border-white/10 space-y-2">
-              <label className="text-white/60 text-xs font-medium flex items-center gap-1.5">
-                <span className="text-purple-400">📐</span> Hướng xếp biên kép
-              </label>
-              <div className="flex bg-black/40 p-1 rounded-xl border border-white/10 w-full gap-1">
-                <button
-                  type="button"
-                  onClick={() => onChange({ ...config, capacityLayoutMode: 'same-side-double-contour' })}
-                  className={`flex-1 flex items-center justify-center px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all ${
-                    config.capacityLayoutMode === 'same-side-double-contour'
-                      ? 'bg-amber-500 text-white shadow-lg'
-                      : 'text-white/50 hover:text-white/80'
-                  }`}
-                >
-                  Tối ưu diện tích
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onChange({ ...config, capacityLayoutMode: 'same-side-double-contour-vertical' })}
-                  className={`flex-1 flex items-center justify-center px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all ${
-                    config.capacityLayoutMode === 'same-side-double-contour-vertical'
-                      ? 'bg-amber-500 text-white shadow-lg'
-                      : 'text-white/50 hover:text-white/80'
-                  }`}
-                >
-                  Xếp dọc
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onChange({ ...config, capacityLayoutMode: 'same-side-double-contour-horizontal' })}
-                  className={`flex-1 flex items-center justify-center px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all ${
-                    config.capacityLayoutMode === 'same-side-double-contour-horizontal'
-                      ? 'bg-amber-500 text-white shadow-lg'
-                      : 'text-white/50 hover:text-white/80'
-                  }`}
-                >
-                  Xếp ngang
-                </button>
+            <>
+              <div className="bg-white/5 p-3 rounded-xl border border-white/10 space-y-2">
+                <label className="text-white/60 text-xs font-medium flex items-center gap-1.5">
+                  <span className="text-purple-400">📐</span> Hướng xếp biên kép
+                </label>
+                <div className="flex bg-black/40 p-1 rounded-xl border border-white/10 w-full gap-1">
+                  <button
+                    type="button"
+                    onClick={() => onChange({ ...config, capacityLayoutMode: 'same-side-double-contour' })}
+                    className={`flex-1 flex items-center justify-center px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all ${
+                      config.capacityLayoutMode === 'same-side-double-contour'
+                        ? 'bg-amber-500 text-white shadow-lg'
+                        : 'text-white/50 hover:text-white/80'
+                    }`}
+                  >
+                    Tối ưu diện tích
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onChange({ ...config, capacityLayoutMode: 'same-side-double-contour-vertical' })}
+                    className={`flex-1 flex items-center justify-center px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all ${
+                      config.capacityLayoutMode === 'same-side-double-contour-vertical'
+                        ? 'bg-amber-500 text-white shadow-lg'
+                        : 'text-white/50 hover:text-white/80'
+                    }`}
+                  >
+                    Xếp dọc
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onChange({ ...config, capacityLayoutMode: 'same-side-double-contour-horizontal' })}
+                    className={`flex-1 flex items-center justify-center px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all ${
+                      config.capacityLayoutMode === 'same-side-double-contour-horizontal'
+                        ? 'bg-amber-500 text-white shadow-lg'
+                        : 'text-white/50 hover:text-white/80'
+                    }`}
+                  >
+                    Xếp ngang
+                  </button>
+                </div>
               </div>
-            </div>
+
+              <div className="bg-white/5 p-3 rounded-xl border border-white/10 space-y-2">
+                <label className="text-white/60 text-xs font-medium flex items-center gap-1.5">
+                  <span className="text-purple-400">⚖️</span> Ưu tiên chân lẻ (Nếu dư)
+                </label>
+                <div className="flex bg-black/40 p-1 rounded-xl border border-white/10 w-full gap-1">
+                  <button
+                    type="button"
+                    onClick={() => onChange({ ...config, preparedSplitFillPreference: 'none' })}
+                    className={`flex-1 flex items-center justify-center px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all ${
+                      (config.preparedSplitFillPreference || 'none') === 'none'
+                        ? 'bg-amber-500 text-white shadow-lg'
+                        : 'text-white/50 hover:text-white/80'
+                    }`}
+                  >
+                    Không ưu tiên
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onChange({ ...config, preparedSplitFillPreference: 'left' })}
+                    className={`flex-1 flex items-center justify-center px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all ${
+                      config.preparedSplitFillPreference === 'left'
+                        ? 'bg-amber-500 text-white shadow-lg'
+                        : 'text-white/50 hover:text-white/80'
+                    }`}
+                  >
+                    Ưu tiên chân trái
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onChange({ ...config, preparedSplitFillPreference: 'right' })}
+                    className={`flex-1 flex items-center justify-center px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all ${
+                      config.preparedSplitFillPreference === 'right'
+                        ? 'bg-amber-500 text-white shadow-lg'
+                        : 'text-white/50 hover:text-white/80'
+                    }`}
+                  >
+                    Ưu tiên chân phải
+                  </button>
+                </div>
+              </div>
+            </>
           )}
         </div>
 

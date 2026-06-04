@@ -151,7 +151,8 @@ function buildDieCutConfigFromUi(body = {}, options = {}) {
     gridStep: numberFromUi(body.gridStep, DEFAULT_DIECUT_UI_CONFIG.gridStep),
     layers: normalizeLayers(body.layers ?? DEFAULT_DIECUT_UI_CONFIG.layers),
     nestingStrategy: normalizeNestingStrategy(body.nestingStrategy ?? DEFAULT_DIECUT_UI_CONFIG.nestingStrategy),
-    maxTimeMs: options.maxTimeMs ?? 60000
+    maxTimeMs: options.maxTimeMs ?? 60000,
+    preparedSplitFillPreference: body.preparedSplitFillPreference ?? 'none'
   };
 }
 

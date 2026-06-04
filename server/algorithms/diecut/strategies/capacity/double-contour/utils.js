@@ -109,7 +109,7 @@ export function getWholePlacementCount(candidate = {}) {
   return getWholePairsPlaced(candidate);
 }
 
-export function compareDoubleInsoleCandidates(nextCandidate, bestCandidate) {
+export function compareDoubleInsoleCandidates(nextCandidate, bestCandidate, config = {}) {
   if (!bestCandidate) return -1;
 
   const nextWholeCount = getWholePlacementCount(nextCandidate);
@@ -147,8 +147,33 @@ export function compareDoubleInsoleCandidates(nextCandidate, bestCandidate) {
     return (bestCandidate.splitPairCount || 0) - (nextCandidate.splitPairCount || 0);
   }
 
-  if ((nextCandidate.splitUnpairedCount || 0) !== (bestCandidate.splitUnpairedCount || 0)) {
-    return (nextCandidate.splitUnpairedCount || 0) - (bestCandidate.splitUnpairedCount || 0);
+  const nextUnpairedCount = nextCandidate.splitUnpairedCount || 0;
+  const bestUnpairedCount = bestCandidate.splitUnpairedCount || 0;
+  if (nextUnpairedCount !== bestUnpairedCount) {
+    return nextUnpairedCount - bestUnpairedCount;
+  }
+
+  // Leftover foot preference tie-breaker
+  const pref = config.preparedSplitFillPreference || 'none';
+  if ((pref === 'left' || pref === 'right') && nextUnpairedCount > 0) {
+    const nextL = nextCandidate.splitLeftCount ?? 0;
+    const nextR = nextCandidate.splitRightCount ?? 0;
+    const bestL = bestCandidate.splitLeftCount ?? 0;
+    const bestR = bestCandidate.splitRightCount ?? 0;
+
+    if (pref === 'left') {
+      const nextIsPref = nextL > nextR ? 0 : 1;
+      const bestIsPref = bestL > bestR ? 0 : 1;
+      if (nextIsPref !== bestIsPref) {
+        return nextIsPref - bestIsPref;
+      }
+    } else {
+      const nextIsPref = nextR > nextL ? 0 : 1;
+      const bestIsPref = bestR > bestL ? 0 : 1;
+      if (nextIsPref !== bestIsPref) {
+        return nextIsPref - bestIsPref;
+      }
+    }
   }
 
   const nextLeftover = nextCandidate.leftoverAreaMm2 ?? 0;
@@ -326,7 +351,7 @@ export function selectPrimaryRowShiftCandidates(geometricCandidates, sampledCand
   return selected.slice(0, Math.max(1, limit));
 }
 
-export function addRankedCandidate(candidatePool, candidate, limit = 30) {
+export function addRankedCandidate(candidatePool, candidate, limit = 30, config = {}) {
   if (!candidate) return;
   const duplicate = candidatePool.some((existing) =>
     existing.placedCount === candidate.placedCount &&
@@ -341,7 +366,7 @@ export function addRankedCandidate(candidatePool, candidate, limit = 30) {
   if (duplicate) return;
 
   candidatePool.push(candidate);
-  candidatePool.sort(compareDoubleInsoleCandidates);
+  candidatePool.sort((a, b) => compareDoubleInsoleCandidates(a, b, config));
   if (candidatePool.length > limit) {
     candidatePool.length = limit;
   }
