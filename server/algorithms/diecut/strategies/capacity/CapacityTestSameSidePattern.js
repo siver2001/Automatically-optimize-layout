@@ -770,6 +770,15 @@ export class CapacityTestSameSidePattern extends BaseNesting {
   }
 
 
+  _getSameSideBaseAngles(config = {}) {
+    if (config.allowRotate90 === false) return [0];
+    return [0, 90];
+  }
+
+  _allowSameSideFiller90(config = {}) {
+    return config.allowRotate90 !== false;
+  }
+
   _evaluateFootCandidate(sizeName, foot, polygon, config, workWidth, workHeight) {
     const step = config.gridStep || 1;
     const spacing = config.spacing || 0;
@@ -780,10 +789,10 @@ export class CapacityTestSameSidePattern extends BaseNesting {
     const candidatePool = [];
 
     const anglesToTest = [];
+    const baseAngles = this._getSameSideBaseAngles(config);
     for (const offset of fineRotateOffsets) {
-      anglesToTest.push({ offset, baseAngle: 0 });
-      if (config.allowRotate90 !== false) {
-        anglesToTest.push({ offset, baseAngle: 90 });
+      for (const baseAngle of baseAngles) {
+        anglesToTest.push({ offset, baseAngle });
       }
     }
 
@@ -793,9 +802,9 @@ export class CapacityTestSameSidePattern extends BaseNesting {
       const filler90Angle = roundMetric(baseAngle + 90 + offset, 3);
       const primaryOrient = this._decorateOrient(sizeName, foot, polygon, primaryAngle, config, step);
       const alternateOrient = this._decorateOrient(sizeName, foot, polygon, alternateAngle, config, step);
-      const filler90Orient = config.allowRotate90 === false
-        ? null
-        : this._decorateOrient(sizeName, foot, polygon, filler90Angle, config, step);
+      const filler90Orient = this._allowSameSideFiller90(config)
+        ? this._decorateOrient(sizeName, foot, polygon, filler90Angle, config, step)
+        : null;
 
       let filler90DxMm = null;
       let filler90DyMm = null;

@@ -36,12 +36,14 @@ export function buildSameSideConfig(config, importAnalysis, options = {}) {
   const recommendedSameSideMode =
     importAnalysis?.recommendation?.capacityLayoutMode ===
     DOUBLE_INSOLE_CAPACITY_MODE
-      ? DOUBLE_INSOLE_CAPACITY_MODE
+      ? "same-side-double-contour-vertical"
       : SINGLE_INSOLE_CAPACITY_MODE;
   const resolvedSameSideMode =
     preserveSelectedMode &&
     (
       currentMode === DOUBLE_INSOLE_CAPACITY_MODE ||
+      currentMode === "same-side-double-contour-vertical" ||
+      currentMode === "same-side-double-contour-horizontal" ||
       currentMode === SINGLE_INSOLE_CAPACITY_MODE ||
       currentMode === "same-side-orthogonal" ||
       currentMode === "same-side-fine-rotate-5deg"
@@ -70,20 +72,24 @@ export function applyRecommendedMode(config, importAnalysis) {
     return buildPairConfig(config);
   }
 
-  return buildSameSideConfig(config, importAnalysis, { preserveSelectedMode: false });
+  return buildSameSideConfig(config, importAnalysis, { preserveSelectedMode: true });
 }
 
 export function isUsingRecommendedMode(config, importAnalysis) {
   if (!importAnalysis?.recommendation?.autoApply) return false;
 
+  const currentMode = config.capacityLayoutMode;
+  const isRecommendedDoubleContour = importAnalysis?.recommendation?.capacityLayoutMode === DOUBLE_INSOLE_CAPACITY_MODE;
+  const isCurrentDoubleContour = 
+    currentMode === DOUBLE_INSOLE_CAPACITY_MODE ||
+    currentMode === "same-side-double-contour-vertical" ||
+    currentMode === "same-side-double-contour-horizontal";
+
   return (
     config.pairingStrategy === "same-side" &&
     config.mirrorPairs === false &&
-    config.capacityLayoutMode ===
-      (importAnalysis?.recommendation?.capacityLayoutMode ===
-      DOUBLE_INSOLE_CAPACITY_MODE
-        ? DOUBLE_INSOLE_CAPACITY_MODE
-        : SINGLE_INSOLE_CAPACITY_MODE)
+    ((isRecommendedDoubleContour && isCurrentDoubleContour) ||
+     (!isRecommendedDoubleContour && currentMode === SINGLE_INSOLE_CAPACITY_MODE))
   );
 }
 
@@ -99,15 +105,23 @@ export function getDisplayAutoLayout(config, importAnalysis) {
     return "Chọn thủ công";
   }
 
-  return config.capacityLayoutMode === DOUBLE_INSOLE_CAPACITY_MODE
+  const isCurrentDoubleContour = 
+    config.capacityLayoutMode === DOUBLE_INSOLE_CAPACITY_MODE ||
+    config.capacityLayoutMode === "same-side-double-contour-vertical" ||
+    config.capacityLayoutMode === "same-side-double-contour-horizontal";
+
+  return isCurrentDoubleContour
     ? "Tối ưu cho file ghép sẵn"
     : "Tối ưu cho file thường";
 }
 
 export function getCapacityModeLabel(config) {
   if (config.pairingStrategy === "same-side") {
-    if (config.capacityLayoutMode === "same-side-double-contour") {
-      return "Ghép Chiếc - Biên kép";
+    if (config.capacityLayoutMode === "same-side-double-contour-vertical" || config.capacityLayoutMode === "same-side-double-contour") {
+      return "Ghép Chiếc - Biên kép (Xếp dọc)";
+    }
+    if (config.capacityLayoutMode === "same-side-double-contour-horizontal") {
+      return "Ghép Chiếc - Biên kép (Xếp ngang)";
     }
     if (config.capacityLayoutMode === "same-side-fine-rotate-5deg") {
       return "Ghép Chiếc (Cùng bên) - Deep Search ±5°";

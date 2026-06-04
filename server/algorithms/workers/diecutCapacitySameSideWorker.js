@@ -2,6 +2,8 @@ import { parentPort } from 'worker_threads';
 import { CapacityTestSameSidePattern } from '../diecut/strategies/capacity/CapacityTestSameSidePattern.js';
 import { CapacityTestPrePairedSameSidePattern } from '../diecut/strategies/capacity/CapacityTestPrePairedSameSidePattern.js';
 import { CapacityTestDoubleInsoleDoubleContourPattern } from '../diecut/strategies/capacity/double-contour/CapacityTestDoubleInsoleDoubleContourPattern.js';
+import { CapacityTestDoubleInsoleVerticalPattern } from '../diecut/strategies/capacity/double-contour/CapacityTestDoubleInsoleVerticalPattern.js';
+import { CapacityTestDoubleInsoleHorizontalPattern } from '../diecut/strategies/capacity/double-contour/CapacityTestDoubleInsoleHorizontalPattern.js';
 import { clearPatternCapacityCaches } from '../diecut/strategies/capacity/patternCapacityUtils.js';
 
 if (!parentPort) {
@@ -12,6 +14,14 @@ let cachedConfigKey = null;
 let cachedAlgorithm = null;
 
 function createAlgorithm(config) {
+  if (config?.capacityLayoutMode === 'same-side-double-contour-vertical') {
+    return new CapacityTestDoubleInsoleVerticalPattern(config);
+  }
+
+  if (config?.capacityLayoutMode === 'same-side-double-contour-horizontal') {
+    return new CapacityTestDoubleInsoleHorizontalPattern(config);
+  }
+
   if (config?.sameSidePreparedVariant === 'double-contour' || config?.capacityLayoutMode === 'same-side-double-contour') {
     return new CapacityTestDoubleInsoleDoubleContourPattern(config);
   }

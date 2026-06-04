@@ -28,6 +28,8 @@ import { runNestingMode } from '../algorithms/diecut/strategies/normal/runNestin
 import { CapacityTestComplementaryPattern } from '../algorithms/diecut/strategies/capacity/CapacityTestComplementaryPattern.js';
 import { CapacityTestSameSidePattern } from '../algorithms/diecut/strategies/capacity/CapacityTestSameSidePattern.js';
 import { CapacityTestDoubleInsoleDoubleContourPattern } from '../algorithms/diecut/strategies/capacity/double-contour/CapacityTestDoubleInsoleDoubleContourPattern.js';
+import { CapacityTestDoubleInsoleVerticalPattern } from '../algorithms/diecut/strategies/capacity/double-contour/CapacityTestDoubleInsoleVerticalPattern.js';
+import { CapacityTestDoubleInsoleHorizontalPattern } from '../algorithms/diecut/strategies/capacity/double-contour/CapacityTestDoubleInsoleHorizontalPattern.js';
 import { generateDieCutPdf } from '../utils/diecutPdfGenerator.js';
 
 function enforceMonotonicity(summary, sheetsBySize) {
@@ -118,6 +120,8 @@ function numberFromUi(value, fallback) {
 
 function resolveCapacityLayoutMode(pairingStrategy, capacityLayoutMode) {
   if (capacityLayoutMode === 'same-side-double-contour') return 'same-side-double-contour';
+  if (capacityLayoutMode === 'same-side-double-contour-vertical') return 'same-side-double-contour-vertical';
+  if (capacityLayoutMode === 'same-side-double-contour-horizontal') return 'same-side-double-contour-horizontal';
   if (pairingStrategy === 'pair') return 'same-side-double-contour';
   if (capacityLayoutMode === 'same-side-orthogonal') return 'same-side-orthogonal';
   return 'same-side-banded';
@@ -540,7 +544,21 @@ router.post('/test-capacity', async (req, res) => {
         }
       }
     } else {
-      if (config.capacityLayoutMode === 'same-side-double-contour') {
+      if (config.capacityLayoutMode === 'same-side-double-contour-vertical') {
+        nester = new CapacityTestDoubleInsoleVerticalPattern({
+          ...config,
+          capacityLayoutMode: 'same-side-double-contour-vertical',
+          pairingStrategy: 'same-side',
+          mirrorPairs: false
+        });
+      } else if (config.capacityLayoutMode === 'same-side-double-contour-horizontal') {
+        nester = new CapacityTestDoubleInsoleHorizontalPattern({
+          ...config,
+          capacityLayoutMode: 'same-side-double-contour-horizontal',
+          pairingStrategy: 'same-side',
+          mirrorPairs: false
+        });
+      } else if (config.capacityLayoutMode === 'same-side-double-contour') {
         nester = new CapacityTestDoubleInsoleDoubleContourPattern({
           ...config,
           capacityLayoutMode: 'same-side-double-contour',

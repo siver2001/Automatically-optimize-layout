@@ -180,7 +180,7 @@ export function compareDoubleInsoleCandidates(nextCandidate, bestCandidate) {
   const nextShift = Math.abs(nextCandidate.rowShiftXmm || 0) + Math.abs(nextCandidate.rowShiftYmm || 0);
   const bestShift = Math.abs(bestCandidate.rowShiftXmm || 0) + Math.abs(bestCandidate.rowShiftYmm || 0);
   if (nextShift !== bestShift) {
-    return bestShift - nextShift;
+    return nextShift - bestShift;
   }
   return nextCandidate.envelopeWasteMm2 - bestCandidate.envelopeWasteMm2;
 }

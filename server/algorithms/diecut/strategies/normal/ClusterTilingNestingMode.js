@@ -17,6 +17,8 @@
 import { area as polygonArea } from '../../core/polygonUtils.js';
 import { CapacityTestComplementaryPattern } from '../capacity/CapacityTestComplementaryPattern.js';
 import { CapacityTestDoubleInsoleDoubleContourPattern } from '../capacity/double-contour/CapacityTestDoubleInsoleDoubleContourPattern.js';
+import { CapacityTestDoubleInsoleVerticalPattern } from '../capacity/double-contour/CapacityTestDoubleInsoleVerticalPattern.js';
+import { CapacityTestDoubleInsoleHorizontalPattern } from '../capacity/double-contour/CapacityTestDoubleInsoleHorizontalPattern.js';
 import { CapacityTestSameSidePattern } from '../capacity/CapacityTestSameSidePattern.js';
 import { finalizeNestingResult } from './nestingPlanUtils.js';
 
@@ -29,10 +31,14 @@ function toPairQuantity(size) {
 }
 
 function resolveSameSideCapacityLayoutMode(config = {}) {
-  return config.capacityLayoutMode === 'same-side-double-contour'
-    || config.sameSidePreparedVariant === 'double-contour'
-    ? 'same-side-double-contour'
-    : 'same-side-banded';
+  const mode = config.capacityLayoutMode;
+  if (mode === 'same-side-double-contour' ||
+      mode === 'same-side-double-contour-vertical' ||
+      mode === 'same-side-double-contour-horizontal' ||
+      config.sameSidePreparedVariant === 'double-contour') {
+    return mode || 'same-side-double-contour';
+  }
+  return 'same-side-banded';
 }
 
 function buildCapacityConfig(config = {}) {
@@ -55,6 +61,22 @@ function buildCapacityConfig(config = {}) {
 function createCapacityNester(config = {}) {
   if (config.pairingStrategy === 'same-side' || config.mirrorPairs === false) {
     const sameSideMode = resolveSameSideCapacityLayoutMode(config);
+    if (sameSideMode === 'same-side-double-contour-vertical') {
+      return new CapacityTestDoubleInsoleVerticalPattern({
+        ...config,
+        pairingStrategy: 'same-side',
+        mirrorPairs: false,
+        capacityLayoutMode: sameSideMode
+      });
+    }
+    if (sameSideMode === 'same-side-double-contour-horizontal') {
+      return new CapacityTestDoubleInsoleHorizontalPattern({
+        ...config,
+        pairingStrategy: 'same-side',
+        mirrorPairs: false,
+        capacityLayoutMode: sameSideMode
+      });
+    }
     if (sameSideMode === 'same-side-double-contour') {
       return new CapacityTestDoubleInsoleDoubleContourPattern({
         ...config,

@@ -66,6 +66,14 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     return [0, 90];
   }
 
+  _getDoubleContourRelativeAngles(fastMode = false) {
+    return fastMode ? [180, 90, 270] : [180, 90, 270, 0];
+  }
+
+  _allowFiller90(config = {}) {
+    return config.allowRotate90 !== false;
+  }
+
   _buildShiftedUniformNeighborhood(orient, dxMm, rowPitchMm, rowShiftXmm = 0, rowShiftYmm = 0) {
     const placements = [];
     const sampleRows = 3;
@@ -4650,7 +4658,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     for (const angle of filteredAngles) {
       const orient = this._decorateOrient(sizeName, 'X', polygon, angle, config, step);
       
-      const relativePairedAngles = fastMode ? [180, 90, 270] : [180, 90, 270, 0];
+      const relativePairedAngles = this._getDoubleContourRelativeAngles(fastMode);
       for (const relAngle of relativePairedAngles) {
         const pairedAngle = normalizeAngleDegrees(angle + relAngle);
         const pairedOrient = {
@@ -4688,7 +4696,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         let filler90Cols = 0;
         let maxFiller90Rows = 0;
 
-        if (config.allowRotate90 !== false) {
+        if (this._allowFiller90(config)) {
           const filler90Angle = (angle + 90) % 360;
           filler90Orient = this._decorateOrient(sizeName, 'X', polygon, filler90Angle, config, step);
           filler90DxMm = this._findUniformDx(filler90Orient, config, step);
@@ -5565,7 +5573,8 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
 
     for (let index = 0; index < sizeList.length; index++) {
       const size = sizeList[index];
-      const cacheKey = buildCapacityResultCacheKey('same-side-double-contour', size, config);
+      const strategyKey = config.capacityLayoutMode || 'same-side-double-contour';
+      const cacheKey = buildCapacityResultCacheKey(strategyKey, size, config);
       const cachedResult = getCachedCapacityResult(cacheKey);
       if (cachedResult) {
         if (onProgress) onProgress(size.sizeName, 'done');
@@ -5580,7 +5589,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         config: {
           ...config,
           sameSidePreparedVariant: 'double-contour',
-          capacityLayoutMode: 'same-side-double-contour',
+          capacityLayoutMode: config.capacityLayoutMode || 'same-side-double-contour',
           parallelSizes: false,
           isParallelWorker: true
         }
@@ -5666,7 +5675,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       spacing: (overrideConfig.spacing ?? this.config.spacing ?? 3),
       staggerSpacing: (overrideConfig.staggerSpacing ?? this.config.staggerSpacing ?? 3),
       sameSidePreparedVariant: 'double-contour',
-      capacityLayoutMode: 'same-side-double-contour',
+      capacityLayoutMode: overrideConfig.capacityLayoutMode ?? this.config.capacityLayoutMode ?? 'same-side-double-contour',
       pairingStrategy: 'same-side',
       mirrorPairs: false,
       allowRotate90: overrideConfig.allowRotate90 ?? this.config.allowRotate90 ?? true,

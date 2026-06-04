@@ -19,6 +19,20 @@ const IGNORED_CONFIG_FIELDS = new Set([
 const capacityResultCache = new Map();
 let isCacheLoaded = false;
 
+// Clear capacity cache file on server startup if it is the main thread to ensure clean run
+if (isMainThread) {
+  try {
+    const dir = path.join(process.cwd(), '.codex');
+    const cacheFilePath = path.join(dir, 'capacity_cache.json');
+    if (fs.existsSync(cacheFilePath)) {
+      console.log('[Cache] Clearing old persistent cache file on server startup...');
+      fs.unlinkSync(cacheFilePath);
+    }
+  } catch (e) {
+    console.error('[Cache] Failed to clear capacity cache on startup:', e);
+  }
+}
+
 function ensureCacheLoaded() {
   if (isCacheLoaded) return;
   isCacheLoaded = true;

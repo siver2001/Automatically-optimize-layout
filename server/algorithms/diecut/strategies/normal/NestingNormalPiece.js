@@ -3,7 +3,9 @@ import { flipXWithCenter, getBoundingBox, translate, area as polygonArea } from 
 import { PairOptimizer } from '../../core/pairOptimizer.js';
 
 function isPreparedDoubleContourMode(config = {}) {
-  return config?.capacityLayoutMode === 'same-side-double-contour';
+  return config?.capacityLayoutMode === 'same-side-double-contour'
+    || config?.capacityLayoutMode === 'same-side-double-contour-vertical'
+    || config?.capacityLayoutMode === 'same-side-double-contour-horizontal';
 }
 
 export class NestingNormalPiece extends BaseNesting {
