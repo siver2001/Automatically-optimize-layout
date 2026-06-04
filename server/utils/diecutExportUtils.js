@@ -170,7 +170,7 @@ function buildPreparedSequenceKey(item, fallbackIndex) {
 function sortItemsRowByRowLeftToRight(keyedItems) {
   const finalSortedKeyed = [];
 
-  // Group items into horizontal rows along the horizontal sheet's vertical Y axis, from bottom to top in DXF (Y descending)
+  // Group items into horizontal rows along the horizontal sheet's vertical Y axis, from bottom to top in DXF (Y descending because DXF flips Y)
   const sortedByY = [...keyedItems].sort((a, b) => 
     getFiniteSortValue(b.item?.centroid?.y) - getFiniteSortValue(a.item?.centroid?.y)
   );
@@ -192,10 +192,14 @@ function sortItemsRowByRowLeftToRight(keyedItems) {
     }
   }
 
-  // For each horizontal row, sort by X ascending (from left to right)
-  rows.forEach((row) => {
+  // For each horizontal row, sort in a zigzag pattern:
+  // - Even rows (0, 2, 4): sort X ascending (left-to-right)
+  // - Odd rows (1, 3, 5): sort X descending (right-to-left)
+  rows.forEach((row, rowIndex) => {
+    const isOddRow = rowIndex % 2 === 1;
     const sortedRow = [...row].sort((a, b) => {
-      return getFiniteSortValue(a.item?.centroid?.x) - getFiniteSortValue(b.item?.centroid?.x);
+      const diffX = getFiniteSortValue(a.item?.centroid?.x) - getFiniteSortValue(b.item?.centroid?.x);
+      return isOddRow ? -diffX : diffX;
     });
     finalSortedKeyed.push(...sortedRow);
   });

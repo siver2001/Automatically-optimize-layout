@@ -39,13 +39,14 @@ async function run() {
 
   console.log(`Checking physical overlaps for ALL ${sizes.length} sizes...`);
 
+  // Run capacity test for all sizes at once (hits cache instantly)
+  const res = await engine.testCapacity(sizes, { ...config, parallelSizes: true });
+
   for (const sizeInfo of sizes) {
     const sizeName = sizeInfo.sizeName;
     console.log(`\n-------------------------------------`);
     console.log(`Processing Size ${sizeName}...`);
     
-    // Test capacity of this single size
-    const res = await engine.testCapacity([sizeInfo], config);
     const sheet = res.sheetsBySize[sizeName];
     const placements = sheet ? (sheet.placed || sheet.placements) : [];
     

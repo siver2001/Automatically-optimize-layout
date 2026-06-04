@@ -11,7 +11,9 @@ const IGNORED_CONFIG_FIELDS = new Set([
   'parallelSizes',
   'parallelWorkerCount',
   'layers',
-  'nestingStrategy'
+  'nestingStrategy',
+  'isParallelWorker',
+  'preparedSplitFillTimeLimitMs'
 ]);
 
 const capacityResultCache = new Map();

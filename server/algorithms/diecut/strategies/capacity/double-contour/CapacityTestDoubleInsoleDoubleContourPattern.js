@@ -4324,7 +4324,6 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     // Add half-dx shift for brick-laying pattern (critical for figure-8 shapes)
     const halfDx = roundMetric(dxMm / 2, 3);
     if (!rowShiftCandidates.includes(halfDx) && halfDx > 0) rowShiftCandidates.push(halfDx);
-    if (!rowShiftCandidates.includes(-halfDx) && halfDx > 0) rowShiftCandidates.push(-halfDx);
     
     // For small sizes, add more fractional shifts
     [1/3, 2/3, 1/4, 3/4].forEach(ratio => {
@@ -5287,28 +5286,29 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       let angle = placement.orient.angle;
       let foot = placement.orient.foot || 'X';
 
-      // Mirror absolute coordinates horizontally on the sheet
-      const mirrorPointX = (pt) => ({
-        x: roundMetric(config.sheetWidth - pt.x, 5),
-        y: pt.y
+      // Mirror absolute coordinates vertically on the sheet
+      const mirrorPointY = (pt) => ({
+        x: pt.x,
+        y: roundMetric(config.sheetHeight - pt.y, 3)
       });
 
-      polygon = polygon.map(mirrorPointX);
-      cycPolygon = cycPolygon.map(mirrorPointX);
-      internals = internals.map(path => path.map(mirrorPointX));
+      polygon = polygon.map(mirrorPointY);
+      cycPolygon = cycPolygon.map(mirrorPointY);
+      internals = internals.map(path => path.map(mirrorPointY));
 
-      // Calculate the new worldX as the minX of the mirrored polygon
+      // Calculate the new worldX and worldY as the minX and minY of the mirrored polygon
       const newBb = getBoundingBox(polygon);
       worldX = newBb.minX;
+      worldY = newBb.minY;
 
-      // Translate the mirrored polygon, cycPolygon, and internals back to relative to new worldX
+      // Translate the mirrored polygon, cycPolygon, and internals back to relative to new worldX, worldY
       // so that they can be used to build the render templates!
       const relPolygon = translate(polygon, -worldX, -worldY);
       const relCycPolygon = translate(cycPolygon, -worldX, -worldY);
       const relInternals = internals.map(path => translate(path, -worldX, -worldY));
 
       // Mirror the angle
-      angle = (180 - angle + 360) % 360;
+      angle = (360 - angle + 360) % 360;
 
       // Mirror the foot type (Left becomes Right, Right becomes Left)
       if (foot === 'L') foot = 'R';
@@ -5773,6 +5773,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
 
   async testCapacity(sizeList, overrideConfig = {}, onProgress) {
     const explicitDeepSplitFill = overrideConfig.preparedSplitFillDeep ?? this.config.preparedSplitFillDeep;
+
     const normalizedSizeList = sizeList.map((size) => ({
       ...size,
       polygon: size.isSimplified
