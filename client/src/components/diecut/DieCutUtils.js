@@ -36,7 +36,7 @@ export function buildSameSideConfig(config, importAnalysis, options = {}) {
   const recommendedSameSideMode =
     importAnalysis?.recommendation?.capacityLayoutMode ===
     DOUBLE_INSOLE_CAPACITY_MODE
-      ? "same-side-double-contour-vertical"
+      ? DOUBLE_INSOLE_CAPACITY_MODE
       : SINGLE_INSOLE_CAPACITY_MODE;
   const resolvedSameSideMode =
     preserveSelectedMode &&

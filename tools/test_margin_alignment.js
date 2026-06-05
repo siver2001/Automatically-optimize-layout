@@ -25,6 +25,7 @@ function runMockTest() {
   
   const splitOrient = {
     foot: 'split-left',
+    splitOutwardSide: 'right',
     bb: { minX: 0, minY: 0, maxX: 100, maxY: 150 },
     polygon: [
       { x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 150 }, { x: 0, y: 150 }
@@ -33,6 +34,7 @@ function runMockTest() {
 
   const horizontalSplitOrient = {
     foot: 'split-left',
+    splitOutwardSide: 'bottom',
     bb: { minX: 0, minY: 0, maxX: 200, maxY: 75 },
     polygon: [
       { x: 0, y: 0 }, { x: 200, y: 0 }, { x: 200, y: 75 }, { x: 0, y: 75 }
