@@ -167,6 +167,17 @@ export function cachedPolygonsOverlap(polyA, polyB, offsetA = { x: 0, y: 0 }, of
     return false;
   }
 
+  // Multi-resolution check: Fast early exit using low-resolution simplified polygons
+  const lowResA = polyA.polygonLowRes;
+  const lowResB = polyB.polygonLowRes;
+  if (lowResA && lowResB) {
+    const padLow = pad + 1.6; // spacing + 2 * (low-res tolerance 0.8)
+    const isOverlapLow = rawPolygonsOverlap(lowResA, lowResB, offsetA, offsetB, padLow, boxA, boxB);
+    if (!isOverlapLow) {
+      return false; // Guaranteed no overlap
+    }
+  }
+
   const idA = getObjectId(polyA);
   const idB = getObjectId(polyB);
   const dx = formatCacheMetric((offsetB?.x ?? 0) - (offsetA?.x ?? 0));

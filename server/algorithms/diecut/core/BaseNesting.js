@@ -52,6 +52,10 @@ export class BaseNesting {
 
     const lowPoly = simplifyPolygon(highPoly, 0.4);
     const raster = rasterizeToBuffer(lowPoly, step, spacing, bb);
+    
+    // Attach a low-resolution simplified polygon (tolerance 0.8) for fast early-exit overlap checks
+    highPoly.polygonLowRes = simplifyPolygon(highPoly, 0.8);
+    
     const res = { angle, polygon: highPoly, internals: rotatedInternals, raster };
     this._orientCache.set(key, res);
     return res;
