@@ -38,7 +38,14 @@ async function run() {
   console.log(`Running detail check for Size 8...`);
   const res = await engine.testCapacity(testSizes, config);
   const sheet = res.sheetsBySize['8'];
+  console.log('--- Yield Check for Size 8 ---');
+  if (sheet) {
+    console.log(`  Pairs: ${sheet.pairs}, ActualPairs: ${sheet.actualPairs}`);
+  }
   const placements = sheet ? (sheet.placed || sheet.placements) : [];
+  console.log(`Placements count: ${placements.length}`);
+  console.log('Placements:');
+  console.log(placements.map(p => p.id).join(', '));
 
   const p43 = placements.find(p => p.id === '8_split-left_43' || p.id?.includes('43'));
   const p49 = placements.find(p => p.id === '8_split-right_49' || p.id?.includes('49'));

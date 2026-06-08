@@ -3388,19 +3388,12 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       config
     }];
     let bestState = states[0];
-    const startTime = Date.now();
-    const timeLimitMs = Number.isFinite(config.preparedSplitFillTimeLimitMs)
-      ? Math.max(250, config.preparedSplitFillTimeLimitMs)
-      : 2500;
 
     for (let depth = 0; depth < maxExtraFillers; depth++) {
-      if (Date.now() - startTime > timeLimitMs) break;
       const expandedStates = [];
-      const currentBatchLimit = Date.now() - startTime > (timeLimitMs * 0.8) ? 2 : states.length;
-      const statesToExpand = states.slice(0, currentBatchLimit);
+      const statesToExpand = states;
       
       for (const state of statesToExpand) {
-        if (Date.now() - startTime > (timeLimitMs * 0.9)) break; // Early exit if close to limit
 
         // Optimization: If we have many pieces, switch to greedy mode for speed.
         // BFS with 120 depth is mathematically impossible within reasonable time.
@@ -3999,7 +3992,13 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     const currentPlacements = [...basePlacements];
     const self = this;
     
+    let statesChecked = 0;
+    const maxStatesLimit = 3000;
+    
     function search(clusterIndex, spatialIndex) {
+      if (++statesChecked > maxStatesLimit) {
+        return;
+      }
       const splits = currentPlacements.slice(basePlacements.length);
       const allSplits = currentPlacements.filter(p => self._isSplitFillPlacement(p));
       const numL = allSplits.filter(p => p.orient?.foot === 'split-left' || p.foot === 'split-left').length;

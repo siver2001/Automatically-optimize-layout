@@ -24,7 +24,8 @@ parentPort.on('message', async (task) => {
     const algorithm = getAlgorithm(config);
     const result = await algorithm.testCapacity([size], {
       ...config,
-      parallelSizes: false
+      parallelSizes: false,
+      isParallelWorker: true
     });
     const summaryItem = result.summary?.[0] || {
       sizeName: size.sizeName,

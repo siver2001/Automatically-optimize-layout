@@ -19,12 +19,13 @@ export function getLogicalCpuCount() {
 }
 
 function resolveCpuWorkerCap(logicalCpuCount) {
-  if (logicalCpuCount <= 4) return 1;
-  if (logicalCpuCount <= 8) return 4;
-  if (logicalCpuCount <= 12) return 6;
-  if (logicalCpuCount <= 16) return 10;
-  if (logicalCpuCount <= 32) return 16;
-  return Math.min(32, Math.floor(logicalCpuCount * 0.75));
+  // Use a conservative cap of 70% of logical CPUs (minimum 1, maximum 14)
+  // This ensures optimal performance across all platforms (laptops, desktops, VMs) by:
+  // 1. Keeping the OS and IDE responsive.
+  // 2. Avoiding thermal throttling on laptops under heavy load.
+  // 3. Ensuring workers run efficiently on available cores.
+  if (logicalCpuCount <= 2) return 1;
+  return Math.min(14, Math.floor(logicalCpuCount * 0.7));
 }
 
 function resolveMemoryWorkerCap(totalMemoryGb) {
