@@ -3138,7 +3138,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     // we refine with compaction later anyway.
     const searchStep = Math.max(2.0, safeStep * 2);
     const crossRange = 8; // Reduce search range from 10 to 8
-    const gapRange = 30;  // Reduce gap range from 40 to 30
+    const gapRange = 12;  // Reduce gap range from 30 to 12
 
     let bestTemplate = null;
     for (const crossAnchor of crossAnchors) {
@@ -3422,21 +3422,8 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       ? Math.max(1, config.preparedSplitFillMaxPieces)
       : Math.min(8, physicalSafetyLimit);
 
-    const orientVariants = [];
-    const fullPolygon = sourceShape?.polygon || polygon;
-    for (const angle of this._getSplitFillAngles(config)) {
-      orientVariants.push(this._decorateOrient(sizeName, 'X', fullPolygon, angle, config, step));
-      for (const halfDef of halfDefs) {
-        orientVariants.push(this._decorateSplitHalfOrient(sizeName, halfDef, angle, config, step));
-      }
-    }
-
-    orientVariants.sort((left, right) =>
-      left.height - right.height
-      || left.width - right.width
-      || (left.angle || 0) - (right.angle || 0)
-    );
-    const pairTemplates = this._buildSplitPairTemplates(orientVariants, config, step);
+    const { orientVariants, pairTemplates } = this._getSplitFillTemplates(sizeName, polygon, config, step);
+    if (!orientVariants.length) return [];
 
     const baseFreeRects = this._buildPreparedSplitFreeRects(baseCandidate.placements, workWidth, workHeight, config.spacing || 0);
 
@@ -3697,29 +3684,70 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     return extraPlacements;
   }
 
-  _augmentCandidateWithSplitFillers(sizeName, polygon, candidate, config, workWidth, workHeight, bestCandidate = null) {
-    if (!config.preparedSplitFillEnabled) return candidate;
+  _getSplitFillTemplates(sizeName, polygon, config, step) {
+    if (!this._splitFillTemplatesCache) {
+      this._splitFillTemplatesCache = new Map();
+    }
+    const cacheKey = `${sizeName}_${step}`;
+    if (this._splitFillTemplatesCache.has(cacheKey)) {
+      return this._splitFillTemplatesCache.get(cacheKey);
+    }
 
-    const step = Math.max(0.5, config.gridStep || 1);
     const sourceShape = this._doubleContourSourceBySize?.get(sizeName);
+    const fullPolygon = sourceShape?.polygon || polygon;
     const halfDefs = buildSplitHalfDefinitions(
-      sourceShape?.polygon || polygon,
+      fullPolygon,
       sourceShape?.internals?.[0] || []
     );
-    if (!halfDefs.length || !candidate?.placements?.length) return candidate;
+    if (!halfDefs.length) {
+      const res = { orientVariants: [], pairTemplates: [], minWidth: Infinity, minHeight: Infinity, minHalfArea: Infinity };
+      this._splitFillTemplatesCache.set(cacheKey, res);
+      return res;
+    }
 
     const orientVariants = [];
-    const fullPolygon = sourceShape?.polygon || polygon;
     for (const angle of this._getSplitFillAngles(config)) {
       orientVariants.push(this._decorateOrient(sizeName, 'X', fullPolygon, angle, config, step));
       for (const halfDef of halfDefs) {
         orientVariants.push(this._decorateSplitHalfOrient(sizeName, halfDef, angle, config, step));
       }
     }
-    
+
+    orientVariants.sort((left, right) =>
+      left.height - right.height
+      || left.width - right.width
+      || (left.angle || 0) - (right.angle || 0)
+    );
+
     const minWidth = Math.min(...orientVariants.map(o => o.width));
     const minHeight = Math.min(...orientVariants.map(o => o.height));
     const minHalfArea = Math.min(...orientVariants.map(o => o.areaMm2 || o.area || Infinity));
+
+    const pairTemplates = this._buildSplitPairTemplates(orientVariants, config, step);
+    const res = { orientVariants, pairTemplates, minWidth, minHeight, minHalfArea };
+    this._splitFillTemplatesCache.set(cacheKey, res);
+    return res;
+  }
+
+  _augmentCandidateWithSplitFillers(sizeName, polygon, candidate, config, workWidth, workHeight, bestCandidate = null) {
+    if (!config.preparedSplitFillEnabled) return candidate;
+
+    // Early exit based on potential max pairs vs bestCandidate pairs
+    if (bestCandidate) {
+      const bestPairs = bestCandidate.actualPairs ?? bestCandidate.pairs ?? 0;
+      const currentWholeCount = getWholePlacementCount(candidate);
+      const maxExtraFillers = Number.isFinite(config.preparedSplitFillMaxPieces)
+        ? Math.max(1, config.preparedSplitFillMaxPieces)
+        : 8;
+      const maxPotentialPairs = currentWholeCount + maxExtraFillers * 0.5;
+      if (maxPotentialPairs <= bestPairs) {
+        return attachLeftoverMetrics(candidate, workWidth, workHeight);
+      }
+    }
+
+    const step = Math.max(0.5, config.gridStep || 1);
+    const { orientVariants, pairTemplates, minWidth, minHeight, minHalfArea } = this._getSplitFillTemplates(sizeName, polygon, config, step);
+    if (!orientVariants.length || !candidate?.placements?.length) return candidate;
 
     let maxX = 0;
     let maxY = 0;
@@ -5287,8 +5315,12 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
 
         // Whole pieces are the base objective; split fillers may only improve equal-base layouts.
         const currentWholeCount = getWholePlacementCount(candidate);
-        const currentBestWholeCount = bestCandidate ? getWholePlacementCount(bestCandidate) : 0;
-        if (currentWholeCount < currentBestWholeCount) continue;
+        const maxExtraFillers = Number.isFinite(config.preparedSplitFillMaxPieces)
+          ? Math.max(1, config.preparedSplitFillMaxPieces)
+          : 8;
+        const maxPotentialPairs = currentWholeCount + maxExtraFillers * 0.5;
+        const bestPairs = bestCandidate ? (bestCandidate.actualPairs ?? bestCandidate.pairs ?? 0) : 0;
+        if (maxPotentialPairs <= bestPairs) continue;
 
         const augmentedCandidate = this._augmentCandidateWithSplitFillers(
           sizeName,
