@@ -2757,9 +2757,8 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     providedSpatialIndex = null,
     providedFreeRects = null
   ) {
-    // Dynamically adjust limit based on current piece count
-    const adaptiveMax = occupiedPlacements.length > 80 ? 50 : 35;
-    const finalMax = Math.max(maxOptions, adaptiveMax);
+    // Use maxOptions directly to avoid searching too many candidates
+    const finalMax = maxOptions;
     const freeRects = this._buildPreparedSplitFreeRects(
       occupiedPlacements,
       workWidth,
@@ -3405,27 +3404,47 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     );
     if (!halfDefs.length || !baseCandidate?.placements?.length) return [];
 
-    const minHalfArea = Math.max(
-      1,
-      Math.min(...halfDefs.map((halfDef) => halfDef.areaMm2 || Infinity))
-    );
-    const usedAreaMm2 = baseCandidate.usedAreaMm2
-      ?? baseCandidate.placements.reduce((sum, placement) =>
-        sum + (placement.effectiveArea || placement.orient?.areaMm2 || 0),
-      0);
-    const remainingAreaMm2 = Math.max(0, workWidth * workHeight - usedAreaMm2);
-    const physicalSafetyLimit = Math.max(
-      1,
-      Math.ceil((remainingAreaMm2 / minHalfArea) * 1.2)
-    );
-    const maxExtraFillers = Number.isFinite(config.preparedSplitFillMaxPieces)
-      ? Math.max(1, config.preparedSplitFillMaxPieces)
-      : Math.min(8, physicalSafetyLimit);
-
-    const { orientVariants, pairTemplates } = this._getSplitFillTemplates(sizeName, polygon, config, step);
+    const { orientVariants, pairTemplates, minWidth, minHeight, minHalfArea, minBbArea } = this._getSplitFillTemplates(sizeName, polygon, config, step);
     if (!orientVariants.length) return [];
 
     const baseFreeRects = this._buildPreparedSplitFreeRects(baseCandidate.placements, workWidth, workHeight, config.spacing || 0);
+
+    const usableFreeRects = baseFreeRects.filter(r =>
+      r.width + 1e-6 >= minWidth && r.height + 1e-6 >= minHeight
+    );
+
+    // Sort descending by area to keep the largest regions
+    usableFreeRects.sort((a, b) => (b.width * b.height) - (a.width * a.height));
+
+    const disjointRects = [];
+    for (const rect of usableFreeRects) {
+      const hasOverlap = disjointRects.some(r => {
+        const ix = Math.max(r.x, rect.x);
+        const iy = Math.max(r.y, rect.y);
+        const iw = Math.min(r.x + r.width, rect.x + rect.width) - ix;
+        const ih = Math.min(r.y + r.height, rect.y + rect.height) - iy;
+        if (iw > 0 && ih > 0) {
+          const intersectArea = iw * ih;
+          const minArea = Math.min(r.width * r.height, rect.width * rect.height);
+          return intersectArea > 0.2 * minArea; // 20% overlap threshold
+        }
+        return false;
+      });
+      if (!hasOverlap) {
+        disjointRects.push(rect);
+      }
+    }
+
+    const usableFreeArea = disjointRects.reduce((sum, r) => sum + r.width * r.height, 0);
+
+    const maxPossiblePieces = Math.floor(usableFreeArea / minBbArea);
+    if (maxPossiblePieces === 0) {
+      return [];
+    }
+
+    const maxExtraFillers = Number.isFinite(config.preparedSplitFillMaxPieces)
+      ? Math.max(1, config.preparedSplitFillMaxPieces)
+      : Math.min(8, maxPossiblePieces);
 
     let states = [{
       occupiedPlacements: [...baseCandidate.placements],
@@ -3700,7 +3719,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       sourceShape?.internals?.[0] || []
     );
     if (!halfDefs.length) {
-      const res = { orientVariants: [], pairTemplates: [], minWidth: Infinity, minHeight: Infinity, minHalfArea: Infinity };
+      const res = { orientVariants: [], pairTemplates: [], minWidth: Infinity, minHeight: Infinity, minHalfArea: Infinity, minBbArea: Infinity };
       this._splitFillTemplatesCache.set(cacheKey, res);
       return res;
     }
@@ -3722,9 +3741,10 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     const minWidth = Math.min(...orientVariants.map(o => o.width));
     const minHeight = Math.min(...orientVariants.map(o => o.height));
     const minHalfArea = Math.min(...orientVariants.map(o => o.areaMm2 || o.area || Infinity));
+    const minBbArea = Math.min(...orientVariants.map(o => o.width * o.height));
 
     const pairTemplates = this._buildSplitPairTemplates(orientVariants, config, step);
-    const res = { orientVariants, pairTemplates, minWidth, minHeight, minHalfArea };
+    const res = { orientVariants, pairTemplates, minWidth, minHeight, minHalfArea, minBbArea };
     this._splitFillTemplatesCache.set(cacheKey, res);
     return res;
   }
@@ -3732,21 +3752,8 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
   _augmentCandidateWithSplitFillers(sizeName, polygon, candidate, config, workWidth, workHeight, bestCandidate = null) {
     if (!config.preparedSplitFillEnabled) return candidate;
 
-    // Early exit based on potential max pairs vs bestCandidate pairs
-    if (bestCandidate) {
-      const bestPairs = bestCandidate.actualPairs ?? bestCandidate.pairs ?? 0;
-      const currentWholeCount = getWholePlacementCount(candidate);
-      const maxExtraFillers = Number.isFinite(config.preparedSplitFillMaxPieces)
-        ? Math.max(1, config.preparedSplitFillMaxPieces)
-        : 8;
-      const maxPotentialPairs = currentWholeCount + maxExtraFillers * 0.5;
-      if (maxPotentialPairs <= bestPairs) {
-        return attachLeftoverMetrics(candidate, workWidth, workHeight);
-      }
-    }
-
     const step = Math.max(0.5, config.gridStep || 1);
-    const { orientVariants, pairTemplates, minWidth, minHeight, minHalfArea } = this._getSplitFillTemplates(sizeName, polygon, config, step);
+    const { orientVariants, pairTemplates, minWidth, minHeight, minHalfArea, minBbArea } = this._getSplitFillTemplates(sizeName, polygon, config, step);
     if (!orientVariants.length || !candidate?.placements?.length) return candidate;
 
     let maxX = 0;
@@ -3759,6 +3766,56 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
 
     const remainingX = Math.max(0, workWidth - maxX);
     const remainingY = Math.max(0, workHeight - maxY);
+
+    // Smart, size-agnostic early exit: check if there's enough free area under any potential shift
+    const baseFreeRects = this._buildPreparedSplitFreeRects(candidate.placements, workWidth, workHeight, config.spacing || 0);
+    const usableFreeRects = baseFreeRects.filter(r =>
+      r.width + remainingX + 1e-6 >= minWidth && r.height + remainingY + 1e-6 >= minHeight
+    );
+
+    // Sort descending by area
+    usableFreeRects.sort((a, b) => (b.width * b.height) - (a.width * a.height));
+
+    const disjointRects = [];
+    for (const rect of usableFreeRects) {
+      const hasOverlap = disjointRects.some(r => {
+        const ix = Math.max(r.x, rect.x);
+        const iy = Math.max(r.y, rect.y);
+        const iw = Math.min(r.x + r.width, rect.x + rect.width) - ix;
+        const ih = Math.min(r.y + r.height, rect.y + rect.height) - iy;
+        if (iw > 0 && ih > 0) {
+          const intersectArea = iw * ih;
+          const minArea = Math.min(r.width * r.height, rect.width * rect.height);
+          return intersectArea > 0.2 * minArea; // 20% overlap threshold
+        }
+        return false;
+      });
+      if (!hasOverlap) {
+        disjointRects.push(rect);
+      }
+    }
+
+    const usableFreeArea = disjointRects.reduce((sum, r) => sum + (r.width + remainingX) * (r.height + remainingY), 0);
+
+    const maxPossiblePieces = Math.floor(usableFreeArea / minBbArea);
+    if (maxPossiblePieces === 0) {
+      return attachLeftoverMetrics(candidate, workWidth, workHeight);
+    }
+
+    const maxExtraFillers = Number.isFinite(config.preparedSplitFillMaxPieces)
+      ? Math.max(1, config.preparedSplitFillMaxPieces)
+      : Math.min(8, maxPossiblePieces);
+
+    // Early exit based on potential max pairs vs bestCandidate pairs
+    if (bestCandidate) {
+      const bestPairs = bestCandidate.actualPairs ?? bestCandidate.pairs ?? 0;
+      const currentWholeCount = getWholePlacementCount(candidate);
+      const maxPotentialPairs = currentWholeCount + maxExtraFillers * 0.5;
+      if (maxPotentialPairs <= bestPairs) {
+        return attachLeftoverMetrics(candidate, workWidth, workHeight);
+      }
+    }
+
     const pieceArea = polygonArea(polygon) || 1;
     const isCritical = true;
     
