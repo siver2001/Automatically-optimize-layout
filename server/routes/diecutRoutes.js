@@ -110,7 +110,8 @@ const DEFAULT_DIECUT_UI_CONFIG = {
   mirrorPairs: true,
   capacityLayoutMode: 'pair-complementary',
   layers: 1,
-  nestingStrategy: 'single-size-per-sheet'
+  nestingStrategy: 'single-size-per-sheet',
+  preparedSplitFillDeep: true
 };
 
 function numberFromUi(value, fallback) {
@@ -152,6 +153,7 @@ function buildDieCutConfigFromUi(body = {}, options = {}) {
     layers: normalizeLayers(body.layers ?? DEFAULT_DIECUT_UI_CONFIG.layers),
     nestingStrategy: normalizeNestingStrategy(body.nestingStrategy ?? DEFAULT_DIECUT_UI_CONFIG.nestingStrategy),
     maxTimeMs: options.maxTimeMs ?? 60000,
+    preparedSplitFillDeep: body.preparedSplitFillDeep ?? DEFAULT_DIECUT_UI_CONFIG.preparedSplitFillDeep ?? true,
     preparedSplitFillPreference: body.preparedSplitFillPreference ?? 'none'
   };
 }
