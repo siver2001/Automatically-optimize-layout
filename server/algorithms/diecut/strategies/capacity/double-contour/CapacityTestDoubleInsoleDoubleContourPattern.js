@@ -5842,7 +5842,6 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       sheetsBySize[correctedSummaryItem.sizeName] = sheet;
     }
 
-    // enforceMonotonicity(summary, sheetsBySize);
     const defaultSizeName = sizeList[0]?.sizeName || null;
     const defaultSheet = defaultSizeName ? sheetsBySize[defaultSizeName] : null;
 

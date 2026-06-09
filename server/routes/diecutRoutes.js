@@ -32,59 +32,6 @@ import { CapacityTestDoubleInsoleVerticalPattern } from '../algorithms/diecut/st
 import { CapacityTestDoubleInsoleHorizontalPattern } from '../algorithms/diecut/strategies/capacity/double-contour/CapacityTestDoubleInsoleHorizontalPattern.js';
 import { generateDieCutPdf } from '../utils/diecutPdfGenerator.js';
 
-function enforceMonotonicity(summary, sheetsBySize) {
-  if (!Array.isArray(summary) || summary.length <= 1) return;
-
-  const sortedSummary = [...summary].sort((a, b) => {
-    const valA = typeof a.sizeValue === 'number' ? a.sizeValue : parseFloat(a.sizeValue || 0);
-    const valB = typeof b.sizeValue === 'number' ? b.sizeValue : parseFloat(b.sizeValue || 0);
-    return valB - valA;
-  });
-
-  let runningMaxPlaced = 0;
-  let runningMaxPairs = 0;
-  const sizeToMonotonicCount = new Map();
-
-  for (const item of sortedSummary) {
-    const currentPlaced = item.placedCount || item.totalPieces || 0;
-    const currentPairs = item.pairs || 0;
-
-    if (currentPlaced > runningMaxPlaced) {
-      runningMaxPlaced = currentPlaced;
-    }
-    if (currentPairs > runningMaxPairs) {
-      runningMaxPairs = currentPairs;
-    }
-
-    sizeToMonotonicCount.set(item.sizeName, {
-      placedCount: runningMaxPlaced,
-      pairs: runningMaxPairs
-    });
-  }
-
-  for (const item of summary) {
-    const enforced = sizeToMonotonicCount.get(item.sizeName);
-    if (enforced) {
-      if (enforced.placedCount > (item.placedCount || 0)) {
-        item.placedCount = enforced.placedCount;
-      }
-      if (enforced.placedCount > (item.totalPieces || 0)) {
-        item.totalPieces = enforced.placedCount;
-      }
-      if (enforced.pairs > (item.pairs || 0)) {
-        item.pairs = enforced.pairs;
-      }
-
-      if (sheetsBySize && sheetsBySize[item.sizeName]) {
-        const sheet = sheetsBySize[item.sizeName];
-        // Keep the physical placement count corresponding strictly to valid elements
-        if (sheet.placed && sheet.placed.length > 0) {
-          sheet.placedCount = sheet.placed.length;
-        }
-      }
-    }
-  }
-}
 
 import { generateDieCutDxf } from '../utils/diecutDxfGenerator.js';
 import { generateDieCutCyc } from '../utils/diecutCycGenerator.js';
@@ -641,7 +588,7 @@ router.post('/test-capacity', async (req, res) => {
       });
     }
 
-    // Removed enforceMonotonicity call to ensure UI matches physical layout exactly
+
 
     // Performance optimization: strip heavy polygon coordinate arrays from response.
     // The frontend uses renderTemplates (SVG paths) for display, so full polygon data
