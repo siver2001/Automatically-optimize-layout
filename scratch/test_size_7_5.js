@@ -1,5 +1,4 @@
 import fs from 'fs';
-import path from 'path';
 import { parseCadBufferToSizedShapes } from '../server/algorithms/diecut/core/dxfParser.js';
 import { CapacityTestDoubleInsoleDoubleContourPattern } from '../server/algorithms/diecut/strategies/capacity/double-contour/CapacityTestDoubleInsoleDoubleContourPattern.js';
 import { clearCapacityResultCache } from '../server/algorithms/diecut/strategies/capacity/capacityResultCache.js';
@@ -34,9 +33,7 @@ async function run() {
   const engine = new CapacityTestDoubleInsoleDoubleContourPattern(config);
   console.log('Starting capacity test for Size 7.5...');
   const startTime = Date.now();
-  const res = await engine.testCapacity([targetSize], config, (size, status) => {
-    console.log(`Progress for ${size}: ${status}`);
-  });
+  const res = await engine.testCapacity([targetSize], config);
   const endTime = Date.now();
   console.log(`Finished in ${((endTime - startTime)/1000).toFixed(2)}s`);
   console.log(res.summary);

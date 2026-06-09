@@ -39,8 +39,8 @@ async function run() {
 
   console.log(`Checking physical overlaps for ALL ${sizes.length} sizes...`);
 
-  // Run capacity test for all sizes at once (hits cache instantly)
-  const res = await engine.testCapacity(sizes, { ...config, parallelSizes: true });
+  // Run capacity test for all sizes sequentially to bypass cache inconsistencies
+  const res = await engine.testCapacity(sizes, { ...config, parallelSizes: false });
 
   for (const sizeInfo of sizes) {
     const sizeName = sizeInfo.sizeName;

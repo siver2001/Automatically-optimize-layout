@@ -3066,7 +3066,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       || leftRank.waste - rightRank.waste;
   }
 
-  _dedupeSplitFillStates(states) {
+  _dedupeSplitFillStates(states, depth = 0) {
     if (!states.length) return [];
     
     // Calculate best score to perform relative pruning
@@ -3094,11 +3094,11 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       seen.add(key);
       unique.push(state);
       
-      // Hard cap: 6 states per level for maximum performance
-      if (unique.length >= 6) break;
+      // Hard cap: dynamically scales down at deeper levels to prune sub-optimal branches early
+      const maxStates = depth < 3 ? 6 : (depth < 5 ? 3 : 2);
+      if (unique.length >= maxStates) break;
     }
     
-    return unique;
     return unique;
   }
 
@@ -3693,7 +3693,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       }
 
       if (!expandedStates.length) break;
-      states = this._dedupeSplitFillStates(expandedStates);
+      states = this._dedupeSplitFillStates(expandedStates, depth);
       if (this._compareSplitFillStates(states[0], bestState) < 0) {
         bestState = states[0];
       }
@@ -3864,6 +3864,9 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       const neededExtraPairs = bestPairs - currentWholeCount;
       if (neededExtraPairs > 0) {
         const neededPieces = neededExtraPairs * 2;
+        if (neededPieces > maxExtraFillers) {
+          continue; // Cannot possibly reach the required pairs, skip
+        }
         const totalFreeArea = workWidth * workHeight - (testCandidate.usedAreaMm2 ?? (testCandidate.placedCount * testCandidate.pieceArea));
         if (totalFreeArea < neededPieces * minHalfArea * 0.75) {
           continue; // Cannot possibly beat bestPairs, skip this variant
@@ -3912,7 +3915,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         config
       );
 
-      const finalized = augmentedCandidate ? this._finalizeCandidate(augmentedCandidate, config, workWidth, workHeight) : null;
+      const finalized = augmentedCandidate ? this._finalizeCandidate(augmentedCandidate, config, workWidth, workHeight, false) : null;
       if (finalized) {
         // With 500s budget: purely density-driven, no leftover guard
         const cmp = compareDoubleInsoleCandidates(finalized, bestAugmentedCandidate, config);
@@ -5351,7 +5354,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
 
       // DIVERSITY-FIRST SELECTION: Take top 15 from each orientation to ensure we don't miss "gems" 
       // like the Horizontal pattern for Size 6 that allows fillers.
-      const topCandidates = [...candidatePool]
+      const sortedCandidates = [...candidatePool]
         .sort((left, right) => {
           const leftRank = this._rankCandidateForSplitFill(left, workWidth, workHeight);
           const rightRank = this._rankCandidateForSplitFill(right, workWidth, workHeight);
@@ -5359,8 +5362,25 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
             || rightRank.marginScore - leftRank.marginScore
             || rightRank.actualPairs - leftRank.actualPairs
             || compareDoubleInsoleCandidates(left, right, config);
-        })
-        .slice(0, fastMode ? 16 : 80);
+        });
+
+      const seenSignatures = new Map();
+      const filteredCandidates = [];
+      const maxCandidatesPerSig = 3;
+      for (const c of sortedCandidates) {
+        const primaryAngle = c.patternInfo?.bodyPrimaryAngle ?? 0;
+        const alternateAngle = c.patternInfo?.bodyAlternateAngle ?? 0;
+        const patternMode = c.patternInfo?.bodyPatternMode ?? '';
+        const placedCount = c.placedCount || 0;
+        const sig = `${primaryAngle}_${alternateAngle}_${patternMode}_${placedCount}`;
+        
+        const count = seenSignatures.get(sig) || 0;
+        if (count >= maxCandidatesPerSig) continue;
+        seenSignatures.set(sig, count + 1);
+        filteredCandidates.push(c);
+      }
+
+      const topCandidates = filteredCandidates.slice(0, fastMode ? 8 : 40);
       
       const splitCandidates = topCandidates.map(c => c.placed ? c : this._finalizeCandidate(c, config, workWidth, workHeight));
       let candIdx = 0;
@@ -5539,26 +5559,26 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
   }
 
   _resolveOverlapPlacements(placements, spacing) {
-    let activePlacements = placements.map(p => ({ ...p }));
+    let activePlacements = placements.map((p, idx) => ({ ...p, _tempIdx: idx }));
     let hasChange = true;
     
     while (hasChange) {
       hasChange = false;
-      let overlapSplitId = null;
+      let overlapSplitTempIdx = null;
       
       for (let i = 0; i < activePlacements.length; i++) {
         const pA = activePlacements[i];
-        const isSplitA = !!(pA.isSplit || pA.id?.includes('split') || pA.id?.startsWith('margin_fill_'));
+        if (!this._isSplitFillPlacement(pA)) continue;
         
         for (let j = 0; j < activePlacements.length; j++) {
           if (i === j) continue;
           const pB = activePlacements[j];
           
-          if (isSplitA && pA.orient?.cycPolygon) {
+          if (pA.orient?.cycPolygon) {
             const bbA = pA.orient.bbCyc || getBoundingBox(pA.orient.cycPolygon);
             const bbB = pB.orient?.bb || getBoundingBox(pB.orient?.polygon);
             
-            if (cachedPolygonsOverlap(
+            const overlap = cachedPolygonsOverlap(
               pA.orient.cycPolygon,
               pB.orient.polygon,
               { x: pA.x, y: pA.y },
@@ -5566,22 +5586,24 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
               spacing,
               bbA,
               bbB
-            )) {
-              overlapSplitId = pA.id;
+            );
+            
+            if (overlap) {
+              overlapSplitTempIdx = pA._tempIdx;
               break;
             }
           }
         }
-        if (overlapSplitId) break;
+        if (overlapSplitTempIdx !== null) break;
       }
       
-      if (overlapSplitId) {
-        activePlacements = activePlacements.filter(p => p.id !== overlapSplitId);
+      if (overlapSplitTempIdx !== null) {
+        activePlacements = activePlacements.filter(p => p._tempIdx !== overlapSplitTempIdx);
         hasChange = true;
       }
     }
     
-    return activePlacements;
+    return activePlacements.map(({ _tempIdx, ...rest }) => rest);
   }
 
   _finalizeCandidate(candidate, config, workWidth, workHeight, fastOnly = true, validate = true) {
