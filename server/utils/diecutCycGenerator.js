@@ -73,7 +73,13 @@ export function generateDieCutCyc(payload = {}) {
     throw new Error('Chua co thong tin ma dao T. Hay nhap so T cho tung size truoc khi xuat CYC.');
   }
 
-  const exportData = normalizeDieCutExportData(payload);
+  // Force 'prepared-sequence' labelMode for CYC export to sync with DXF Luxin mode
+  const modifiedPayload = {
+    ...payload,
+    labelMode: 'prepared-sequence'
+  };
+
+  const exportData = normalizeDieCutExportData(modifiedPayload);
 
   if (exportData.sheets.length !== 1) {
     throw new Error('File CYC chi xuat 1 tam moi lan.');

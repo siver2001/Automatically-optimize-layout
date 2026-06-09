@@ -192,16 +192,35 @@ function sortItemsRowByRowLeftToRight(keyedItems) {
     }
   }
 
-  // For each horizontal row, sort in a zigzag pattern:
-  // - Even rows (0, 2, 4): sort X ascending (left-to-right)
-  // - Odd rows (1, 3, 5): sort X descending (right-to-left)
   rows.forEach((row, rowIndex) => {
-    const isOddRow = rowIndex % 2 === 1;
-    const sortedRow = [...row].sort((a, b) => {
-      const diffX = getFiniteSortValue(a.item?.centroid?.x) - getFiniteSortValue(b.item?.centroid?.x);
-      return isOddRow ? -diffX : diffX;
-    });
-    finalSortedKeyed.push(...sortedRow);
+    const yValues = row.map(k => getFiniteSortValue(k.item?.centroid?.y));
+    const minY = Math.min(...yValues);
+    const maxY = Math.max(...yValues);
+    const avgY = yValues.reduce((sum, val) => sum + val, 0) / row.length;
+
+    // Check if the row has a staggered layout (Y variance > 10.0mm)
+    const isStaggered = (maxY - minY) > 10.0 && row.length > 1;
+
+    if (isStaggered) {
+      // For staggered layout:
+      // - Higher pieces (centroid.y > avgY) sorted X ascending (left-to-right)
+      // - Lower pieces (centroid.y <= avgY) sorted X descending (right-to-left)
+      const groupA = row.filter(k => getFiniteSortValue(k.item?.centroid?.y) > avgY)
+        .sort((a, b) => getFiniteSortValue(a.item?.centroid?.x) - getFiniteSortValue(b.item?.centroid?.x));
+
+      const groupB = row.filter(k => getFiniteSortValue(k.item?.centroid?.y) <= avgY)
+        .sort((a, b) => getFiniteSortValue(b.item?.centroid?.x) - getFiniteSortValue(a.item?.centroid?.x));
+
+      finalSortedKeyed.push(...groupA, ...groupB);
+    } else {
+      // For single-sided/non-staggered layout: original zigzag pattern
+      const isOddRow = rowIndex % 2 === 1;
+      const sortedRow = [...row].sort((a, b) => {
+        const diffX = getFiniteSortValue(a.item?.centroid?.x) - getFiniteSortValue(b.item?.centroid?.x);
+        return isOddRow ? -diffX : diffX;
+      });
+      finalSortedKeyed.push(...sortedRow);
+    }
   });
 
   return finalSortedKeyed;
