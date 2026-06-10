@@ -607,7 +607,7 @@ const DieCutLayout = () => {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Lỗi server');
       startTransition(() => {
-        setTestResult(data);
+        setTestResult({ ...data, resultId: `capacity-${Date.now()}` });
         setActiveStep(4);
       });
     } catch (err) {

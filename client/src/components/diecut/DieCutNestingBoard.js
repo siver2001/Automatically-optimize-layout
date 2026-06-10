@@ -1006,13 +1006,13 @@ export default function DieCutNestingBoard({
     setPickedPreviewItem(null);
     setSnapGuides(EMPTY_GUIDES);
     diecutExportService.clearNestingSheetDetailCache();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     compactMode,
     nestingResult?.resultId,
     nestingResult?.sheetHeight,
     nestingResult?.sheetWidth,
     nestingResult?.totalSheets,
-    sheets,
   ]);
   useEffect(() => {
     if (!nestingResult?.resultId || !sheets.length) return undefined;

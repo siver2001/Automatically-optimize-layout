@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import DieCutNestingBoard from './DieCutNestingBoard.js';
 
 const TestCapacityResult = ({
@@ -48,10 +48,14 @@ const TestCapacityResult = ({
     return firstSizeWithLayout?.sizeName || result.defaultSizeName || summary[0]?.sizeName || null;
   }, [result, summary, sheetsBySize]);
   const [selectedSize, setSelectedSize] = useState(initialSize);
+  const prevResultIdRef = useRef(result?.resultId);
 
   useEffect(() => {
     if (!result) return;
-    setSelectedSize(initialSize);
+    if (result.resultId !== prevResultIdRef.current) {
+      setSelectedSize(initialSize);
+      prevResultIdRef.current = result.resultId;
+    }
   }, [result, initialSize]);
 
   if (!result) return null;
@@ -272,6 +276,7 @@ const TestCapacityResult = ({
           {selectedSheet && selectedSheet.placed && selectedSheet.placed.length > 0 && (
             <DieCutNestingBoard
               nestingResult={{
+                resultId: result.resultId,
                 sheets: [selectedSheet],
                 totalSheets: 1,
                 placedCount: selectedSheet.placedCount,
