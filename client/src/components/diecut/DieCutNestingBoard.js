@@ -475,15 +475,88 @@ function calculateSnappedPlacement({
     candidate = translatePlacedItem(candidate, dx, dy);
   return { item: candidate, guides };
 }
-function rotatePlacedItem90(item) {
+function rotatePlacedItem90(item, templates = {}) {
   const isSplit = String(item.foot || "").startsWith("split-");
 
   if (isSplit) {
     const finalFoot = item.foot === "split-left" ? "split-right" : "split-left";
     const angle = item?.angle || 0;
     const newAngle = (angle + 180) % 360;
-    const bounds = getPolygonBounds(item?.polygon || []);
 
+    // Try to load target template from renderTemplates
+    const isAlt = String(item.renderKey || "").endsWith("_alt");
+    const targetKey1 = `${finalFoot}_${newAngle}_${isAlt ? "alt" : "main"}`;
+    const targetKey2 = `${finalFoot}_${newAngle}_${isAlt ? "main" : "alt"}`;
+    const targetTemplate = templates[targetKey1] || templates[targetKey2];
+
+    if (targetTemplate && targetTemplate.path) {
+      const relativePolygon = parseRelativeSvgPath(targetTemplate.path);
+      if (relativePolygon.length > 0) {
+        const oldBounds = getPolygonBounds(item.polygon || []);
+        const oldCenterX = (oldBounds.minX + oldBounds.maxX) / 2;
+        const oldCenterY = (oldBounds.minY + oldBounds.maxY) / 2;
+
+        const templateBounds = getPolygonBounds(relativePolygon);
+        const templateCenterX = (templateBounds.minX + templateBounds.maxX) / 2;
+        const templateCenterY = (templateBounds.minY + templateBounds.maxY) / 2;
+
+        const getDividerSide = (f, a) => {
+          const normAngle = ((a % 360) + 360) % 360;
+          if (f === "split-right") {
+            if (normAngle === 0) return "right";
+            if (normAngle === 90) return "bottom";
+            if (normAngle === 180) return "left";
+            if (normAngle === 270) return "top";
+          } else if (f === "split-left") {
+            if (normAngle === 0) return "left";
+            if (normAngle === 90) return "top";
+            if (normAngle === 180) return "right";
+            if (normAngle === 270) return "bottom";
+          }
+          return null;
+        };
+
+        const oldDividerSide = getDividerSide(item.foot, angle);
+
+        let dx = 0;
+        let dy = 0;
+
+        if (oldDividerSide === "top") {
+          dy = oldBounds.minY - templateBounds.minY;
+          dx = oldCenterX - templateCenterX;
+        } else if (oldDividerSide === "bottom") {
+          dy = oldBounds.maxY - templateBounds.maxY;
+          dx = oldCenterX - templateCenterX;
+        } else if (oldDividerSide === "left") {
+          dx = oldBounds.minX - templateBounds.minX;
+          dy = oldCenterY - templateCenterY;
+        } else if (oldDividerSide === "right") {
+          dx = oldBounds.maxX - templateBounds.maxX;
+          dy = oldCenterY - templateCenterY;
+        } else {
+          // Fallback center alignment
+          dx = oldCenterX - templateCenterX;
+          dy = oldCenterY - templateCenterY;
+        }
+
+        const targetPolygon = translatePolygon(relativePolygon, dx, dy);
+
+        return {
+          ...clonePlacedItem(item),
+          foot: finalFoot,
+          angle: newAngle,
+          polygon: targetPolygon,
+          cycPolygon: item.cycPolygon,
+          internals: item.internals,
+          labelPos: undefined,
+          renderKey: targetTemplate.renderKey || targetKey1,
+          renderPath: targetTemplate.path,
+        };
+      }
+    }
+
+    // Fallback if template is not found (mathematical mirror)
+    const bounds = getPolygonBounds(item?.polygon || []);
     let mirroredPolygon = item.polygon || [];
     let finalCycPolygon = item.cycPolygon;
     let finalInternals = item.internals;
@@ -491,18 +564,8 @@ function rotatePlacedItem90(item) {
     const isHorizontalDivider = angle === 90 || angle === 270;
 
     if (isHorizontalDivider) {
-      // For horizontal divider, we mirror horizontally (X-axis) across centerX
-      // so that the Y position of the cut face (TOP or BOTTOM) remains unchanged (outward)
-      const centerX = (bounds.minX + bounds.maxX) / 2;
-      const mirrorX = (p) => ({ x: 2 * centerX - p.x, y: p.y });
-      mirroredPolygon = mirroredPolygon.map(mirrorX);
-      if (finalCycPolygon) finalCycPolygon = finalCycPolygon.map(mirrorX);
-      if (finalInternals) {
-        finalInternals = finalInternals.map((path) => path.map(mirrorX));
-      }
-    } else {
-      // For vertical divider, we mirror vertically (Y-axis) across centerY
-      // so that the X position of the cut face (LEFT or RIGHT) remains unchanged (outward)
+      // For horizontal divider (angle 90 or 270), we mirror Y (vertically) across centerY
+      // so that the straight cut face flips between TOP and BOTTOM while keeping the toe (left/right) the same.
       const centerY = (bounds.minY + bounds.maxY) / 2;
       const mirrorY = (p) => ({ x: p.x, y: 2 * centerY - p.y });
       mirroredPolygon = mirroredPolygon.map(mirrorY);
@@ -510,12 +573,22 @@ function rotatePlacedItem90(item) {
       if (finalInternals) {
         finalInternals = finalInternals.map((path) => path.map(mirrorY));
       }
+    } else {
+      // For vertical divider (angle 0 or 180), we mirror X (horizontally) across centerX
+      // so that the straight cut face flips between LEFT and RIGHT while keeping the toe (top/bottom) the same.
+      const centerX = (bounds.minX + bounds.maxX) / 2;
+      const mirrorX = (p) => ({ x: 2 * centerX - p.x, y: p.y });
+      mirroredPolygon = mirroredPolygon.map(mirrorX);
+      if (finalCycPolygon) finalCycPolygon = finalCycPolygon.map(mirrorX);
+      if (finalInternals) {
+        finalInternals = finalInternals.map((path) => path.map(mirrorX));
+      }
     }
 
     return {
       ...clonePlacedItem(item),
       foot: finalFoot,
-      angle: newAngle,
+      angle: angle,
       polygon: mirroredPolygon,
       cycPolygon: finalCycPolygon,
       internals: finalInternals,
@@ -1020,14 +1093,15 @@ const SheetCanvas = React.memo(function SheetCanvas({
   );
 });
 
-export default function DieCutNestingBoard({
+const DieCutNestingBoard = React.forwardRef(({
   nestingResult,
   sizeList,
   compactMode = false,
   allowEdit = false,
   editConfig = null,
   onResultChange = null,
-}) {
+  onEditStateChange = null,
+}, ref) => {
   const [selectedSheet, setSelectedSheet] = useState(0),
     [scale, setScale] = useState(0.5),
     [isRotated, setIsRotated] = useState(false),
@@ -1699,10 +1773,11 @@ export default function DieCutNestingBoard({
   ]);
   const handleRotateSelection = useCallback(() => {
     if (!isEditMode) return;
+    const templates = sheets[selectedSheet]?.renderTemplates || {};
     if (pickedLibraryItem) {
       pushHistorySnapshot(selectedSheet);
       setPickedLibraryItem((c) =>
-        c ? { ...c, item: rotatePlacedItem90(c.item) } : c,
+        c ? { ...c, item: rotatePlacedItem90(c.item, templates) } : c,
       );
       setPickedPreviewItem(null);
       setSnapGuides(EMPTY_GUIDES);
@@ -1710,12 +1785,15 @@ export default function DieCutNestingBoard({
     }
     if (!selectedItemId) return;
     pushHistorySnapshot(selectedSheet);
-    updateCurrentEditedSheet((sheet) => ({
-      ...sheet,
-      placed: (sheet.placed || []).map((i) =>
-        i.id === selectedItemId ? rotatePlacedItem90(i) : i,
-      ),
-    }));
+    updateCurrentEditedSheet((sheet) => {
+      const sheetTemplates = sheet.renderTemplates || {};
+      return {
+        ...sheet,
+        placed: (sheet.placed || []).map((i) =>
+          i.id === selectedItemId ? rotatePlacedItem90(i, sheetTemplates) : i,
+        ),
+      };
+    });
     setSnapGuides(EMPTY_GUIDES);
   }, [
     isEditMode,
@@ -1724,6 +1802,7 @@ export default function DieCutNestingBoard({
     selectedItemId,
     selectedSheet,
     updateCurrentEditedSheet,
+    sheets,
   ]);
   const handlePickLibraryGroup = useCallback(
     (groupKey) => {
@@ -1837,6 +1916,32 @@ export default function DieCutNestingBoard({
     selectedSheet,
     validation.invalidCount,
   ]);
+
+  React.useImperativeHandle(ref, () => ({
+    save: () => {
+      if (validation.invalidCount > 0) {
+        alert(
+          `Không thể lưu: Hiện có ${validation.invalidCount} chi tiết đang vi phạm khoảng cách ${resolvedSpacing} mm, chồng lấn hoặc ra ngoài tấm. Vui lòng căn chỉnh lại trước khi lưu.`
+        );
+        return false;
+      }
+      handleSaveEdit();
+      return true;
+    },
+    discard: () => {
+      handleCancelEdit();
+    }
+  }));
+
+  useEffect(() => {
+    if (typeof onEditStateChange === "function") {
+      onEditStateChange({
+        isEditMode,
+        isDirty: currentDirty || currentLibraryItems.length > 0 || !!pickedLibraryItem,
+      });
+    }
+  }, [isEditMode, currentDirty, currentLibraryItems.length, pickedLibraryItem, onEditStateChange]);
+
   const handleSelectSheet = useCallback(
     (index) => {
       if (pickedLibraryItem) returnPickedItemToLibrary();
@@ -2340,4 +2445,5 @@ export default function DieCutNestingBoard({
       </div>
     </div>
   );
-}
+});
+export default DieCutNestingBoard;

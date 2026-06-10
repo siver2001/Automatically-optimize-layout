@@ -48,6 +48,10 @@ const TestCapacityResult = ({
     return firstSizeWithLayout?.sizeName || result.defaultSizeName || summary[0]?.sizeName || null;
   }, [result, summary, sheetsBySize]);
   const [selectedSize, setSelectedSize] = useState(initialSize);
+  const [boardEditState, setBoardEditState] = useState({ isEditMode: false, isDirty: false });
+  const [pendingSize, setPendingSize] = useState(null);
+  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
+  const boardRef = useRef(null);
   const prevResultIdRef = useRef(result?.resultId);
 
   useEffect(() => {
@@ -55,8 +59,46 @@ const TestCapacityResult = ({
     if (result.resultId !== prevResultIdRef.current) {
       setSelectedSize(initialSize);
       prevResultIdRef.current = result.resultId;
+      setBoardEditState({ isEditMode: false, isDirty: false });
+      setPendingSize(null);
+      setIsConfirmModalOpen(false);
     }
   }, [result, initialSize]);
+
+  const handleSizeClick = (sizeName) => {
+    if (sizeName === selectedSize) return;
+    if (boardEditState.isEditMode && boardEditState.isDirty) {
+      setPendingSize(sizeName);
+      setIsConfirmModalOpen(true);
+    } else {
+      setSelectedSize(sizeName);
+    }
+  };
+
+  const handleConfirmSave = () => {
+    if (boardRef.current) {
+      const success = boardRef.current.save();
+      if (success) {
+        setSelectedSize(pendingSize);
+        setPendingSize(null);
+        setIsConfirmModalOpen(false);
+      }
+    }
+  };
+
+  const handleConfirmDiscard = () => {
+    if (boardRef.current) {
+      boardRef.current.discard();
+    }
+    setSelectedSize(pendingSize);
+    setPendingSize(null);
+    setIsConfirmModalOpen(false);
+  };
+
+  const handleConfirmCancel = () => {
+    setPendingSize(null);
+    setIsConfirmModalOpen(false);
+  };
 
   if (!result) return null;
   const { timeMs, sheet, efficiency } = result;
@@ -240,7 +282,7 @@ const TestCapacityResult = ({
                     return (
                     <tr
                       key={s.sizeName}
-                      onClick={() => setSelectedSize(s.sizeName)}
+                      onClick={() => handleSizeClick(s.sizeName)}
                       className={`border-b border-white/5 cursor-pointer ${
                         s.sizeName === selectedSize ? 'bg-amber-500/10' : 'hover:bg-white/5'
                       }`}
@@ -275,6 +317,8 @@ const TestCapacityResult = ({
         <div className="min-w-0 h-full min-h-[50vh] xl:min-h-[78vh] overflow-hidden">
           {selectedSheet && selectedSheet.placed && selectedSheet.placed.length > 0 && (
             <DieCutNestingBoard
+              ref={boardRef}
+              onEditStateChange={setBoardEditState}
               nestingResult={{
                 resultId: result.resultId,
                 sheets: [selectedSheet],
@@ -297,6 +341,48 @@ const TestCapacityResult = ({
           )}
         </div>
       </div>
+
+      {/* Custom Confirmation Modal */}
+      {isConfirmModalOpen && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/70 backdrop-blur-sm px-4">
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#111827] p-6 shadow-2xl">
+            <div className="flex items-start gap-4">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-500/10 text-amber-500 border border-amber-500/20">
+                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                </svg>
+              </div>
+              <div className="flex-1">
+                <h3 className="text-white font-bold text-base">Thay đổi chưa được lưu</h3>
+                <p className="text-white/60 text-xs mt-2 leading-relaxed">
+                  Bạn đang chỉnh sửa sơ đồ của size <span className="font-semibold text-amber-300">{selectedSize}</span>. Bạn có muốn lưu các thay đổi này trước khi chuyển sang size <span className="font-semibold text-sky-300">{pendingSize}</span> không?
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-end sm:gap-3">
+              <button
+                onClick={handleConfirmCancel}
+                className="w-full sm:w-auto px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 text-xs border border-white/10 transition-colors font-medium text-center"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                onClick={handleConfirmDiscard}
+                className="w-full sm:w-auto px-4 py-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-200 text-xs border border-red-500/20 transition-colors font-medium text-center"
+              >
+                Không lưu
+              </button>
+              <button
+                onClick={handleConfirmSave}
+                className="w-full sm:w-auto px-4 py-2 rounded-lg bg-emerald-500/25 hover:bg-emerald-500/35 text-emerald-200 text-xs border border-emerald-400/20 transition-colors font-semibold text-center"
+              >
+                Lưu và Chuyển
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
