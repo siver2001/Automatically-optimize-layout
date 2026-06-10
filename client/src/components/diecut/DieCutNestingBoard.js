@@ -39,6 +39,8 @@ const clonePolygon = (p = []) => p.map((pt) => ({ ...pt }));
 const clonePlacedItem = (i = {}) => ({
   ...i,
   polygon: clonePolygon(i.polygon),
+  cycPolygon: i.cycPolygon ? clonePolygon(i.cycPolygon) : i.cycPolygon,
+  internals: i.internals ? (i.internals || []).map(clonePolygon) : i.internals,
   labelPos: i.labelPos ? { ...i.labelPos } : i.labelPos,
 });
 const cloneLibraryItems = (items = []) => items.map(clonePlacedItem);
@@ -192,6 +194,12 @@ function translatePlacedItem(item, dx, dy) {
     x: (item.x || 0) + dx,
     y: (item.y || 0) + dy,
     polygon: (item.polygon || []).map((p) => ({ x: p.x + dx, y: p.y + dy })),
+    cycPolygon: item.cycPolygon
+      ? (item.cycPolygon || []).map((p) => ({ x: p.x + dx, y: p.y + dy }))
+      : undefined,
+    internals: item.internals
+      ? (item.internals || []).map(path => path.map((p) => ({ x: p.x + dx, y: p.y + dy })))
+      : undefined,
     labelPos: item.labelPos
       ? { x: item.labelPos.x + dx, y: item.labelPos.y + dy }
       : item.labelPos,
@@ -468,6 +476,55 @@ function calculateSnappedPlacement({
   return { item: candidate, guides };
 }
 function rotatePlacedItem90(item) {
+  const isSplit = String(item.foot || "").startsWith("split-");
+
+  if (isSplit) {
+    const finalFoot = item.foot === "split-left" ? "split-right" : "split-left";
+    const angle = item?.angle || 0;
+    const newAngle = (angle + 180) % 360;
+    const bounds = getPolygonBounds(item?.polygon || []);
+
+    let mirroredPolygon = item.polygon || [];
+    let finalCycPolygon = item.cycPolygon;
+    let finalInternals = item.internals;
+
+    const isHorizontalDivider = angle === 90 || angle === 270;
+
+    if (isHorizontalDivider) {
+      // For horizontal divider, we mirror horizontally (X-axis) across centerX
+      // so that the Y position of the cut face (TOP or BOTTOM) remains unchanged (outward)
+      const centerX = (bounds.minX + bounds.maxX) / 2;
+      const mirrorX = (p) => ({ x: 2 * centerX - p.x, y: p.y });
+      mirroredPolygon = mirroredPolygon.map(mirrorX);
+      if (finalCycPolygon) finalCycPolygon = finalCycPolygon.map(mirrorX);
+      if (finalInternals) {
+        finalInternals = finalInternals.map((path) => path.map(mirrorX));
+      }
+    } else {
+      // For vertical divider, we mirror vertically (Y-axis) across centerY
+      // so that the X position of the cut face (LEFT or RIGHT) remains unchanged (outward)
+      const centerY = (bounds.minY + bounds.maxY) / 2;
+      const mirrorY = (p) => ({ x: p.x, y: 2 * centerY - p.y });
+      mirroredPolygon = mirroredPolygon.map(mirrorY);
+      if (finalCycPolygon) finalCycPolygon = finalCycPolygon.map(mirrorY);
+      if (finalInternals) {
+        finalInternals = finalInternals.map((path) => path.map(mirrorY));
+      }
+    }
+
+    return {
+      ...clonePlacedItem(item),
+      foot: finalFoot,
+      angle: newAngle,
+      polygon: mirroredPolygon,
+      cycPolygon: finalCycPolygon,
+      internals: finalInternals,
+      labelPos: undefined,
+      renderKey: undefined,
+      renderPath: undefined,
+    };
+  }
+
   const b = getPolygonBounds(item?.polygon || []),
     minX = b.minX,
     minY = b.minY,
@@ -479,11 +536,37 @@ function rotatePlacedItem90(item) {
   const rb = getPolygonBounds(rotated),
     dx = minX - rb.minX,
     dy = minY - rb.minY;
+
+  const rotatedPolygon = rotated.map((p) => ({ x: p.x + dx, y: p.y + dy }));
+
+  let finalCycPolygon = undefined;
+  if (Array.isArray(item?.cycPolygon) && item.cycPolygon.length > 0) {
+    const rotatedCyc = item.cycPolygon.map((p) => ({
+      x: minX + (maxY - p.y),
+      y: minY + (p.x - minX),
+    }));
+    finalCycPolygon = rotatedCyc.map((p) => ({ x: p.x + dx, y: p.y + dy }));
+  }
+
+  let finalInternals = undefined;
+  if (Array.isArray(item?.internals) && item.internals.length > 0) {
+    finalInternals = item.internals.map((path) => {
+      const rotatedPath = path.map((p) => ({
+        x: minX + (maxY - p.y),
+        y: minY + (p.x - minX),
+      }));
+      return rotatedPath.map((p) => ({ x: p.x + dx, y: p.y + dy }));
+    });
+  }
+
   return {
     ...clonePlacedItem(item),
     x: (item?.x || 0) + dx,
     y: (item?.y || 0) + dy,
-    polygon: rotated.map((p) => ({ x: p.x + dx, y: p.y + dy })),
+    angle: ((item?.angle || 0) + 90) % 360,
+    polygon: rotatedPolygon,
+    cycPolygon: finalCycPolygon,
+    internals: finalInternals,
     labelPos: undefined,
     renderKey: undefined,
     renderPath: undefined,
