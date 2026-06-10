@@ -309,7 +309,7 @@ function buildSheetValidation(sheet, spacing) {
         bb2.maxY + gap <= ab.minY
       )
         continue;
-      if (polygonDistance(aa.polygon || [], bb.polygon || []) + 1e-6 < gap) {
+      if (polygonDistance(aa.polygon || [], bb.polygon || []) + 0.02 < gap) {
         invalid.add(aa.id);
         invalid.add(bb.id);
       }
