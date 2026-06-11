@@ -889,6 +889,13 @@ const SheetCanvas = React.memo(function SheetCanvas({
                   strokeWidth="1"
                 />
               </pattern>
+              {renderTemplates && Object.entries(renderTemplates).map(([key, template]) => (
+                <path
+                  key={`tpl-${key}`}
+                  id={`tpl-${key}`}
+                  d={template.path}
+                />
+              ))}
             </defs>
             <rect
               x={0}
@@ -940,7 +947,8 @@ const SheetCanvas = React.memo(function SheetCanvas({
                 isInvalid = invalidItemIds?.has(item.id),
                 center = showLabels
                   ? getItemLabelPos(item, renderTemplates)
-                  : null;
+                  : null,
+                hasTemplate = item.renderKey && renderTemplates?.[item.renderKey];
 
               // Calculate if the shape is vertical to rotate its label
               let textTransform = undefined;
@@ -968,42 +976,84 @@ const SheetCanvas = React.memo(function SheetCanvas({
                   }}
                 >
                   {(isHovered || isSelected || isInvalid) && (
+                    hasTemplate ? (
+                      <use
+                        href={`#tpl-${item.renderKey}`}
+                        transform={item.pathTransform}
+                        fill="white"
+                        fillOpacity={0.12}
+                        stroke={isInvalid ? "#f87171" : "white"}
+                        strokeWidth={6}
+                        strokeOpacity={0.4}
+                        strokeLinejoin="round"
+                      />
+                    ) : (
+                      <path
+                        d={item.svgPath}
+                        transform={item.pathTransform}
+                        fill="white"
+                        fillOpacity={0.12}
+                        stroke={isInvalid ? "#f87171" : "white"}
+                        strokeWidth={6}
+                        strokeOpacity={0.4}
+                      />
+                    )
+                  )}
+                  {hasTemplate ? (
+                    <use
+                      href={`#tpl-${item.renderKey}`}
+                      transform={item.pathTransform}
+                      fill={isInvalid ? "#EF4444" : item.fillColor}
+                      fillOpacity={isInvalid ? 0.9 : isHovered ? 0.85 : 0.62}
+                      stroke={
+                        isInvalid
+                          ? "#f87171"
+                          : item.isFlipped
+                            ? "#fbbf24"
+                            : "rgba(255,255,255,0.85)"
+                      }
+                      strokeWidth={
+                        isInvalid
+                          ? 3.5
+                          : isSelected
+                            ? 3
+                            : isHovered
+                              ? 3
+                              : item.isFlipped
+                                ? 2
+                                : 1.2
+                      }
+                      strokeLinejoin="round"
+                      strokeDasharray={isInvalid ? "10 6" : undefined}
+                    />
+                  ) : (
                     <path
                       d={item.svgPath}
                       transform={item.pathTransform}
-                      fill="white"
-                      fillOpacity={0.12}
-                      stroke={isInvalid ? "#f87171" : "white"}
-                      strokeWidth={6}
-                      strokeOpacity={0.4}
+                      fill={isInvalid ? "#EF4444" : item.fillColor}
+                      fillOpacity={isInvalid ? 0.9 : isHovered ? 0.85 : 0.62}
+                      stroke={
+                        isInvalid
+                          ? "#f87171"
+                          : item.isFlipped
+                            ? "#fbbf24"
+                            : "rgba(255,255,255,0.85)"
+                      }
+                      strokeWidth={
+                        isInvalid
+                          ? 3.5
+                          : isSelected
+                            ? 3
+                            : isHovered
+                              ? 3
+                              : item.isFlipped
+                                ? 2
+                                : 1.2
+                      }
+                      strokeLinejoin="round"
+                      strokeDasharray={isInvalid ? "10 6" : undefined}
                     />
                   )}
-                  <path
-                    d={item.svgPath}
-                    transform={item.pathTransform}
-                    fill={isInvalid ? "#EF4444" : item.fillColor}
-                    fillOpacity={isInvalid ? 0.9 : isHovered ? 0.85 : 0.62}
-                    stroke={
-                      isInvalid
-                        ? "#f87171"
-                        : item.isFlipped
-                          ? "#fbbf24"
-                          : "rgba(255,255,255,0.85)"
-                    }
-                    strokeWidth={
-                      isInvalid
-                        ? 3.5
-                        : isSelected
-                          ? 3
-                          : isHovered
-                            ? 3
-                            : item.isFlipped
-                              ? 2
-                              : 1.2
-                    }
-                    strokeLinejoin="round"
-                    strokeDasharray={isInvalid ? "10 6" : undefined}
-                  />
                   {showLabels && center ? (
                     <g transform={textTransform}>
                       <text

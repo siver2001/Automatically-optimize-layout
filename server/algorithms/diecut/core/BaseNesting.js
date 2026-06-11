@@ -53,6 +53,18 @@ export class BaseNesting {
     const lowPoly = simplifyPolygon(highPoly, 0.4);
     const raster = rasterizeToBuffer(lowPoly, step, spacing, bb);
     
+    // Pre-calculate active cell offsets for fast collision checking
+    const activeOffsets = [];
+    for (let r = 0; r < raster.rows; r++) {
+      const rOff = r * raster.cols;
+      for (let c = 0; c < raster.cols; c++) {
+        if (raster.cells[rOff + c]) {
+          activeOffsets.push({ r, c });
+        }
+      }
+    }
+    raster.activeOffsets = activeOffsets;
+
     // Attach a low-resolution simplified polygon (tolerance 0.8) for fast early-exit overlap checks
     highPoly.polygonLowRes = simplifyPolygon(highPoly, 0.8);
     
@@ -63,28 +75,63 @@ export class BaseNesting {
 
   _checkCollision(board, bCols, bRows, raster, bx, by) {
     if (bx < 0 || by < 0 || bx + raster.cols > bCols || by + raster.rows > bRows) return true;
-    for (let r = 0; r < raster.rows; r++) {
-      const bOff = (by + r) * bCols + bx;
-      const rOff = r * raster.cols;
-      for (let c = 0; c < raster.cols; c++) {
-        if (raster.cells[rOff + c] && board[bOff + c]) return true;
+    
+    const active = raster.activeOffsets;
+    if (active) {
+      let flat = raster.flatOffsetsCache?.get(bCols);
+      if (!flat) {
+        flat = new Int32Array(active.length);
+        for (let i = 0; i < active.length; i++) {
+          flat[i] = active[i].r * bCols + active[i].c;
+        }
+        if (!raster.flatOffsetsCache) {
+          raster.flatOffsetsCache = new Map();
+        }
+        raster.flatOffsetsCache.set(bCols, flat);
+      }
+      
+      const base = by * bCols + bx;
+      const len = flat.length;
+      for (let i = 0; i < len; i++) {
+        if (board[base + flat[i]]) return true;
+      }
+    } else {
+      for (let r = 0; r < raster.rows; r++) {
+        const bOff = (by + r) * bCols + bx;
+        const rOff = r * raster.cols;
+        for (let c = 0; c < raster.cols; c++) {
+          if (raster.cells[rOff + c] && board[bOff + c]) return true;
+        }
       }
     }
     return false;
   }
 
   _checkRasterOverlap(r1, r2, dx, dy) {
-    const ys = Math.max(0, -dy);
-    const ye = Math.min(r2.rows, r1.rows - dy);
-    const xs = Math.max(0, -dx);
-    const xe = Math.min(r2.cols, r1.cols - dx);
-    if (ys >= ye || xs >= xe) return false;
+    const active2 = r2.activeOffsets;
+    if (active2) {
+      const len = active2.length;
+      for (let i = 0; i < len; i++) {
+        const pt = active2[i];
+        const r1Row = pt.r + dy;
+        const r1Col = pt.c + dx;
+        if (r1Row >= 0 && r1Row < r1.rows && r1Col >= 0 && r1Col < r1.cols) {
+          if (r1.cells[r1Row * r1.cols + r1Col]) return true;
+        }
+      }
+    } else {
+      const ys = Math.max(0, -dy);
+      const ye = Math.min(r2.rows, r1.rows - dy);
+      const xs = Math.max(0, -dx);
+      const xe = Math.min(r2.cols, r1.cols - dx);
+      if (ys >= ye || xs >= xe) return false;
 
-    for (let r = ys; r < ye; r++) {
-      const o1 = (r + dy) * r1.cols;
-      const o2 = r * r2.cols;
-      for (let c = xs; c < xe; c++) {
-        if (r2.cells[o2 + c] && r1.cells[o1 + c + dx]) return true;
+      for (let r = ys; r < ye; r++) {
+        const o1 = (r + dy) * r1.cols;
+        const o2 = r * r2.cols;
+        for (let c = xs; c < xe; c++) {
+          if (r2.cells[o2 + c] && r1.cells[o1 + c + dx]) return true;
+        }
       }
     }
     return false;
@@ -107,11 +154,32 @@ export class BaseNesting {
   }
 
   _mark(board, bCols, raster, bx, by, val = 1) {
-    for (let r = 0; r < raster.rows; r++) {
-      const bOff = (by + r) * bCols + bx;
-      const rOff = r * raster.cols;
-      for (let c = 0; c < raster.cols; c++) {
-        if (raster.cells[rOff + c]) board[bOff + c] = val;
+    const active = raster.activeOffsets;
+    if (active) {
+      let flat = raster.flatOffsetsCache?.get(bCols);
+      if (!flat) {
+        flat = new Int32Array(active.length);
+        for (let i = 0; i < active.length; i++) {
+          flat[i] = active[i].r * bCols + active[i].c;
+        }
+        if (!raster.flatOffsetsCache) {
+          raster.flatOffsetsCache = new Map();
+        }
+        raster.flatOffsetsCache.set(bCols, flat);
+      }
+      
+      const base = by * bCols + bx;
+      const len = flat.length;
+      for (let i = 0; i < len; i++) {
+        board[base + flat[i]] = val;
+      }
+    } else {
+      for (let r = 0; r < raster.rows; r++) {
+        const bOff = (by + r) * bCols + bx;
+        const rOff = r * raster.cols;
+        for (let c = 0; c < raster.cols; c++) {
+          if (raster.cells[rOff + c]) board[bOff + c] = val;
+        }
       }
     }
   }

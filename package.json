@@ -59,6 +59,11 @@
     "win": {
       "target": "nsis",
       "icon": "client/public/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "${productName}.${ext}"
     }
   }
 }
