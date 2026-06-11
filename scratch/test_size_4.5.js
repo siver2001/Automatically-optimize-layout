@@ -7,15 +7,15 @@ async function run() {
   const buffer = fs.readFileSync(dxfFile);
   const shapes = await parseCadBufferToSizedShapes(buffer, dxfFile);
   
-  const size9 = shapes.find(s => s.sizeName === '9');
-  if (!size9) {
-    console.error('Size 9 not found in DXF');
+  const size4_5 = shapes.find(s => s.sizeName === '4.5');
+  if (!size4_5) {
+    console.error('Size 4.5 not found in DXF');
     return;
   }
 
   // 1. Run at 1070x1970 (baseline)
   console.log('\n=======================================');
-  console.log('RUNNING AT 1070x1970 (EXPECTED: 45.5 PAIRS)');
+  console.log('RUNNING AT 1070x1970 (EXPECTED: 58 PAIRS)');
   console.log('=======================================');
   const config1070 = {
     sheetWidth: 1070,
@@ -32,12 +32,12 @@ async function run() {
     parallelSizes: false
   };
   const engine1070 = new CapacityTestDoubleInsoleDoubleContourPattern(config1070);
-  const res1070 = await engine1070.testCapacity([size9], config1070);
+  const res1070 = await engine1070.testCapacity([size4_5], config1070);
   console.log(`Result 1070x1970: ${res1070.summary[0].pairs} pairs, efficiency: ${res1070.summary[0].efficiency}%`);
 
-  // 2. Run at 1080x1980
+  // 2. Run at 1080x1980 (buggy)
   console.log('\n=======================================');
-  console.log('RUNNING AT 1080x1980 (EXPECTED: >= 45.5 PAIRS)');
+  console.log('RUNNING AT 1080x1980 (EXPECTED: >= 58 PAIRS)');
   console.log('=======================================');
   const config1080 = {
     sheetWidth: 1080,
@@ -54,7 +54,7 @@ async function run() {
     parallelSizes: false
   };
   const engine1080 = new CapacityTestDoubleInsoleDoubleContourPattern(config1080);
-  const res1080 = await engine1080.testCapacity([size9], config1080);
+  const res1080 = await engine1080.testCapacity([size4_5], config1080);
   console.log(`Result 1080x1980: ${res1080.summary[0].pairs} pairs, efficiency: ${res1080.summary[0].efficiency}%`);
 }
 

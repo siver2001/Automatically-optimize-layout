@@ -1,4 +1,4 @@
-=== ALL SIZES CAPACITY RESULTS (Calculated in 196.01s) ===
+=== ALL SIZES CAPACITY RESULTS (Calculated in 428.64s) ===
 Size: 3.5   | Pairs: 62    | Efficiency: 82.9%
 Size: 4     | Pairs: 61    | Efficiency: 84.0%
 Size: 4.5   | Pairs: 58    | Efficiency: 82.6%

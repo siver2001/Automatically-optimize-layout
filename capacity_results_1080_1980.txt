@@ -1,0 +1,22 @@
+=== ALL SIZES CAPACITY RESULTS (1080x1980) (Calculated in 521.54s) ===
+Size: 3.5   | Pairs: 62    | Efficiency: 81.7%
+Size: 4     | Pairs: 61    | Efficiency: 82.8%
+Size: 4.5   | Pairs: 58    | Efficiency: 81.4%
+Size: 5     | Pairs: 57.5  | Efficiency: 83.3%
+Size: 5.5   | Pairs: 56    | Efficiency: 83.7%
+Size: 6     | Pairs: 53    | Efficiency: 81.6%
+Size: 6.5   | Pairs: 53    | Efficiency: 84.0%
+Size: 7     | Pairs: 52    | Efficiency: 84.9%
+Size: 7.5   | Pairs: 50.5  | Efficiency: 84.7%
+Size: 8     | Pairs: 46.5  | Efficiency: 80.1%
+Size: 8.5   | Pairs: 45.5  | Efficiency: 80.6%
+Size: 9     | Pairs: 45.5  | Efficiency: 82.8%
+Size: 9.5   | Pairs: 44    | Efficiency: 82.4%
+Size: 10    | Pairs: 44    | Efficiency: 84.6%
+Size: 10.5  | Pairs: 40.5  | Efficiency: 80.0%
+Size: 11    | Pairs: 39.5  | Efficiency: 80.1%
+Size: 11.5  | Pairs: 39    | Efficiency: 81.2%
+Size: 12    | Pairs: 39    | Efficiency: 83.3%
+Size: 12.5  | Pairs: 37.5  | Efficiency: 82.0%
+Size: 13    | Pairs: 36    | Efficiency: 80.8%
+Size: 14    | Pairs: 36    | Efficiency: 84.8%

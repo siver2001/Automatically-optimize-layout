@@ -1,4 +1,4 @@
-import { CapacityTestPrePairedSameSidePattern } from '../CapacityTestPrePairedSameSidePattern.js';
+﻿import { CapacityTestPrePairedSameSidePattern } from '../CapacityTestPrePairedSameSidePattern.js';
 import { CapacityTestSameSidePattern, findMinimalContinuousValue } from '../CapacityTestSameSidePattern.js';
 import { DOUBLE_CONTOUR_ALGORITHM_VERSION } from '../capacityVersion.js';
 import { buildSplitHalfDefinitions } from '../splittingUtils.js';
@@ -453,11 +453,6 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     const topMarginSplits = [];
     const leftMarginSplits = [];
     
-    // Threshold to consider a piece close to a margin (in mm).
-    // Using a threshold of 150mm is safe and robust since all split fill pieces
-    // are placed along the outer margins.
-    const marginThreshold = 150;
-
     for (const p of placements) {
       if (!this._isSplitFillPlacement(p)) continue;
       
@@ -469,36 +464,16 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       const distTop = p.y + bb.minY;
       const distBottom = workHeight - (p.y + bb.maxY);
       
-      let added = false;
-      if (distLeft < marginThreshold) {
-        leftMarginSplits.push({ p, bb });
-        added = true;
-      }
-      if (distRight < marginThreshold) {
-        rightMarginSplits.push({ p, bb });
-        added = true;
-      }
-      if (distTop < marginThreshold) {
-        topMarginSplits.push({ p, bb });
-        added = true;
-      }
-      if (distBottom < marginThreshold) {
-        bottomMarginSplits.push({ p, bb });
-        added = true;
-      }
+      const minDist = Math.min(distLeft, distRight, distTop, distBottom);
       
-      // Fallback in case a split is somehow not within the threshold (should not happen)
-      if (!added) {
-        const minDist = Math.min(distLeft, distRight, distTop, distBottom);
-        if (minDist === distRight) {
-          rightMarginSplits.push({ p, bb });
-        } else if (minDist === distBottom) {
-          bottomMarginSplits.push({ p, bb });
-        } else if (minDist === distTop) {
-          topMarginSplits.push({ p, bb });
-        } else {
-          leftMarginSplits.push({ p, bb });
-        }
+      if (minDist === distRight) {
+        rightMarginSplits.push({ p, bb });
+      } else if (minDist === distBottom) {
+        bottomMarginSplits.push({ p, bb });
+      } else if (minDist === distTop) {
+        topMarginSplits.push({ p, bb });
+      } else {
+        leftMarginSplits.push({ p, bb });
       }
     }
     
@@ -551,57 +526,6 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       }
     };
 
-    // --- PHASE 1: Slide ALONG the margin to squeeze splits together (Only for Top/Bottom splits) ---
-
-    // 1. Top-margin splits (along X margin): Slide LEFTWARD (decrease X)
-    const sortedTopSplitsAlong = [...topMarginSplits].sort((a, b) => a.p.x - b.p.x);
-    for (const item of sortedTopSplitsAlong) {
-      const p = currentPlacements.find(cp => cp.id === item.p.id);
-      if (!p) continue;
-      const bb = item.bb;
-      let lowX = -bb.minX;
-      let highX = p.x;
-      let bestX = p.x;
-      const otherPlacementsUpdated = currentPlacements.filter(cp => cp.id !== p.id);
-      const spatialIndex = this._buildSpatialIndex(otherPlacementsUpdated, workWidth, workHeight, spacing);
-      while (highX - lowX > 0.1) {
-        const midX = roundMetric((lowX + highX) / 2, 3);
-        if (this._canPlaceSplitOrient(otherPlacementsUpdated, p.orient, midX, p.y, config, workWidth, workHeight, spatialIndex, true, true)) {
-          bestX = midX;
-          highX = midX;
-        } else {
-          lowX = midX;
-        }
-      }
-      p.x = bestX;
-    }
-
-    // 2. Bottom-margin splits (along X margin): Slide LEFTWARD (decrease X)
-    const sortedBottomSplitsAlong = [...bottomMarginSplits].sort((a, b) => a.p.x - b.p.x);
-    for (const item of sortedBottomSplitsAlong) {
-      const p = currentPlacements.find(cp => cp.id === item.p.id);
-      if (!p) continue;
-      const bb = item.bb;
-      let lowX = -bb.minX;
-      let highX = p.x;
-      let bestX = p.x;
-      const otherPlacementsUpdated = currentPlacements.filter(cp => cp.id !== p.id);
-      const spatialIndex = this._buildSpatialIndex(otherPlacementsUpdated, workWidth, workHeight, spacing);
-      while (highX - lowX > 0.1) {
-        const midX = roundMetric((lowX + highX) / 2, 3);
-        if (this._canPlaceSplitOrient(otherPlacementsUpdated, p.orient, midX, p.y, config, workWidth, workHeight, spatialIndex, true, true)) {
-          bestX = midX;
-          highX = midX;
-        } else {
-          lowX = midX;
-        }
-      }
-      p.x = bestX;
-    }
-
-
-    // --- PHASE 2: Slide TOWARDS the center ---
-
     // 1. Right-margin splits: Slide LEFTWARD (decrease X)
     // Sort from top to bottom
     const sortedRightSplits = [...rightMarginSplits].sort((a, b) => a.p.y - b.p.y);
@@ -630,7 +554,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       }
     }
     // Align X coordinates of all right splits (prefer minimum X to stay compact)
-    // alignGroupToSingleCoord(rightMarginSplits, 'x', true);
+    alignGroupToSingleCoord(rightMarginSplits, 'x', true);
     
     // 2. Bottom-margin splits: Slide UPWARD (decrease Y)
     // Sort from left to right
@@ -660,7 +584,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       }
     }
     // Align Y coordinates of all bottom splits (prefer minimum Y to stay compact)
-    // alignGroupToSingleCoord(bottomMarginSplits, 'y', true);
+    alignGroupToSingleCoord(bottomMarginSplits, 'y', true);
     
     // 3. Top-margin splits: Slide DOWNWARD (increase Y)
     // Sort from left to right
@@ -690,7 +614,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       }
     }
     // Align Y coordinates of all top splits (prefer maximum Y to stay compact towards bottom)
-    // alignGroupToSingleCoord(topMarginSplits, 'y', false);
+    alignGroupToSingleCoord(topMarginSplits, 'y', false);
     
     // 4. Left-margin splits: Slide RIGHTWARD (increase X)
     // Sort from top to bottom
@@ -720,70 +644,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       }
     }
     // Align X coordinates of all left splits (prefer maximum X to stay compact towards right)
-    // alignGroupToSingleCoord(leftMarginSplits, 'x', false);
-
-    // Align split pieces to the grid of whole pieces (Columns for X, Rows for Y)
-    const wholePlacements = currentPlacements.filter(p => !this._isSplitFillPlacement(p));
-    if (wholePlacements.length > 0) {
-      const maxChecks = 5;
-      const maxDistance = 150;
-
-      for (const p of currentPlacements) {
-        if (!this._isSplitFillPlacement(p)) continue;
-        const bb = p.orient?.bb || getBoundingBox(p.orient?.polygon || []);
-
-        const isLeftOrRight = leftMarginSplits.some(item => item.p.id === p.id) || rightMarginSplits.some(item => item.p.id === p.id);
-
-        const otherPlacements = currentPlacements.filter(cp => cp.id !== p.id);
-        const spatialIndex = this._buildSpatialIndex(otherPlacements, workWidth, workHeight, spacing);
-
-        // 1. Align X coordinate to columns (ONLY for left/right splits, NOT top/bottom splits)
-        if (isLeftOrRight) {
-          const xCandidates = [];
-          for (const wp of wholePlacements) {
-            const wpbb = wp.orient?.bb || getBoundingBox(wp.orient?.polygon || []);
-            const xLeft = roundMetric(wp.x, 3);
-            const xRight = roundMetric(wp.x + wpbb.maxX - bb.maxX, 3);
-            const xCenter = roundMetric(wp.x + (wpbb.minX + wpbb.maxX)/2 - (bb.minX + bb.maxX)/2, 3);
-            xCandidates.push(xLeft, xRight, xCenter);
-          }
-          const uniqueXCandidates = [...new Set(xCandidates)]
-            .filter(x => Math.abs(x - p.x) <= maxDistance)
-            .sort((a, b) => Math.abs(a - p.x) - Math.abs(b - p.x))
-            .slice(0, maxChecks);
-
-          for (const targetX of uniqueXCandidates) {
-            if (this._canPlaceSplitOrient(otherPlacements, p.orient, targetX, p.y, config, workWidth, workHeight, spatialIndex, true, true)) {
-              p.x = targetX;
-              break;
-            }
-          }
-        }
-
-        // 2. Align Y coordinate to rows (Always runs to align vertically with whole piece nesting)
-        {
-          const yCandidates = [];
-          for (const wp of wholePlacements) {
-            const wpbb = wp.orient?.bb || getBoundingBox(wp.orient?.polygon || []);
-            const yBottom = roundMetric(wp.y, 3);
-            const yTop = roundMetric(wp.y + wpbb.maxY - bb.maxY, 3);
-            const yCenter = roundMetric(wp.y + (wpbb.minY + wpbb.maxY)/2 - (bb.minY + bb.maxY)/2, 3);
-            yCandidates.push(yBottom, yTop, yCenter);
-          }
-          const uniqueYCandidates = [...new Set(yCandidates)]
-            .filter(y => Math.abs(y - p.y) <= maxDistance)
-            .sort((a, b) => Math.abs(a - p.y) - Math.abs(b - p.y))
-            .slice(0, maxChecks);
-
-          for (const targetY of uniqueYCandidates) {
-            if (this._canPlaceSplitOrient(otherPlacements, p.orient, p.x, targetY, config, workWidth, workHeight, spatialIndex, true, true)) {
-              p.y = targetY;
-              break;
-            }
-          }
-        }
-      }
-    }
+    alignGroupToSingleCoord(leftMarginSplits, 'x', false);
     
     return currentPlacements;
   }
@@ -1273,16 +1134,6 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
 
     return freeRects;
   }
-
-  _subtractPlacementFromFreeRects(freeRects, placement, spacing = 0) {
-    const bounds = this._getPlacementBounds(placement);
-    const nextRects = [];
-    for (const rect of freeRects) {
-      nextRects.push(...this._splitPreparedFreeRect(rect, bounds, spacing));
-    }
-    return this._normalizePreparedFreeRects(nextRects);
-  }
-
 
   _buildPreparedRectPlacementCandidates(rect, orient, step) {
     const bb = orient.bb || getBoundingBox(orient.polygon);
@@ -2532,80 +2383,49 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
           ? (dir.axis === 'x' ? minX : minY)
           : (dir.axis === 'x' ? maxX : maxY);
 
-        let best = currentValue;
-        const scanStart = currentValue + dir.sign * step;
-        const scanEnd = limitValue;
-        
-        const coarseStep = Math.max(1.0, step * 4);
-        let val = scanStart;
-        let lastSafeVal = currentValue;
-        let hitCollision = false;
+        let low = 0;
+        let high = Math.abs(limitValue - currentValue);
+        let bestSafeOffset = 0;
 
-        while (true) {
-          if (dir.sign > 0) {
-            if (val > scanEnd + 1e-6) break;
+        while (high - low > step) {
+          const mid = (low + high) / 2;
+          const testValue = currentValue + dir.sign * mid;
+          const testX = dir.axis === 'x' ? testValue : currentX;
+          const testY = dir.axis === 'y' ? testValue : currentY;
+
+          if (isSafe(testX, testY)) {
+            bestSafeOffset = mid;
+            low = mid;
           } else {
-            if (val < scanEnd - 1e-6) break;
+            high = mid;
           }
-          
-          const testX = dir.axis === 'x' ? roundMetric(val, 3) : currentX;
-          const testY = dir.axis === 'y' ? roundMetric(val, 3) : currentY;
-          if (!isSafe(testX, testY)) {
-            hitCollision = true;
-            break;
-          }
-          lastSafeVal = val;
-          val += dir.sign * coarseStep;
         }
 
-        best = lastSafeVal;
-        if (hitCollision) {
-          let fineVal = lastSafeVal + dir.sign * step;
-          const fineLimit = val;
-          while (true) {
-            if (dir.sign > 0) {
-              if (fineVal >= fineLimit - 1e-6) break;
-            } else {
-              if (fineVal <= fineLimit + 1e-6) break;
-            }
-            
-            const testX = dir.axis === 'x' ? roundMetric(fineVal, 3) : currentX;
-            const testY = dir.axis === 'y' ? roundMetric(fineVal, 3) : currentY;
-            if (!isSafe(testX, testY)) break;
-            best = fineVal;
-            fineVal += dir.sign * step;
-          }
-        } else {
-          // Fast margin snap check: if the target boundary is safe, jump there directly
-          const endX = dir.axis === 'x' ? roundMetric(scanEnd, 3) : currentX;
-          const endY = dir.axis === 'y' ? roundMetric(scanEnd, 3) : currentY;
-          if (isSafe(endX, endY)) {
-            best = scanEnd;
-          } else {
-            let fineVal = lastSafeVal + dir.sign * step;
-            while (true) {
-              if (dir.sign > 0) {
-                if (fineVal > scanEnd + 1e-6) break;
-              } else {
-                if (fineVal < scanEnd - 1e-6) break;
+        if (bestSafeOffset > 1e-3) {
+          const finalValue = currentValue + dir.sign * bestSafeOffset;
+          const roundedX = dir.axis === 'x' ? roundMetric(finalValue, 3) : currentX;
+          const roundedY = dir.axis === 'y' ? roundMetric(finalValue, 3) : currentY;
+
+          if (Math.abs(roundedX - currentX) > 1e-3 || Math.abs(roundedY - currentY) > 1e-3) {
+            if (isSafe(roundedX, roundedY)) {
+              currentX = roundedX;
+              currentY = roundedY;
+              moved = true;
+              if (dir.id === opposite) {
+                oppositeMoved = true;
               }
-              
-              const testX = dir.axis === 'x' ? roundMetric(fineVal, 3) : currentX;
-              const testY = dir.axis === 'y' ? roundMetric(fineVal, 3) : currentY;
-              if (!isSafe(testX, testY)) break;
-              best = fineVal;
-              fineVal += dir.sign * step;
+            } else {
+              const fallbackX = dir.axis === 'x' ? roundMetric(roundedX - dir.sign * 0.001, 3) : currentX;
+              const fallbackY = dir.axis === 'y' ? roundMetric(roundedY - dir.sign * 0.001, 3) : currentY;
+              if (isSafe(fallbackX, fallbackY)) {
+                currentX = fallbackX;
+                currentY = fallbackY;
+                moved = true;
+                if (dir.id === opposite) {
+                  oppositeMoved = true;
+                }
+              }
             }
-          }
-        }
-
-        const roundedBest = roundMetric(best, 3);
-        if (Math.abs(roundedBest - currentValue) > 1e-3) {
-          if (dir.axis === 'x') currentX = roundedBest;
-          else currentY = roundedBest;
-          moved = true;
-          if (dir.id === opposite) {
-            oppositeMoved = true;
           }
         }
       }
@@ -2642,51 +2462,14 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
 
     let best = isSafe(startValue) ? startValue : null;
     const sign = direction.sign;
-    const coarseStep = Math.max(1.0, step * 4);
-    
-    let value = startValue - sign * step;
-    let lastSafeValue = startValue;
-    let hitCollision = false;
-
-    while (value >= minStart - 1e-6 && value <= maxStart + 1e-6) {
+    for (
+      let value = startValue - sign * step;
+      value >= minStart - 1e-6 && value <= maxStart + 1e-6;
+      value -= sign * step
+    ) {
       const rounded = roundMetric(value, 3);
-      if (!isSafe(rounded)) {
-        hitCollision = true;
-        break;
-      }
-      lastSafeValue = rounded;
-      value -= sign * coarseStep;
-    }
-
-    if (hitCollision) {
-      let fineVal = lastSafeValue - sign * step;
-      const fineLimit = value;
-      while (true) {
-        if (-sign > 0) {
-          if (fineVal >= fineLimit - 1e-6) break;
-        } else {
-          if (fineVal <= fineLimit + 1e-6) break;
-        }
-        const rounded = roundMetric(fineVal, 3);
-        if (!isSafe(rounded)) break;
-        best = rounded;
-        fineVal -= sign * step;
-      }
-    } else {
-      // Fast margin snap check: if target boundary is safe, jump there directly
-      const limitVal = sign > 0 ? minStart : maxStart;
-      const limitRounded = roundMetric(limitVal, 3);
-      if (isSafe(limitRounded)) {
-        best = limitRounded;
-      } else {
-        let fineVal = lastSafeValue - sign * step;
-        while (fineVal >= minStart - 1e-6 && fineVal <= maxStart + 1e-6) {
-          const rounded = roundMetric(fineVal, 3);
-          if (!isSafe(rounded)) break;
-          best = rounded;
-          fineVal -= sign * step;
-        }
-      }
+      if (!isSafe(rounded)) break;
+      best = rounded;
     }
 
     if (best == null) return null;
@@ -2796,23 +2579,47 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       .sort((left, right) => left._splitOptionScore - right._splitOptionScore)
       .slice(0, Math.max(1, maxOptions));
 
-    const uniqueOptions = [];
+    const compactedOptions = [];
     const finalSeen = new Set();
+    const spacing = config.spacing || 0;
+    const spatialIndex = this._buildSpatialIndex(occupiedPlacements, workWidth, workHeight, spacing);
     for (const option of topOptions) {
-      const finalX = roundMetric(option.x, 3);
-      const finalY = roundMetric(option.y, 3);
+      const fineCompacted = this._compactSplitFillCandidatePlacement(
+        option,
+        option.orient,
+        occupiedPlacements,
+        config,
+        workWidth,
+        workHeight
+      );
+
+      const finalX = roundMetric(fineCompacted.x, 3);
+      const finalY = roundMetric(fineCompacted.y, 3);
+
+      if (!this._canPlaceSplitOrient(
+        occupiedPlacements,
+        option.orient,
+        finalX,
+        finalY,
+        config,
+        workWidth,
+        workHeight,
+        spatialIndex
+      )) {
+        continue;
+      }
 
       const key = `${option.orient.foot}|${option.orient.angle}|${finalX}|${finalY}`;
       if (finalSeen.has(key)) continue;
       finalSeen.add(key);
-      uniqueOptions.push({
+      compactedOptions.push({
         ...option,
         x: finalX,
         y: finalY
       });
     }
 
-    return uniqueOptions;
+    return compactedOptions;
   }
 
   _getSplitPartnerFoot(foot) {
@@ -2893,11 +2700,11 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     step,
     filterFn = null,
     maxOptions = 100,
-    providedSpatialIndex = null,
-    providedFreeRects = null
+    providedSpatialIndex = null
   ) {
-    // Use maxOptions directly to avoid searching too many candidates
-    const finalMax = maxOptions;
+    // Dynamically adjust limit based on current piece count
+    const adaptiveMax = occupiedPlacements.length > 80 ? 50 : 35;
+    const finalMax = Math.max(maxOptions, adaptiveMax);
     const freeRects = this._buildPreparedSplitFreeRects(
       occupiedPlacements,
       workWidth,
@@ -2961,54 +2768,30 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     )].sort((a, b) => a - b);
 
     if (wholeCentres.length > 0) {
+      const gridStep = config.gridStep || 0.5;
+      const scanStep = Math.max(1, gridStep * 2);
+      
       for (const orient of orientVariants) {
         if (filterFn && !filterFn(orient)) continue;
         if (!orient.foot?.includes('split')) continue;
         
         const bb = orient.bb || getBoundingBox(orient.polygon);
-        const minY = -bb.minY;
         const maxY = workHeight - bb.maxY;
         
         for (const centre of wholeCentres) {
           const colX = roundMetric(centre - (bb.minX + bb.maxX) / 2, 3);
-          const xMin = colX + bb.minX - spacing;
-          const xMax = colX + bb.maxX + spacing;
           
-          let localMinBodyY = workHeight;
-          let localMaxBodyY = 0;
-          for (let i = 0; i < occupiedPlacements.length; i++) {
-            const p = occupiedPlacements[i];
-            const pbb = p.orient?.bb || getBoundingBox(p.orient?.polygon || []);
-            const pxMin = p.x + pbb.minX;
-            const pxMax = p.x + pbb.maxX;
-            if (!(pxMax < xMin || pxMin > xMax)) {
-              const pyMin = p.y + pbb.minY;
-              const pyMax = p.y + pbb.maxY;
-              if (pyMin < localMinBodyY) {
-                localMinBodyY = pyMin;
-              }
-              if (pyMax > localMaxBodyY) {
-                localMaxBodyY = pyMax;
-              }
-            }
-          }
-
-          const gridStep = config.gridStep || 0.5;
-          const scanStep = Math.max(1, gridStep * 2);
-
-          // Top margin scan range
-          const topLimitY = localMinBodyY - spacing - bb.maxY;
-          const topScanLimit = Math.min(maxY, Math.min(minY + 250, topLimitY));
-          for (let y = minY; y <= topScanLimit + 1e-6; y += scanStep) {
+          // Scan top margin region (y: 0 to 250)
+          const scanLimit = Math.min(maxY, 250);
+          for (let y = 0; y <= scanLimit; y += scanStep) {
             if (this._canPlaceSplitOrient(occupiedPlacements, orient, colX, y, config, workWidth, workHeight, spatialIndex)) {
               this._pushSplitPlacementOption(options, seen, { orient, x: colX, y, effectiveArea: orient.areaMm2 }, workWidth, workHeight);
             }
           }
-
-          // Bottom margin scan range
-          const bottomLimitY = localMaxBodyY + spacing - bb.minY;
-          const bottomScanStart = Math.max(minY, Math.max(maxY - 250, bottomLimitY));
-          for (let y = bottomScanStart; y <= maxY + 1e-6; y += scanStep) {
+          
+          // Scan bottom margin region (y: maxY - 250 to maxY)
+          const scanStart = Math.max(0, maxY - 250);
+          for (let y = scanStart; y <= maxY + 1e-6; y += scanStep) {
             if (this._canPlaceSplitOrient(occupiedPlacements, orient, colX, y, config, workWidth, workHeight, spatialIndex)) {
               this._pushSplitPlacementOption(options, seen, { orient, x: colX, y, effectiveArea: orient.areaMm2 }, workWidth, workHeight);
             }
@@ -3070,23 +2853,46 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       .sort((left, right) => left._splitOptionScore - right._splitOptionScore)
       .slice(0, Math.max(1, maxOptions));
 
-    const uniqueOptions = [];
+    const compactedOptions = [];
     const finalSeen = new Set();
     for (const option of topOptions) {
-      const finalX = roundMetric(option.x, 3);
-      const finalY = roundMetric(option.y, 3);
+      const fineCompacted = this._compactSplitFillCandidatePlacement(
+        option,
+        option.orient,
+        occupiedPlacements,
+        config,
+        workWidth,
+        workHeight,
+        spatialIndex
+      );
+      
+      const finalX = roundMetric(fineCompacted.x, 3);
+      const finalY = roundMetric(fineCompacted.y, 3);
+
+      if (!this._canPlaceSplitOrient(
+        occupiedPlacements,
+        option.orient,
+        finalX,
+        finalY,
+        config,
+        workWidth,
+        workHeight,
+        spatialIndex
+      )) {
+        continue;
+      }
 
       const key = `${option.orient.foot}|${option.orient.angle}|${finalX}|${finalY}`;
       if (finalSeen.has(key)) continue;
       finalSeen.add(key);
-      uniqueOptions.push({
+      compactedOptions.push({
         ...option,
         x: finalX,
         y: finalY
       });
     }
 
-    return uniqueOptions;
+    return compactedOptions;
   }
 
   _rankSplitFillState(state) {
@@ -3205,7 +3011,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       || leftRank.waste - rightRank.waste;
   }
 
-  _dedupeSplitFillStates(states, depth = 0) {
+  _dedupeSplitFillStates(states) {
     if (!states.length) return [];
     
     // Calculate best score to perform relative pruning
@@ -3233,11 +3039,11 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       seen.add(key);
       unique.push(state);
       
-      // Hard cap: dynamically scales down at deeper levels to prune sub-optimal branches early
-      const maxStates = depth < 3 ? 6 : (depth < 5 ? 3 : 2);
-      if (unique.length >= maxStates) break;
+      // Hard cap: 6 states per level for maximum performance
+      if (unique.length >= 6) break;
     }
     
+    return unique;
     return unique;
   }
 
@@ -3276,7 +3082,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     // we refine with compaction later anyway.
     const searchStep = Math.max(2.0, safeStep * 2);
     const crossRange = 8; // Reduce search range from 10 to 8
-    const gapRange = 12;  // Reduce gap range from 30 to 12
+    const gapRange = 30;  // Reduce gap range from 40 to 30
 
     let bestTemplate = null;
     for (const crossAnchor of crossAnchors) {
@@ -3436,7 +3242,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       origins.push({ x: originX, y: originY });
     };
 
-    const freeRects = this._buildPreparedSplitFreeRects(occupiedPlacements, workWidth, workHeight, 0);
+    const freeRects = providedFreeRects || this._buildPreparedSplitFreeRects(occupiedPlacements, workWidth, workHeight, 0);
     
     // Filter rects that can actually fit the template
     const compatibleRects = freeRects.filter(rect => 
@@ -3450,7 +3256,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       const ryMin = rect.y;
       const ryMax = rect.y + rect.height - template.height;
 
-      // Only check the 4 corners of the free rect range (2x speedup)
+      // Add corners of the valid range inside this free rect
       addOrigin(rxMin, ryMin);
       addOrigin(rxMax, ryMin);
       addOrigin(rxMin, ryMax);
@@ -3489,8 +3295,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     workHeight,
     step,
     maxOptions = 20,
-    providedSpatialIndex = null,
-    providedFreeRects = null
+    providedSpatialIndex = null
   ) {
     const freeRects = this._buildPreparedSplitFreeRects(occupiedPlacements, workWidth, workHeight, 0);
     const options = [];
@@ -3543,67 +3348,52 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     );
     if (!halfDefs.length || !baseCandidate?.placements?.length) return [];
 
-    const { orientVariants, pairTemplates, minWidth, minHeight, minHalfArea, minBbArea } = this._getSplitFillTemplates(sizeName, polygon, config, step);
-    if (!orientVariants.length) return [];
-
-    const baseFreeRects = this._buildPreparedSplitFreeRects(baseCandidate.placements, workWidth, workHeight, config.spacing || 0);
-
-    const usableFreeRects = baseFreeRects.filter(r =>
-      r.width + 1e-6 >= minWidth && r.height + 1e-6 >= minHeight
+    const minHalfArea = Math.max(
+      1,
+      Math.min(...halfDefs.map((halfDef) => halfDef.areaMm2 || Infinity))
     );
+    const usedAreaMm2 = baseCandidate.usedAreaMm2
+      ?? baseCandidate.placements.reduce((sum, placement) =>
+        sum + (placement.effectiveArea || placement.orient?.areaMm2 || 0),
+      0);
+    const remainingAreaMm2 = Math.max(0, workWidth * workHeight - usedAreaMm2);
+    const physicalSafetyLimit = Math.max(
+      1,
+      Math.ceil((remainingAreaMm2 / minHalfArea) * 1.2)
+    );
+    const maxExtraFillers = Number.isFinite(config.preparedSplitFillMaxPieces)
+      ? Math.max(1, config.preparedSplitFillMaxPieces)
+      : Math.min(8, physicalSafetyLimit);
 
-    // Sort descending by area to keep the largest regions
-    usableFreeRects.sort((a, b) => (b.width * b.height) - (a.width * a.height));
-
-    const disjointRects = [];
-    for (const rect of usableFreeRects) {
-      const hasOverlap = disjointRects.some(r => {
-        const ix = Math.max(r.x, rect.x);
-        const iy = Math.max(r.y, rect.y);
-        const iw = Math.min(r.x + r.width, rect.x + rect.width) - ix;
-        const ih = Math.min(r.y + r.height, rect.y + rect.height) - iy;
-        if (iw > 0 && ih > 0) {
-          const intersectArea = iw * ih;
-          const minArea = Math.min(r.width * r.height, rect.width * rect.height);
-          return intersectArea > 0.2 * minArea; // 20% overlap threshold
-        }
-        return false;
-      });
-      if (!hasOverlap) {
-        disjointRects.push(rect);
+    const orientVariants = [];
+    const fullPolygon = sourceShape?.polygon || polygon;
+    for (const angle of this._getSplitFillAngles(config)) {
+      orientVariants.push(this._decorateOrient(sizeName, 'X', fullPolygon, angle, config, step));
+      for (const halfDef of halfDefs) {
+        orientVariants.push(this._decorateSplitHalfOrient(sizeName, halfDef, angle, config, step));
       }
     }
 
-    const usableFreeArea = disjointRects.reduce((sum, r) => sum + r.width * r.height, 0);
-
-    const maxPossiblePieces = Math.floor(usableFreeArea / minBbArea);
-    console.log(`[DEBUG FIND SPLIT PLACEMENTS] Size: ${sizeName} | baseFreeRects: ${baseFreeRects.length} | minSize: ${minWidth.toFixed(2)}x${minHeight.toFixed(2)} | usableFreeRects: ${usableFreeRects.length} | usableFreeArea: ${usableFreeArea.toFixed(2)} | maxPossiblePieces: ${maxPossiblePieces}`);
-    if (maxPossiblePieces === 0) {
-      return [];
-    }
-
-    const maxExtraFillers = Number.isFinite(config.preparedSplitFillMaxPieces)
-      ? Math.max(1, config.preparedSplitFillMaxPieces)
-      : Math.min(8, maxPossiblePieces);
+    orientVariants.sort((left, right) =>
+      left.height - right.height
+      || left.width - right.width
+      || (left.angle || 0) - (right.angle || 0)
+    );
+    const pairTemplates = this._buildSplitPairTemplates(orientVariants, config, step);
 
     let states = [{
       occupiedPlacements: [...baseCandidate.placements],
       extraPlacements: [],
       spatialIndex: this._buildSpatialIndex([...baseCandidate.placements], workWidth, workHeight, config.spacing || 0),
-      freeRects: baseFreeRects,
       config
     }];
     let bestState = states[0];
 
     for (let depth = 0; depth < maxExtraFillers; depth++) {
-      console.log(`[Split Fill Debug] Size: ${sizeName} | Depth: ${depth} / ${maxExtraFillers} | States: ${states.length}`);
       const expandedStates = [];
       const statesToExpand = states;
       
-      let stateIndex = 0;
       for (const state of statesToExpand) {
-        stateIndex++;
-        console.log(`  -> Expanding State ${stateIndex} / ${statesToExpand.length} | occupiedPlacements: ${state.occupiedPlacements.length}`);
 
         // Optimization: If we have many pieces, switch to greedy mode for speed.
         // BFS with 120 depth is mathematically impossible within reasonable time.
@@ -3652,11 +3442,15 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
             workHeight,
             step,
             depth > 10 ? 5 : 15, // Adaptive limit for group options
-            state.spatialIndex,
-            state.freeRects
+            state.spatialIndex
           );
 
-          const filteredGroupOptions = groupOptions;
+          const filteredGroupOptions = groupOptions.filter(groupOption => {
+            return groupOption.placements.every(p => {
+              const pbb = p.orient?.bb || getBoundingBox(p.orient?.polygon || []);
+              return p.x + pbb.maxX <= workWidth;
+            });
+          });
 
           for (const groupOption of filteredGroupOptions) {
             const nextGroupPlacements = groupOption.placements.map((placement, index) => ({
@@ -3666,12 +3460,8 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
             
             // Build new spatial index for the next state (incremental)
             let nextSpatialIndex = state.spatialIndex;
-            let nextFreeRects = state.freeRects;
-            const tempPlacements = [...state.occupiedPlacements];
             for (const p of nextGroupPlacements) {
-                tempPlacements.push(p);
-                nextSpatialIndex = this._buildSpatialIndex(tempPlacements, workWidth, workHeight, config.spacing || 0, nextSpatialIndex);
-                nextFreeRects = this._subtractPlacementFromFreeRects(nextFreeRects, p, config.spacing || 0);
+                nextSpatialIndex = this._buildSpatialIndex([...state.occupiedPlacements, p], workWidth, workHeight, config.spacing || 0, nextSpatialIndex);
             }
 
             expandedStates.push({
@@ -3680,7 +3470,6 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
               workWidth,
               workHeight,
               spatialIndex: nextSpatialIndex,
-              freeRects: nextFreeRects,
               config
             });
             placedGroup = true;
@@ -3719,26 +3508,24 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
               step,
               partnerFilter,
               depth > 10 ? 20 : 50,
-              state.spatialIndex,
-              state.freeRects
+              state.spatialIndex
             );
           }
         }
 
         if (!forcePartnerSearch || options.length === 0) {
           const genericOptions = this._findNextSplitFillPlacementOptions(
-              sizeName,
-              orientVariants,
-              state.occupiedPlacements,
-              config,
-              workWidth,
-              workHeight,
-              step,
-              null,
-              depth > 10 ? 10 : 20,
-              state.spatialIndex,
-              state.freeRects
-            );
+            sizeName,
+            orientVariants,
+            state.occupiedPlacements,
+            config,
+            workWidth,
+            workHeight,
+            step,
+            null,
+            depth > 10 ? 10 : 20,
+            state.spatialIndex
+          );
 
           let mergedOptions = [...options];
           const seenOptions = new Set(mergedOptions.map((option) =>
@@ -3774,39 +3561,15 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         }
         fillLimit = Math.min(fillLimit, isSmall ? 10 : 6);
 
-        console.log(`   -> Options found: ${options.length} | fillLimit: ${fillLimit}`);
-        options = options.slice(0, fillLimit);
+        const filteredOptions = options.filter(option => {
+          const pbb = option.orient?.bb || getBoundingBox(option.orient?.polygon || []);
+          return option.x + pbb.maxX <= workWidth;
+        });
+        options = filteredOptions.slice(0, fillLimit);
 
-        console.log(`   -> Compacting top ${options.length} options...`);
         for (const option of options) {
-          const fineCompacted = this._compactSplitFillCandidatePlacement(
-            option,
-            option.orient,
-            state.occupiedPlacements,
-            config,
-            workWidth,
-            workHeight,
-            state.spatialIndex
-          );
-
-          // Correctness safety check: ensure the compacted placement does not overlap with existing pieces
-          if (!this._canPlaceSplitOrient(
-            state.occupiedPlacements,
-            option.orient,
-            fineCompacted.x,
-            fineCompacted.y,
-            config,
-            workWidth,
-            workHeight,
-            state.spatialIndex
-          )) {
-            continue;
-          }
-
           const nextPlacement = {
             ...option,
-            x: roundMetric(fineCompacted.x, 3),
-            y: roundMetric(fineCompacted.y, 3),
             id: `split_fill_${state.extraPlacements.length}`
           };
           
@@ -3818,7 +3581,6 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
             config.spacing || 0, 
             state.spatialIndex
           );
-          const nextFreeRects = this._subtractPlacementFromFreeRects(state.freeRects, nextPlacement, config.spacing || 0);
 
           expandedStates.push({
             occupiedPlacements: [...state.occupiedPlacements, nextPlacement],
@@ -3826,14 +3588,13 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
             workWidth,
             workHeight,
             spatialIndex: nextSpatialIndex,
-            freeRects: nextFreeRects,
             config
           });
         }
       }
 
       if (!expandedStates.length) break;
-      states = this._dedupeSplitFillStates(expandedStates, depth);
+      states = this._dedupeSplitFillStates(expandedStates);
       if (this._compareSplitFillStates(states[0], bestState) < 0) {
         bestState = states[0];
       }
@@ -3843,59 +3604,8 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     return extraPlacements;
   }
 
-  _getSplitFillTemplates(sizeName, polygon, config, step) {
-    if (!this._splitFillTemplatesCache) {
-      this._splitFillTemplatesCache = new Map();
-    }
-    const cacheKey = `${sizeName}_${step}`;
-    if (this._splitFillTemplatesCache.has(cacheKey)) {
-      return this._splitFillTemplatesCache.get(cacheKey);
-    }
-
-    const sourceShape = this._doubleContourSourceBySize?.get(sizeName);
-    const fullPolygon = sourceShape?.polygon || polygon;
-    const halfDefs = buildSplitHalfDefinitions(
-      fullPolygon,
-      sourceShape?.internals?.[0] || []
-    );
-    if (!halfDefs.length) {
-      const res = { orientVariants: [], pairTemplates: [], minWidth: Infinity, minHeight: Infinity, minHalfArea: Infinity, minBbArea: Infinity };
-      this._splitFillTemplatesCache.set(cacheKey, res);
-      return res;
-    }
-
-    const orientVariants = [];
-    for (const angle of this._getSplitFillAngles(config)) {
-      orientVariants.push(this._decorateOrient(sizeName, 'X', fullPolygon, angle, config, step));
-      for (const halfDef of halfDefs) {
-        orientVariants.push(this._decorateSplitHalfOrient(sizeName, halfDef, angle, config, step));
-      }
-    }
-
-    orientVariants.sort((left, right) =>
-      left.height - right.height
-      || left.width - right.width
-      || (left.angle || 0) - (right.angle || 0)
-    );
-
-    const minWidth = Math.min(...orientVariants.map(o => o.width));
-    const minHeight = Math.min(...orientVariants.map(o => o.height));
-    const minHalfArea = Math.min(...orientVariants.map(o => o.areaMm2 || o.area || Infinity));
-    const minBbArea = Math.min(...orientVariants.map(o => o.width * o.height));
-
-    const pairTemplates = this._buildSplitPairTemplates(orientVariants, config, step);
-    const res = { orientVariants, pairTemplates, minWidth, minHeight, minHalfArea, minBbArea };
-    this._splitFillTemplatesCache.set(cacheKey, res);
-    return res;
-  }
-
-  _augmentCandidateWithSplitFillers(sizeName, polygon, candidate, config, workWidth, workHeight, bestCandidate = null) {
+  _augmentCandidateWithSplitFillers(sizeName, polygon, candidate, config, workWidth, workHeight) {
     if (!config.preparedSplitFillEnabled) return candidate;
-
-    const step = Math.max(0.5, config.gridStep || 1);
-    const { orientVariants, pairTemplates, minWidth, minHeight, minHalfArea, minBbArea } = this._getSplitFillTemplates(sizeName, polygon, config, step);
-    console.log(`[DEBUG SPLIT TEMPLATE] Size: ${sizeName} | orientVariants.length: ${orientVariants.length} | placements.length: ${candidate?.placements?.length}`);
-    if (!orientVariants.length || !candidate?.placements?.length) return candidate;
 
     let maxX = 0;
     let maxY = 0;
@@ -3907,67 +3617,12 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
 
     const remainingX = Math.max(0, workWidth - maxX);
     const remainingY = Math.max(0, workHeight - maxY);
-
-    // Smart, size-agnostic early exit: check if there's enough free area under any potential shift
-    const baseFreeRects = this._buildPreparedSplitFreeRects(candidate.placements, workWidth, workHeight, config.spacing || 0);
-    const usableFreeRects = baseFreeRects.filter(r =>
-      r.width + remainingX + 1e-6 >= minWidth && r.height + remainingY + 1e-6 >= minHeight
-    );
-
-    // Sort descending by area
-    usableFreeRects.sort((a, b) => (b.width * b.height) - (a.width * a.height));
-
-    const disjointRects = [];
-    for (const rect of usableFreeRects) {
-      const hasOverlap = disjointRects.some(r => {
-        const ix = Math.max(r.x, rect.x);
-        const iy = Math.max(r.y, rect.y);
-        const iw = Math.min(r.x + r.width, rect.x + rect.width) - ix;
-        const ih = Math.min(r.y + r.height, rect.y + rect.height) - iy;
-        if (iw > 0 && ih > 0) {
-          const intersectArea = iw * ih;
-          const minArea = Math.min(r.width * r.height, rect.width * rect.height);
-          return intersectArea > 0.2 * minArea; // 20% overlap threshold
-        }
-        return false;
-      });
-      if (!hasOverlap) {
-        disjointRects.push(rect);
-      }
-    }
-
-    const usableFreeArea = disjointRects.reduce((sum, r) => sum + (r.width + remainingX) * (r.height + remainingY), 0);
-
-    const maxPossiblePieces = Math.floor(usableFreeArea / minBbArea);
-    console.log(`[DEBUG SPLIT EARLY EXIT] Size: ${sizeName} | work: ${workWidth}x${workHeight} | maxX: ${maxX.toFixed(2)} | maxY: ${maxY.toFixed(2)} | remainingX: ${remainingX.toFixed(2)} | remainingY: ${remainingY.toFixed(2)} | usableFreeArea: ${usableFreeArea.toFixed(2)} | minBbArea: ${minBbArea.toFixed(2)} | maxPossiblePieces: ${maxPossiblePieces}`);
-    if (maxPossiblePieces === 0) {
-      return attachLeftoverMetrics(candidate, workWidth, workHeight);
-    }
-
-    const maxExtraFillers = Number.isFinite(config.preparedSplitFillMaxPieces)
-      ? Math.max(1, config.preparedSplitFillMaxPieces)
-      : Math.min(8, maxPossiblePieces);
-
-    // Early exit based on potential max pairs vs bestCandidate pairs
-    if (bestCandidate) {
-      const bestPairs = bestCandidate.actualPairs ?? bestCandidate.pairs ?? 0;
-      const currentWholeCount = getWholePlacementCount(candidate);
-      const maxPotentialPairs = currentWholeCount + maxExtraFillers * 0.5;
-      if (maxPotentialPairs <= bestPairs) {
-        console.log(`[DEBUG SPLIT EARLY EXIT] maxPotentialPairs (${maxPotentialPairs}) <= bestPairs (${bestPairs})`);
-        return attachLeftoverMetrics(candidate, workWidth, workHeight);
-      }
-    }
-
     const pieceArea = polygonArea(polygon) || 1;
     const isCritical = true;
     
     // Geometric Pruning: Almost disabled for Size 6.0 to find every single potential filler
     const pruningFactor = isCritical ? 0.1 : 0.8;
-    const remainingBorderArea = remainingX * workHeight + remainingY * workWidth;
-    const requiredPruneArea = pieceArea * pruningFactor;
-    console.log(`[DEBUG SPLIT EARLY EXIT] remainingBorderArea: ${remainingBorderArea.toFixed(2)} | requiredPruneArea: ${requiredPruneArea.toFixed(2)}`);
-    if (remainingBorderArea < requiredPruneArea) {
+    if ((remainingX * workHeight + remainingY * workWidth) < pieceArea * pruningFactor) {
        return attachLeftoverMetrics(candidate, workWidth, workHeight);
     }
     
@@ -4002,32 +3657,6 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         ...candidate,
         placements: squeezedPlacements
       };
-
-      // Early Area-Based Pruning: check if there's enough free area to possibly beat the global bestCandidate
-      const referenceCandidate = bestCandidate || bestAugmentedCandidate;
-      const bestPairs = referenceCandidate ? (referenceCandidate.actualPairs ?? referenceCandidate.pairs ?? 0) : 0;
-      const currentWholeCount = getWholePlacementCount(testCandidate);
-      const neededExtraPairs = bestPairs - currentWholeCount;
-      if (neededExtraPairs > 0) {
-        const neededPieces = neededExtraPairs * 2;
-        if (neededPieces > maxExtraFillers) {
-          continue; // Cannot possibly reach the required pairs, skip
-        }
-        const totalFreeArea = workWidth * workHeight - (testCandidate.usedAreaMm2 ?? (testCandidate.placedCount * testCandidate.pieceArea));
-        if (totalFreeArea < neededPieces * minHalfArea * 0.75) {
-          continue; // Cannot possibly beat bestPairs, skip this variant
-        }
-
-        const baseFreeRects = this._buildPreparedSplitFreeRects(testCandidate.placements, workWidth, workHeight, config.spacing || 0);
-        const usableFreeArea = baseFreeRects
-          .filter(r => r.width + 1e-6 >= minWidth && r.height + 1e-6 >= minHeight)
-          .reduce((sum, r) => sum + r.width * r.height, 0);
-        
-        const maxPossiblePieces = Math.floor(usableFreeArea / minHalfArea) + 2; // Add safety margin to avoid aggressive pruning
-        if (maxPossiblePieces < neededPieces) {
-          continue; // Cannot possibly beat bestPairs, skip this variant
-        }
-      }
       
       const extraPlacements = this._findSplitFillPlacements(
         sizeName,
@@ -4061,7 +3690,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         config
       );
 
-      const finalized = augmentedCandidate ? this._finalizeCandidate(augmentedCandidate, config, workWidth, workHeight, false) : null;
+      const finalized = augmentedCandidate ? this._finalizeCandidate(augmentedCandidate, config, workWidth, workHeight) : null;
       if (finalized) {
         // With 500s budget: purely density-driven, no leftover guard
         const cmp = compareDoubleInsoleCandidates(finalized, bestAugmentedCandidate, config);
@@ -4071,7 +3700,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       }
     }
 
-    // Phase 2: Margin fill ÔÇö greedy place half-pieces in bottom/right margins
+    // Phase 2: Margin fill ├ö├ç├Â greedy place half-pieces in bottom/right margins
     bestAugmentedCandidate = this._fillMarginHalves(
       sizeName, polygon, bestAugmentedCandidate, config, workWidth, workHeight
     );
@@ -4120,7 +3749,6 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     }
     return null;
   }
-
 
 
 
@@ -4794,7 +4422,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         }
       }
 
-      // KEY IMPROVEMENT: When alternating orientations (pOrient Ôëá aOrient),
+      // KEY IMPROVEMENT: When alternating orientations (pOrient ├ö├½├í aOrient),
       // use _findAlignedBodyDx which computes the TIGHTER interlocking spacing
       // where the concave part of one piece fits into the convex part of the adjacent piece.
       // This typically yields 10-20% more pieces per row compared to uniform dx.
@@ -4933,7 +4561,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
          return bRank.utilization - aRank.utilization;
       }
 
-      // 3. Tertiary Priority: Alignment (Ngay h├áng thß║│ng lß╗æi)
+      // 3. Tertiary Priority: Alignment (Ngay hÔö£├íng th├ƒÔòæÔöéng l├ƒÔòù├ªi)
       const aAlign = (a.bodyDxMm % 5 < 0.1 || a.bodyDxMm % 5 > 4.9) ? 1 : 0;
       const bAlign = (b.bodyDxMm % 5 < 0.1 || b.bodyDxMm % 5 > 4.9) ? 1 : 0;
       return bAlign - aAlign;
@@ -5500,12 +5128,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
 
       // DIVERSITY-FIRST SELECTION: Take top 15 from each orientation to ensure we don't miss "gems" 
       // like the Horizontal pattern for Size 6 that allows fillers.
-      console.log(`[DEBUG POOL] Pool size: ${candidatePool.length}`);
-      candidatePool.forEach((c, idx) => {
-        console.log(`  Candidate ${idx + 1} | placedCount: ${c.placedCount} | bodyDyMm: ${c.bodyDyMm} | rowShiftXmm: ${c.rowShiftXmm} | bodyCols: ${c.bodyCols} | bodyRows: ${c.bodyRows} | alternateAngle: ${c.bodyAlternateAngle}`);
-      });
-
-      const sortedCandidates = [...candidatePool]
+      const topCandidates = [...candidatePool]
         .sort((left, right) => {
           const leftRank = this._rankCandidateForSplitFill(left, workWidth, workHeight);
           const rightRank = this._rankCandidateForSplitFill(right, workWidth, workHeight);
@@ -5513,46 +5136,18 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
             || rightRank.marginScore - leftRank.marginScore
             || rightRank.actualPairs - leftRank.actualPairs
             || compareDoubleInsoleCandidates(left, right, config);
-        });
-
-      const seenSignatures = new Map();
-      const filteredCandidates = [];
-      const maxCandidatesPerSig = 3;
-      for (const c of sortedCandidates) {
-        const primaryAngle = c.bodyPrimaryAngle ?? c.patternInfo?.bodyPrimaryAngle ?? 0;
-        const alternateAngle = c.bodyAlternateAngle ?? c.patternInfo?.bodyAlternateAngle ?? 0;
-        const patternMode = c.bodyPatternMode ?? c.patternInfo?.bodyPatternMode ?? '';
-        const placedCount = c.placedCount || 0;
-        const bodyDyMm = c.bodyDyMm ?? c.patternInfo?.bodyDyMm ?? 0;
-        const rowShiftXmm = c.rowShiftXmm ?? c.patternInfo?.rowShiftXmm ?? 0;
-        const sig = `${primaryAngle}_${alternateAngle}_${patternMode}_${placedCount}_${bodyDyMm.toFixed(1)}_${rowShiftXmm.toFixed(1)}`;
-        
-        const count = seenSignatures.get(sig) || 0;
-        if (count >= maxCandidatesPerSig) continue;
-        seenSignatures.set(sig, count + 1);
-        filteredCandidates.push(c);
-      }
-
-      const limit = fastMode ? (config.preparedSplitFillDeep ? 16 : 8) : 40;
-      const topCandidates = filteredCandidates.slice(0, limit);
+        })
+        .slice(0, fastMode ? 16 : 80);
       
       const splitCandidates = topCandidates.map(c => c.placed ? c : this._finalizeCandidate(c, config, workWidth, workHeight));
-      let candIdx = 0;
       for (const candidate of splitCandidates) {
-        candIdx++;
-        console.log(`[Split Candidate] Processing Candidate ${candIdx} / ${splitCandidates.length} | placements: ${candidate.placements.length}`);
         if (!candidate) continue;
         if (!candidate.placements?.length) continue;
 
         // Whole pieces are the base objective; split fillers may only improve equal-base layouts.
         const currentWholeCount = getWholePlacementCount(candidate);
-        const maxExtraFillers = Number.isFinite(config.preparedSplitFillMaxPieces)
-          ? Math.max(1, config.preparedSplitFillMaxPieces)
-          : 8;
-        const maxPotentialPairs = currentWholeCount + maxExtraFillers * 0.5;
-        const bestPairs = bestCandidate ? (bestCandidate.actualPairs ?? bestCandidate.pairs ?? 0) : 0;
-        console.log(`[DEBUG SPLIT FILL] Candidate ${candIdx} | currentWholeCount: ${currentWholeCount} | maxPotentialPairs: ${maxPotentialPairs} | bestPairs: ${bestPairs}`);
-        if (maxPotentialPairs <= bestPairs) continue;
+        const currentBestWholeCount = bestCandidate ? getWholePlacementCount(bestCandidate) : 0;
+        if (currentWholeCount < currentBestWholeCount) continue;
 
         const augmentedCandidate = this._augmentCandidateWithSplitFillers(
           sizeName,
@@ -5560,8 +5155,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
           candidate,
           config,
           workWidth,
-          workHeight,
-          bestCandidate
+          workHeight
         );
         if (augmentedCandidate && compareDoubleInsoleCandidates(augmentedCandidate, bestCandidate, config) < 0) {
           bestCandidate = augmentedCandidate;
@@ -5607,8 +5201,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         fallbackSameSideCandidate,
         config,
         workWidth,
-        workHeight,
-        bestCandidate
+        workHeight
       )
       : attachLeftoverMetrics(fallbackSameSideCandidate, workWidth, workHeight);
     if (
@@ -5714,26 +5307,26 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
   }
 
   _resolveOverlapPlacements(placements, spacing) {
-    let activePlacements = placements.map((p, idx) => ({ ...p, _tempIdx: idx }));
+    let activePlacements = placements.map(p => ({ ...p }));
     let hasChange = true;
     
     while (hasChange) {
       hasChange = false;
-      let overlapSplitTempIdx = null;
+      let overlapSplitId = null;
       
       for (let i = 0; i < activePlacements.length; i++) {
         const pA = activePlacements[i];
-        if (!this._isSplitFillPlacement(pA)) continue;
+        const isSplitA = !!(pA.isSplit || pA.id?.includes('split') || pA.id?.startsWith('margin_fill_'));
         
         for (let j = 0; j < activePlacements.length; j++) {
           if (i === j) continue;
           const pB = activePlacements[j];
           
-          if (pA.orient?.cycPolygon) {
+          if (isSplitA && pA.orient?.cycPolygon) {
             const bbA = pA.orient.bbCyc || getBoundingBox(pA.orient.cycPolygon);
             const bbB = pB.orient?.bb || getBoundingBox(pB.orient?.polygon);
             
-            const overlap = cachedPolygonsOverlap(
+            if (cachedPolygonsOverlap(
               pA.orient.cycPolygon,
               pB.orient.polygon,
               { x: pA.x, y: pA.y },
@@ -5741,24 +5334,22 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
               spacing,
               bbA,
               bbB
-            );
-            
-            if (overlap) {
-              overlapSplitTempIdx = pA._tempIdx;
+            )) {
+              overlapSplitId = pA.id;
               break;
             }
           }
         }
-        if (overlapSplitTempIdx !== null) break;
+        if (overlapSplitId) break;
       }
       
-      if (overlapSplitTempIdx !== null) {
-        activePlacements = activePlacements.filter(p => p._tempIdx !== overlapSplitTempIdx);
+      if (overlapSplitId) {
+        activePlacements = activePlacements.filter(p => p.id !== overlapSplitId);
         hasChange = true;
       }
     }
     
-    return activePlacements.map(({ _tempIdx, ...rest }) => rest);
+    return activePlacements;
   }
 
   _finalizeCandidate(candidate, config, workWidth, workHeight, fastOnly = true, validate = true) {
@@ -5857,32 +5448,6 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     };
   }
 
-  _toLightweightCandidate(candidate) {
-    if (!candidate) return null;
-    return {
-      actualPairs: candidate.actualPairs,
-      maxPairsPlaced: candidate.maxPairsPlaced,
-      placedCount: candidate.placedCount,
-      pieceArea: candidate.pieceArea,
-      selectedFoot: candidate.selectedFoot,
-      foot: candidate.foot,
-      patternInfo: candidate.patternInfo,
-      placements: candidate.placements?.map(p => ({
-        id: p.id,
-        x: p.x,
-        y: p.y,
-        isSplit: p.isSplit,
-        foot: p.foot || p.orient?.foot,
-        orient: {
-          foot: p.orient?.foot || p.foot,
-          angle: p.orient?.angle ?? p.angle,
-          isAlternate: p.orient?.isAlternate ?? false,
-          isSplit: p.orient?.isSplit || p.isSplit || false
-        }
-      }))
-    };
-  }
-
   _buildSheetFromCandidate(sizeName, candidate, config, totalArea) {
     const materialized = this._materializePlacedItems(sizeName, candidate.placements, config);
     const totalPieces = materialized.placed.reduce((sum, item) => sum + (item.pieceCount || 0), 0);
@@ -5899,7 +5464,6 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       placedCount: totalPieces,
       actualPairs: candidate.actualPairs,
       maxPairsPlaced: candidate.maxPairsPlaced ?? Math.floor(totalPieces / 2),
-      candidate: this._toLightweightCandidate(candidate),
       leftoverAreaMm2: candidate.leftoverAreaMm2 ?? 0,
       openSheetAreaMm2: candidate.openSheetAreaMm2 ?? 0,
       remainingSheetAreaMm2: candidate.remainingSheetAreaMm2 ?? 0,
@@ -6024,11 +5588,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       sheetsBySize[correctedSummaryItem.sizeName] = sheet;
     }
 
-    const totalArea = config.sheetWidth * config.sheetHeight;
-    const workWidth = config.sheetWidth - 2 * (config.marginX || 0);
-    const workHeight = config.sheetHeight - 2 * (config.marginY || 0);
-    this._enforceSizeMonotonicity(sizeList, sheetsBySize, summary, config, workWidth, workHeight, totalArea);
-
+    // enforceMonotonicity(summary, sheetsBySize);
     const defaultSizeName = sizeList[0]?.sizeName || null;
     const defaultSheet = defaultSizeName ? sheetsBySize[defaultSizeName] : null;
 
@@ -6072,7 +5632,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         ?? (overrideConfig.isParallelWorker || sizeList.length > 1 ? 30000 : 45000),
       preparedSplitFillCandidateLimit: overrideConfig.preparedSplitFillCandidateLimit
         ?? this.config.preparedSplitFillCandidateLimit
-        ?? 64,
+        ?? 24,
       preparedSplitFillPreference: overrideConfig.preparedSplitFillPreference
         ?? this.config.preparedSplitFillPreference
         ?? 'none'
@@ -6161,123 +5721,6 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     };
   }
 
-  _projectLayout(largerCandidate, targetSizeName, targetPolygon, targetInternals, config, workWidth, workHeight) {
-    if (!largerCandidate || !largerCandidate.placements?.length) return null;
-
-    const step = Math.max(0.5, config.gridStep || 1);
-    let halfDefs = null;
-    const getHalfDefs = () => {
-      if (halfDefs) return halfDefs;
-      halfDefs = buildSplitHalfDefinitions(targetPolygon, targetInternals || []);
-      return halfDefs;
-    };
-
-    const targetOrients = new Map();
-    const getDecorated = (orient) => {
-      const isSplit = orient.foot?.startsWith('split-') || orient.isSplit;
-      const angle = orient.angle;
-      const key = `${orient.foot}_${angle}_${orient.isAlternate ? 'alt' : 'main'}`;
-      if (targetOrients.has(key)) return targetOrients.get(key);
-
-      let targetOrient;
-      if (isSplit) {
-        const defs = getHalfDefs();
-        const def = defs.find(d => d.foot === orient.foot || d.key === orient.foot) || defs[0];
-        targetOrient = this._decorateSplitHalfOrient(targetSizeName, def, angle, config, step);
-      } else {
-        targetOrient = {
-          ...this._decorateOrient(targetSizeName, 'X', targetPolygon, angle, config, step),
-          isAlternate: orient.isAlternate
-        };
-      }
-      targetOrients.set(key, targetOrient);
-      return targetOrient;
-    };
-
-    try {
-      const projectedPlacements = largerCandidate.placements.map(p => {
-        const targetOrient = getDecorated(p.orient);
-        return {
-          ...p,
-          orient: targetOrient,
-          effectiveArea: targetOrient.areaMm2
-        };
-      });
-
-      const pieceArea = polygonArea(targetPolygon) || 1;
-      const newCandidate = this._buildCandidate(
-        targetSizeName,
-        largerCandidate.selectedFoot ?? largerCandidate.foot ?? 'L',
-        pieceArea,
-        projectedPlacements,
-        {
-          ...(largerCandidate.patternInfo || {}),
-        },
-        workWidth,
-        workHeight,
-        config
-      );
-
-      if (!newCandidate) return null;
-      const finalized = this._finalizeCandidate(newCandidate, config, workWidth, workHeight, false, true);
-      return finalized;
-    } catch (e) {
-      console.error(`[Monotonicity] Error projecting layout to size ${targetSizeName}:`, e);
-      return null;
-    }
-  }
-
-  _enforceSizeMonotonicity(sizeList, sheetsBySize, summary, config, workWidth, workHeight, totalArea) {
-    const sortedSizesDesc = [...sizeList].sort((a, b) => parseFloat(b.sizeName) - parseFloat(a.sizeName));
-
-    for (let i = 1; i < sortedSizesDesc.length; i++) {
-      const currentSize = sortedSizesDesc[i];
-      const currentResult = sheetsBySize[currentSize.sizeName];
-      const currentPairs = currentResult ? (currentResult.actualPairs || currentResult.pairs || 0) : 0;
-
-      for (let j = 0; j < i; j++) {
-        const largerSize = sortedSizesDesc[j];
-        const largerResult = sheetsBySize[largerSize.sizeName];
-        const largerPairs = largerResult ? (largerResult.actualPairs || largerResult.pairs || 0) : 0;
-
-        if (largerPairs > currentPairs) {
-          const largerCandidate = largerResult?.candidate;
-          if (largerCandidate) {
-            const targetPolygon = currentSize.polygon;
-            const targetInternals = Array.isArray(currentSize.internals) ? currentSize.internals : [];
-            const projectedCandidate = this._projectLayout(
-              largerCandidate,
-              currentSize.sizeName,
-              targetPolygon,
-              targetInternals,
-              config,
-              workWidth,
-              workHeight
-            );
-
-            if (projectedCandidate && (projectedCandidate.actualPairs || 0) > currentPairs) {
-              console.log(`[Monotonicity] Upgraded Size ${currentSize.sizeName} từ ${currentPairs} lên ${projectedCandidate.actualPairs} đôi sử dụng sơ đồ của Size ${largerSize.sizeName}`);
-              
-              const sheet = this._buildSheetFromCandidate(currentSize.sizeName, projectedCandidate, config, totalArea);
-              sheetsBySize[currentSize.sizeName] = sheet;
-
-              const sumIndex = summary.findIndex(s => s.sizeName === currentSize.sizeName);
-              if (sumIndex !== -1) {
-                summary[sumIndex] = {
-                  sizeName: currentSize.sizeName,
-                  totalPieces: sheet.placedCount,
-                  pairs: sheet.actualPairs,
-                  placedCount: sheet.placedCount,
-                  efficiency: sheet.efficiency
-                };
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-
   async testCapacity(sizeList, overrideConfig = {}, onProgress) {
     const explicitDeepSplitFill = overrideConfig.preparedSplitFillDeep ?? this.config.preparedSplitFillDeep;
 
@@ -6305,27 +5748,25 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
     for (const size of normalizedSizeList) {
       if (onProgress) onProgress(size.sizeName, 'started');
 
-      let sheetFast = null;
-      let summaryItemFast = null;
-      let needDeep = explicitDeepSplitFill === true;
+      // Run Pass 1: Fast Search
+      const configFast = this._buildConfigForCapacity([size], overrideConfig, false);
+      const resultFast = await this._executeCapacitySearch([size], configFast);
+      
+      const sheetFast = resultFast.sheetsBySize[size.sizeName];
+      const summaryItemFast = resultFast.summary[0];
 
-      if (!needDeep) {
-        // Run Pass 1: Fast Search
-        const configFast = this._buildConfigForCapacity([size], overrideConfig, false);
-        const resultFast = await this._executeCapacitySearch([size], configFast);
-        
-        sheetFast = resultFast.sheetsBySize[size.sizeName];
-        summaryItemFast = resultFast.summary[0];
-
-        // Check if we need deep search for this size:
-        // - Otherwise (explicitDeepSplitFill is null/undefined), we do deep search if:
-        //   - The yield is fractional (pairs % 1 !== 0)
-        //   - OR the layout used any split pieces
-        const hasSplits = sheetFast && sheetFast.placed && sheetFast.placed.some(p => 
-          p.isSplit || p.id?.includes('split') || p.id?.startsWith('margin_fill_')
-        );
-        needDeep = explicitDeepSplitFill == null && (summaryItemFast.pairs % 1 !== 0 || hasSplits);
-      }
+      // Check if we need deep search for this size:
+      // - If explicitDeepSplitFill is true, we always do deep search.
+      // - If explicitDeepSplitFill is false, we never do deep search.
+      // - Otherwise (explicitDeepSplitFill is null/undefined), we do deep search if:
+      //   - The yield is fractional (pairs % 1 !== 0)
+      //   - OR the layout used any split pieces
+      const hasSplits = sheetFast && sheetFast.placed && sheetFast.placed.some(p => 
+        p.isSplit || p.id?.includes('split') || p.id?.startsWith('margin_fill_')
+      );
+      const needDeep = explicitDeepSplitFill === true || (
+        explicitDeepSplitFill == null && (summaryItemFast.pairs % 1 !== 0 || hasSplits)
+      );
 
       if (needDeep) {
         console.log(`[Smart Capacity] Size ${size.sizeName} uses split pieces or has fractional yield. Running Pass 2 (Deep Search)...`);
@@ -6336,7 +5777,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
         const summaryItemDeep = resultDeep.summary[0];
 
         // Keep the best result between Fast and Deep search (based on pairs)
-        if (sheetDeep && (!sheetFast || summaryItemDeep.pairs > (summaryItemFast?.pairs ?? -1))) {
+        if (sheetDeep && (!sheetFast || summaryItemDeep.pairs > summaryItemFast.pairs)) {
           sheetsBySize[size.sizeName] = sheetDeep;
           summary.push(summaryItemDeep);
         } else {
@@ -6350,12 +5791,6 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
 
       if (onProgress) onProgress(size.sizeName, 'done');
     }
-
-    const config = this._buildConfigForCapacity(normalizedSizeList, overrideConfig, explicitDeepSplitFill);
-    const totalArea = config.sheetWidth * config.sheetHeight;
-    const workWidth = config.sheetWidth - 2 * (config.marginX || 0);
-    const workHeight = config.sheetHeight - 2 * (config.marginY || 0);
-    this._enforceSizeMonotonicity(normalizedSizeList, sheetsBySize, summary, config, workWidth, workHeight, totalArea);
 
     const defaultSizeName = normalizedSizeList[0]?.sizeName || null;
     const defaultSheet = defaultSizeName ? sheetsBySize[defaultSizeName] : null;

@@ -27,7 +27,7 @@ async function run() {
     preparedSplitFillDeep: true,
     capacityLayoutMode: 'same-side-double-contour',
     allowRotate180: true,
-    parallelSizes: false
+    parallelSizes: true
   };
 
   const engine = new CapacityTestDoubleInsoleDoubleContourPattern(config);
@@ -39,8 +39,8 @@ async function run() {
 
   console.log(`Checking physical overlaps for ALL ${sizes.length} sizes...`);
 
-  // Run capacity test for all sizes sequentially to bypass cache inconsistencies
-  const res = await engine.testCapacity(sizes, { ...config, parallelSizes: false });
+  // Run capacity test for all sizes in parallel
+  const res = await engine.testCapacity(sizes, { ...config, parallelSizes: true });
 
   for (const sizeInfo of sizes) {
     const sizeName = sizeInfo.sizeName;
