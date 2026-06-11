@@ -154,7 +154,7 @@ function buildLocalValidationCacheKey(rebasedPlacements, workWidth, workHeight, 
 export function cachedPolygonsOverlap(polyA, polyB, offsetA = { x: 0, y: 0 }, offsetB = { x: 0, y: 0 }, spacing = 0, bbA = null, bbB = null) {
   const pad = Math.max(0, spacing || 0);
   
-  // Early exit using bounding boxes if provided or computable
+  // 1. Fast early exit using bounding boxes (extremely cheap, no key construction)
   const boxA = bbA || getOrientBounds({ polygon: polyA });
   const boxB = bbB || getOrientBounds({ polygon: polyB });
   
@@ -167,17 +167,7 @@ export function cachedPolygonsOverlap(polyA, polyB, offsetA = { x: 0, y: 0 }, of
     return false;
   }
 
-  // Multi-resolution check: Fast early exit using low-resolution simplified polygons
-  const lowResA = polyA.polygonLowRes;
-  const lowResB = polyB.polygonLowRes;
-  if (lowResA && lowResB) {
-    const padLow = pad + 1.6; // spacing + 2 * (low-res tolerance 0.8)
-    const isOverlapLow = rawPolygonsOverlap(lowResA, lowResB, offsetA, offsetB, padLow, boxA, boxB);
-    if (!isOverlapLow) {
-      return false; // Guaranteed no overlap
-    }
-  }
-
+  // 2. Build flat cache key and check Cache
   const idA = getObjectId(polyA);
   const idB = getObjectId(polyB);
   const dx = formatCacheMetric((offsetB?.x ?? 0) - (offsetA?.x ?? 0));
@@ -195,58 +185,37 @@ export function cachedPolygonsOverlap(polyA, polyB, offsetA = { x: 0, y: 0 }, of
     finalDy = -dy;
   }
 
-  // Lookup in nested Map
-  const map2 = overlapCache.get(firstId);
-  if (map2) {
-    const map3 = map2.get(secondId);
-    if (map3) {
-      const map4 = map3.get(s);
-      if (map4) {
-        const map5 = map4.get(finalDx);
-        if (map5) {
-          const cachedVal = map5.get(finalDy);
-          if (cachedVal !== undefined) {
-            return cachedVal;
-          }
-        }
+  const key = firstId + '|' + secondId + '|' + finalDx + '|' + finalDy + '|' + s;
+
+  const cachedVal = overlapCache.get(key);
+  if (cachedVal !== undefined) {
+    return cachedVal;
+  }
+
+  // 3. Multi-resolution check: Fast early exit using low-resolution simplified polygons
+  const lowResA = polyA.polygonLowRes;
+  const lowResB = polyB.polygonLowRes;
+  if (lowResA && lowResB) {
+    const padLow = pad + 1.6; // spacing + 2 * (low-res tolerance 0.8)
+    const isOverlapLow = rawPolygonsOverlap(lowResA, lowResB, offsetA, offsetB, padLow, boxA, boxB);
+    if (!isOverlapLow) {
+      const dynamicMax = getDynamicMaxEntries(DEFAULT_MAX_OVERLAP_CACHE_ENTRIES, 'MAX_OVERLAP_CACHE_ENTRIES');
+      if (overlapCache.size >= dynamicMax) {
+        overlapCache.clear();
       }
+      overlapCache.set(key, false);
+      return false; // Guaranteed no overlap
     }
   }
 
+  // 4. Raw overlap check (expensive, runs SAT)
   const result = rawPolygonsOverlap(polyA, polyB, offsetA, offsetB, spacing, boxA, boxB);
   
-  // Store in nested Map
   const dynamicMax = getDynamicMaxEntries(DEFAULT_MAX_OVERLAP_CACHE_ENTRIES, 'MAX_OVERLAP_CACHE_ENTRIES');
-  if (overlapCacheSize >= dynamicMax) {
+  if (overlapCache.size >= dynamicMax) {
     overlapCache.clear();
-    overlapCacheSize = 0;
   }
-
-  let map2Write = overlapCache.get(firstId);
-  if (!map2Write) {
-    map2Write = new Map();
-    overlapCache.set(firstId, map2Write);
-  }
-  let map3Write = map2Write.get(secondId);
-  if (!map3Write) {
-    map3Write = new Map();
-    map2Write.set(secondId, map3Write);
-  }
-  let map4Write = map3Write.get(s);
-  if (!map4Write) {
-    map4Write = new Map();
-    map3Write.set(s, map4Write);
-  }
-  let map5Write = map4Write.get(finalDx);
-  if (!map5Write) {
-    map5Write = new Map();
-    map4Write.set(finalDx, map5Write);
-  }
-  
-  if (!map5Write.has(finalDy)) {
-    map5Write.set(finalDy, result);
-    overlapCacheSize++;
-  }
+  overlapCache.set(key, result);
 
   return result;
 }

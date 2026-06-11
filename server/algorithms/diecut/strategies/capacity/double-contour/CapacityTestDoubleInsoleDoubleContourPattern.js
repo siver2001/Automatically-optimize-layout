@@ -3234,7 +3234,7 @@ export class CapacityTestDoubleInsoleDoubleContourPattern extends CapacityTestPr
       unique.push(state);
       
       // Hard cap: dynamically scales down at deeper levels to prune sub-optimal branches early
-      const maxStates = depth < 3 ? 6 : (depth < 5 ? 3 : 2);
+      const maxStates = depth < 2 ? 3 : (depth < 4 ? 2 : 1);
       if (unique.length >= maxStates) break;
     }
     
